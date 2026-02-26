@@ -1,0 +1,29 @@
+{
+  "expo": {
+    "name": "FinApp",
+    "slug": "finapp-zero-newdb",
+    "scheme": "finapp",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      "@react-native-community/datetimepicker"
+    ],
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#070a12"
+    },
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "softwareKeyboardLayoutMode": "resize",
+      "adaptiveIcon": {
+        "backgroundColor": "#070a12"
+      }
+    },
+    "extra": {}
+  }
+}
