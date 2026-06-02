@@ -109,6 +109,7 @@ function TabsShell() {
         <Tabs.Screen name="profile" options={{ href: null }} />
         <Tabs.Screen name="categories" options={{ href: null }} />
         <Tabs.Screen name="import-extract" options={{ href: null }} />
+        <Tabs.Screen name="import-csv" options={{ href: null }} />
       </Tabs>
 
       <DrawerHost />

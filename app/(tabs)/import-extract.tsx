@@ -1,6 +1,7 @@
 // app/(tabs)/import-extract.tsx
 import React from "react";
 import { Alert, Pressable, Text, View } from "react-native";
+import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import Screen from "../../src/ui/Screen";
 import { AppHeader, Card, Row } from "../../src/ui/components";
@@ -13,6 +14,7 @@ type FileFormat = {
   iconColor: string;
   iconBg: string;
   recommended?: boolean;
+  route?: "/(tabs)/import-csv";
 };
 
 const formats: FileFormat[] = [
@@ -23,6 +25,7 @@ const formats: FileFormat[] = [
     iconColor: theme.colors.primary,
     iconBg: theme.colors.primarySoft,
     recommended: true,
+    route: "/(tabs)/import-csv",
   },
   {
     title: "Excel (.xlsx)",
@@ -43,6 +46,11 @@ const formats: FileFormat[] = [
 
 function FormatCard({ format }: { format: FileFormat }) {
   function onPress() {
+    if (format.route) {
+      router.push(format.route);
+      return;
+    }
+
     Alert.alert("Importar extrato", `Selecao de arquivo ${format.title} sera conectada na proxima etapa.`);
   }
 
@@ -93,7 +101,7 @@ function FormatCard({ format }: { format: FileFormat }) {
             </Text>
           </View>
 
-          <Ionicons name="share-outline" size={18} color={theme.colors.muted2} />
+          <Ionicons name="chevron-forward" size={18} color={theme.colors.muted2} />
         </Row>
       </Card>
     </Pressable>
