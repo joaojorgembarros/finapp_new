@@ -1,5 +1,6 @@
 // src/lib/household.ts
 import { supabase } from "./supabase";
+import { seedDefaultCategories } from "./categories";
 
 export type PlanType = "individual" | "couple";
 
@@ -28,7 +29,7 @@ export async function createHousehold(opts: {
   if (hhErr) throw hhErr;
   const householdId = hh.id as string;
 
-  // 2) cria membership (ANTES do seed)
+  // 2) cria membership
   const { error: memErr } = await supabase.from("memberships").insert({
     household_id: householdId,
     user_id: uid,
@@ -36,6 +37,8 @@ export async function createHousehold(opts: {
   });
 
   if (memErr) throw memErr;
+
+  await seedDefaultCategories(householdId);
 
   return householdId;
 }

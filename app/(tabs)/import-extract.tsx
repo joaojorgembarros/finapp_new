@@ -20,7 +20,7 @@ type FileFormat = {
 const formats: FileFormat[] = [
   {
     title: "CSV",
-    subtitle: "Ideal para importacao rapida e estruturada",
+    subtitle: "Ideal para importação rápida e estruturada",
     icon: "grid-outline",
     iconColor: theme.colors.primary,
     iconBg: theme.colors.primarySoft,
@@ -29,15 +29,14 @@ const formats: FileFormat[] = [
   },
   {
     title: "Excel (.xlsx)",
-    subtitle: "Importe planilhas bancarias em formato Excel",
+    subtitle: "Importe planilhas bancárias em formato Excel",
     icon: "document-text-outline",
     iconColor: theme.colors.good,
     iconBg: theme.colors.goodSoft,
-    recommended: true,
   },
   {
     title: "PDF",
-    subtitle: "Leitura disponivel, mas pode exigir mais revisao",
+    subtitle: "Leitura disponível, mas pode exigir mais revisão",
     icon: "document-outline",
     iconColor: theme.colors.muted,
     iconBg: "#f1f5f9",
@@ -51,7 +50,7 @@ function FormatCard({ format }: { format: FileFormat }) {
       return;
     }
 
-    Alert.alert("Importar extrato", `Selecao de arquivo ${format.title} sera conectada na proxima etapa.`);
+    Alert.alert("Em breve", `Importação por ${format.title} será conectada depois do MVP.`);
   }
 
   return (
@@ -150,7 +149,7 @@ function InfoCard({
 export default function ImportExtract() {
   return (
     <Screen>
-      <AppHeader title="Importar Extrato" subtitle="Importe movimentacoes do banco e revise antes de salvar" />
+      <AppHeader title="Importar extrato" subtitle="Importe movimentações do banco e revise antes de salvar" />
 
       <View style={{ gap: 12 }}>
         <Text style={{ color: theme.colors.text, fontWeight: "900", fontSize: 14 }}>
@@ -165,15 +164,15 @@ export default function ImportExtract() {
       <View style={{ gap: 12, marginTop: 2 }}>
         <InfoCard
           icon="checkmark-circle-outline"
-          title="Formatos Recomendados"
-          text="CSV e Excel garantem melhor precisao na leitura dos dados. Voce podera revisar todas as transacoes antes de importar."
+          title="Formato recomendado"
+          text="CSV garante melhor precisão na leitura dos dados. Você poderá revisar todas as transações antes de importar."
           tone="primary"
         />
 
         <InfoCard
           icon="alert-circle-outline"
-          title="Atencao com PDF"
-          text="Arquivos PDF podem exigir mais revisao manual devido as variacoes de formato entre bancos."
+          title="Atenção com PDF"
+          text="Arquivos PDF podem exigir mais revisão manual devido às variações de formato entre bancos."
           tone="warn"
         />
       </View>

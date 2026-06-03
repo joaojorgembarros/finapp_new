@@ -1,4 +1,3 @@
-// src/lib/categories.ts
 import { supabase } from "./supabase";
 
 export type Flow = "income" | "expense";
@@ -53,31 +52,56 @@ export async function createCategory(params: {
   return data as Category;
 }
 
+export async function createCategoryIfMissing(params: {
+  householdId: string;
+  flow: Flow;
+  kind: Kind;
+  name: string;
+  icon?: string | null;
+  sort?: number;
+}) {
+  const cleanName = params.name.trim();
+  if (!cleanName) return null;
+
+  const { data: exists, error: existsError } = await supabase
+    .from("categories")
+    .select("id,household_id,flow,kind,name,icon,sort")
+    .eq("household_id", params.householdId)
+    .eq("flow", params.flow)
+    .ilike("name", cleanName)
+    .limit(1);
+
+  if (existsError) throw existsError;
+  if (exists && exists.length) return exists[0] as Category;
+
+  return createCategory({ ...params, name: cleanName });
+}
+
 export async function seedDefaultCategories(householdId: string) {
   const { data: exists } = await supabase.from("categories").select("id").eq("household_id", householdId).limit(1);
   if (exists && exists.length) return;
 
   const defaults: Array<Omit<Category, "id" | "household_id">> = [
-    // INCOME
     { flow: "income", kind: "fixed", name: "Salário", icon: "cash-outline", sort: 10 },
-    { flow: "income", kind: "variable", name: "Extra (Uber, bico)", icon: "rocket-outline", sort: 20 },
+    { flow: "income", kind: "variable", name: "Renda extra", icon: "rocket-outline", sort: 20 },
     { flow: "income", kind: "variable", name: "Pix recebido", icon: "swap-horizontal-outline", sort: 30 },
-    { flow: "income", kind: "variable", name: "PLR / Bônus", icon: "gift-outline", sort: 40 },
+    { flow: "income", kind: "variable", name: "Bônus", icon: "gift-outline", sort: 40 },
 
-    // EXPENSE (fixed)
     { flow: "expense", kind: "fixed", name: "Aluguel / Financiamento", icon: "home-outline", sort: 110 },
     { flow: "expense", kind: "fixed", name: "Internet / Celular", icon: "wifi-outline", sort: 120 },
     { flow: "expense", kind: "fixed", name: "Energia / Água", icon: "flash-outline", sort: 130 },
     { flow: "expense", kind: "fixed", name: "Assinaturas", icon: "tv-outline", sort: 140 },
 
-    // EXPENSE (variable)
     { flow: "expense", kind: "variable", name: "Alimentação", icon: "restaurant-outline", sort: 210 },
     { flow: "expense", kind: "variable", name: "Transporte", icon: "car-outline", sort: 220 },
     { flow: "expense", kind: "variable", name: "Saúde", icon: "medkit-outline", sort: 230 },
     { flow: "expense", kind: "variable", name: "Lazer", icon: "game-controller-outline", sort: 240 },
     { flow: "expense", kind: "variable", name: "Compras", icon: "cart-outline", sort: 250 },
+    { flow: "expense", kind: "variable", name: "Educação", icon: "school-outline", sort: 260 },
+    { flow: "expense", kind: "variable", name: "Cuidados pessoais", icon: "sparkles-outline", sort: 270 },
   ];
 
   const payload = defaults.map((c) => ({ ...c, household_id: householdId }));
-  await supabase.from("categories").insert(payload);
+  const { error } = await supabase.from("categories").insert(payload);
+  if (error) throw error;
 }

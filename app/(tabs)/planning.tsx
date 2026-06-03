@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
 import Screen from "../../src/ui/Screen";
 import { AppHeader, Button, Card, Input, Label, P, Row, SoftIcon } from "../../src/ui/components";
 import { theme } from "../../src/ui/theme";
@@ -91,7 +92,7 @@ export default function Planning() {
       setTxs(transactions.filter((t) => t.type === "expense"));
       setBudgets(map);
     } catch (e: any) {
-      Alert.alert("Erro", e?.message ?? "Falha ao carregar orcamento.");
+      Alert.alert("Erro", e?.message ?? "Falha ao carregar orçamento.");
     } finally {
       setBusy(false);
     }
@@ -149,7 +150,7 @@ export default function Planning() {
 
   return (
     <Screen>
-      <AppHeader title="Orcamento" subtitle="Limites por categoria" />
+      <AppHeader title="Orçamento" subtitle="Limites por categoria" />
 
       <View style={monthControl}>
         <Pressable onPress={() => setMonthDate((d) => startOfMonth(addMonths(d, -1)))} style={monthButton}>
@@ -176,7 +177,13 @@ export default function Planning() {
           </View>
         </Row>
 
-        <Button title="Escolher categoria" onPress={() => setPickerOpen(true)} />
+        <Button
+          title={categories.length ? "Escolher categoria" : "Criar categoria"}
+          onPress={() => {
+            if (categories.length) setPickerOpen(true);
+            else router.push("/(tabs)/categories");
+          }}
+        />
 
         {busy ? (
           <Row style={{ gap: 10, paddingVertical: 8 }}>
@@ -184,7 +191,11 @@ export default function Planning() {
             <P muted>Carregando...</P>
           </Row>
         ) : !categories.some((cat) => (budgets[cat.id] ?? 0) > 0) ? (
+          !categories.length ? (
+            <P muted>Crie primeiro as categorias de despesa que você usa. Depois volte aqui para definir o limite mensal de cada uma.</P>
+          ) : (
           <P muted>Nenhum limite definido ainda.</P>
+          )
         ) : (
           categories.filter((cat) => (budgets[cat.id] ?? 0) > 0).map((cat, idx) => {
             const spent = spentByCategory[cat.id] ?? 0;
@@ -259,7 +270,16 @@ export default function Planning() {
                 <P muted>Carregando...</P>
               </Row>
             ) : !categories.length ? (
-              <P muted>Nenhuma categoria de despesa cadastrada.</P>
+              <>
+                <P muted>Nenhuma categoria de despesa cadastrada.</P>
+                <Button
+                  title="Criar categoria"
+                  onPress={() => {
+                    setPickerOpen(false);
+                    router.push("/(tabs)/categories");
+                  }}
+                />
+              </>
             ) : (
               <ScrollView showsVerticalScrollIndicator={false}>
                 {categories.map((cat, idx) => {
@@ -309,14 +329,14 @@ export default function Planning() {
             </Text>
             <P muted>Defina o limite dessa categoria para {monthLabel}.</P>
 
-            <Label>Limite do mes (R$)</Label>
+            <Label>Limite do mês (R$)</Label>
             <Input
               value={budgetValue}
               onChangeText={(t) => setBudgetValue(formatBRLInputFromDigits(t))}
               placeholder="R$ 0,00"
               keyboardType="numeric"
             />
-            <P muted>Previa: {formatBRLFromCents(parseBRLToCents(budgetValue))}</P>
+            <P muted>Prévia: {formatBRLFromCents(parseBRLToCents(budgetValue))}</P>
 
             <Row style={{ gap: 10 }}>
               <View style={{ flex: 1 }}>

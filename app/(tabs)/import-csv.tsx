@@ -1,5 +1,5 @@
 // app/(tabs)/import-csv.tsx
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
@@ -12,6 +12,7 @@ import { useHouseholdId } from "../../src/hooks/useHousehold";
 import { addTransaction, TxType } from "../../src/lib/transactions";
 import { formatBRLFromCents, formatDateBRFromYMD, parseBRLToCents } from "../../src/lib/format";
 import { emitTxChanged } from "../../src/lib/bus";
+import { Category, listCategories } from "../../src/lib/categories";
 
 type ParsedTx = {
   key: string;
@@ -20,6 +21,11 @@ type ParsedTx = {
   amount_cents: number;
   type: TxType;
   rawLine: number;
+};
+
+type CategorizedTx = ParsedTx & {
+  category_id: string | null;
+  categoryName: string | null;
 };
 
 type ParseResult = {
@@ -66,6 +72,64 @@ function normalizeHeader(value: string) {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9]/g, "");
+}
+
+const categoryKeywordMap: Record<string, string[]> = {
+  alimentacao: [
+    "acougue",
+    "alimentacao",
+    "bar",
+    "cafeteria",
+    "delivery",
+    "hortifruti",
+    "ifood",
+    "lanchonete",
+    "mercado",
+    "padaria",
+    "restaurante",
+    "supermercado",
+  ],
+  transporte: ["99", "cabify", "combustivel", "estacionamento", "gasolina", "metro", "onibus", "posto", "taxi", "uber"],
+  saude: ["clinica", "dentista", "drogaria", "exame", "farmacia", "hospital", "laboratorio", "medico", "saude"],
+  lazer: ["cinema", "evento", "ingresso", "lazer", "parque", "show", "teatro"],
+  compras: ["amazon", "americanas", "compra", "magazine", "mercadolivre", "ml", "renner", "riachuelo", "shein", "shopping"],
+  educacao: ["curso", "educacao", "escola", "faculdade", "livraria", "udemy"],
+  cuidadospessoais: ["barbearia", "beleza", "cabelo", "cosmetico", "manicure", "salao"],
+  assinaturas: ["apple", "google", "icloud", "mensalidade", "netflix", "prime", "recorrente", "spotify"],
+  internetcelular: ["celular", "claro", "internet", "oi", "tim", "vivo"],
+  aluguelfinanciamento: ["aluguel", "condominio", "financiamento", "imovel"],
+  energiaagua: ["agua", "energia", "luz", "saneamento"],
+  salario: ["pagamento salario", "salario", "vencimento"],
+  rendaextra: ["freela", "freelance", "renda extra", "servico"],
+  pixrecebido: ["pix recebido"],
+  bonus: ["bonus", "plr"],
+};
+
+function compactText(value: string) {
+  return normalizeHeader(value);
+}
+
+function categoryKey(categoryName: string) {
+  return compactText(categoryName);
+}
+
+function inferCategory(row: ParsedTx, categories: Category[]) {
+  const note = compactText(row.note);
+  const sameFlow = categories.filter((category) => category.flow === row.type);
+
+  const byOwnName = sameFlow.find((category) => {
+    const key = compactText(category.name);
+    return key.length >= 4 && note.includes(key);
+  });
+  if (byOwnName) return byOwnName;
+
+  for (const category of sameFlow) {
+    const key = categoryKey(category.name);
+    const aliases = categoryKeywordMap[key] ?? [];
+    if (aliases.some((alias) => note.includes(compactText(alias)))) return category;
+  }
+
+  return null;
 }
 
 function findColumn(headers: string[], names: string[]) {
@@ -149,7 +213,7 @@ function parseCsv(content: string): ParseResult {
     .filter(Boolean);
 
   if (lines.length < 2) {
-    return { rows: [], errors: ["O arquivo precisa ter cabecalho e pelo menos uma transacao."], initialBalanceCents: null, finalBalanceCents: null };
+    return { rows: [], errors: ["O arquivo precisa ter cabeçalho e pelo menos uma transação."], initialBalanceCents: null, finalBalanceCents: null };
   }
 
   const errors: string[] = [];
@@ -255,7 +319,7 @@ function parseCsv(content: string): ParseResult {
   if (!foundHeader) {
     return {
       rows: [],
-      errors: ["Nao encontrei o cabecalho do extrato. Procure colunas como data e valor, ou credito e debito."],
+      errors: ["Não encontrei o cabeçalho do extrato. Procure colunas como data e valor, ou crédito e débito."],
       initialBalanceCents: null,
       finalBalanceCents: null,
     };
@@ -276,7 +340,7 @@ function parseCsv(content: string): ParseResult {
 }
 
 function formatFileSize(size?: number | null) {
-  if (!size) return "Tamanho nao informado";
+  if (!size) return "Tamanho não informado";
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
@@ -304,7 +368,7 @@ function SummaryPill({ label, value, tone }: { label: string; value: string; ton
   );
 }
 
-function PreviewRow({ row }: { row: ParsedTx }) {
+function PreviewRow({ row }: { row: CategorizedTx }) {
   const isIncome = row.type === "income";
 
   return (
@@ -314,6 +378,21 @@ function PreviewRow({ row }: { row: ParsedTx }) {
           <Text style={{ color: theme.colors.text, fontWeight: "900", fontSize: 13 }}>{row.note}</Text>
           <Text style={{ color: theme.colors.muted, fontWeight: "700", fontSize: 11, marginTop: 3 }}>
             Linha {row.rawLine} - {formatDateBRFromYMD(row.occurred_on)}
+          </Text>
+          <Text
+            style={{
+              alignSelf: "flex-start",
+              color: row.categoryName ? theme.colors.primary : theme.colors.muted,
+              backgroundColor: row.categoryName ? theme.colors.primarySoft : "#f1f5f9",
+              borderRadius: 999,
+              paddingHorizontal: 8,
+              paddingVertical: 3,
+              fontSize: 10,
+              fontWeight: "900",
+              marginTop: 7,
+            }}
+          >
+            {row.categoryName ?? "Sem categoria"}
           </Text>
         </View>
         <Text style={{ color: isIncome ? theme.colors.good : theme.colors.bad, fontWeight: "900", fontSize: 13 }}>
@@ -332,15 +411,52 @@ export default function ImportCsv() {
   const [reading, setReading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [showAllPreview, setShowAllPreview] = useState(false);
+  const [categories, setCategories] = useState<Category[]>([]);
 
   const result = useMemo(() => (csv ? parseCsv(csv) : { rows: [], errors: [], initialBalanceCents: null, finalBalanceCents: null }), [csv]);
+  const categorizedRows = useMemo<CategorizedTx[]>(
+    () =>
+      result.rows.map((row) => {
+        const category = inferCategory(row, categories);
+        return {
+          ...row,
+          category_id: category?.id ?? null,
+          categoryName: category?.name ?? null,
+        };
+      }),
+    [result.rows, categories]
+  );
   const income = result.rows.filter((row) => row.type === "income").reduce((sum, row) => sum + row.amount_cents, 0);
   const expense = result.rows.filter((row) => row.type === "expense").reduce((sum, row) => sum + row.amount_cents, 0);
+  const categorizedCount = categorizedRows.filter((row) => row.category_id).length;
   const partial = income - expense;
   const adjustedPartial = partial + (result.initialBalanceCents ?? 0);
   const previewPartial = result.finalBalanceCents ?? adjustedPartial;
   const hasFile = Boolean(file);
-  const previewRows = showAllPreview ? result.rows : result.rows.slice(0, 8);
+  const previewRows = showAllPreview ? categorizedRows : categorizedRows.slice(0, 8);
+
+  useEffect(() => {
+    let alive = true;
+
+    async function loadCategories() {
+      if (!householdId) {
+        if (alive) setCategories([]);
+        return;
+      }
+
+      try {
+        const list = await listCategories(householdId);
+        if (alive) setCategories(list);
+      } catch {
+        if (alive) setCategories([]);
+      }
+    }
+
+    loadCategories();
+    return () => {
+      alive = false;
+    };
+  }, [householdId]);
 
   async function pickCsv() {
     if (reading || busy) return;
@@ -363,7 +479,7 @@ export default function ImportCsv() {
       setFile({ name: asset.name || "extrato.csv", size: asset.size });
       setShowAllPreview(false);
     } catch (e: any) {
-      Alert.alert("Erro", e?.message ?? "Nao foi possivel ler o arquivo CSV.");
+      Alert.alert("Erro", e?.message ?? "Não foi possível ler o arquivo CSV.");
     } finally {
       setReading(false);
     }
@@ -377,13 +493,13 @@ export default function ImportCsv() {
   }
 
   async function onImport() {
-    if (!userId || !householdId) return Alert.alert("Atencao", "Entre em uma casa antes de importar.");
-    if (!result.rows.length) return Alert.alert("Atencao", "Nao ha transacoes validas para importar.");
+    if (!userId || !householdId) return Alert.alert("Atenção", "Entre em uma casa antes de importar.");
+    if (!result.rows.length) return Alert.alert("Atenção", "Não há transações válidas para importar.");
     if (busy) return;
 
     try {
       setBusy(true);
-      for (const row of result.rows) {
+      for (const row of categorizedRows) {
         await addTransaction({
           householdId,
           userId,
@@ -391,12 +507,12 @@ export default function ImportCsv() {
           amount_cents: row.amount_cents,
           note: row.note,
           occurred_on: row.occurred_on,
-          category_id: null,
+          category_id: row.category_id,
         });
       }
 
       emitTxChanged({ householdId });
-      Alert.alert("Importacao concluida", `${result.rows.length} transacoes foram salvas.`);
+      Alert.alert("Importação concluída", `${result.rows.length} transações foram salvas.`);
       clearFile();
     } catch (e: any) {
       Alert.alert("Erro", e?.message ?? "Falha ao importar CSV.");
@@ -407,7 +523,7 @@ export default function ImportCsv() {
 
   return (
     <Screen>
-      <AppHeader title="Importar CSV" subtitle="Selecione o arquivo do banco e confira a previa antes de salvar" />
+      <AppHeader title="Importar CSV" subtitle="Selecione o arquivo do banco e confira a prévia antes de salvar" />
 
       <Card>
         <Pressable
@@ -447,7 +563,7 @@ export default function ImportCsv() {
             {hasFile ? file?.name : "Selecionar arquivo CSV"}
           </Text>
           <Text style={{ color: theme.colors.muted, fontWeight: "700", fontSize: 12, lineHeight: 18, marginTop: 6, textAlign: "center" }}>
-            {hasFile ? formatFileSize(file?.size) : "Use um arquivo com data, descricao, valor e tipo"}
+            {hasFile ? formatFileSize(file?.size) : "Use um arquivo com data, descrição, valor e tipo"}
           </Text>
         </Pressable>
 
@@ -473,9 +589,9 @@ export default function ImportCsv() {
               <Ionicons name="sparkles-outline" size={20} color={theme.colors.primary} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={{ color: theme.colors.text, fontWeight: "900", fontSize: 14 }}>A previa aparece aqui</Text>
+              <Text style={{ color: theme.colors.text, fontWeight: "900", fontSize: 14 }}>A prévia aparece aqui</Text>
               <P muted style={{ marginTop: 4 }}>
-                Depois de selecionar o CSV, o app mostra totais, linhas com erro e as primeiras movimentacoes encontradas.
+                Depois de selecionar o CSV, o app mostra totais, linhas com erro e as primeiras movimentações encontradas.
               </P>
             </View>
           </Row>
@@ -485,9 +601,10 @@ export default function ImportCsv() {
           <Card>
             <Label>Resumo da leitura</Label>
             <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
-              <SummaryPill label="Validas" value={String(result.rows.length)} tone="primary" />
+              <SummaryPill label="Válidas" value={String(result.rows.length)} tone="primary" />
+              <SummaryPill label="Categorizadas" value={`${categorizedCount}/${result.rows.length}`} tone="primary" />
               <SummaryPill label="Entradas" value={formatBRLFromCents(income)} tone="good" />
-              <SummaryPill label="Saidas" value={formatBRLFromCents(expense)} tone="bad" />
+              <SummaryPill label="Saídas" value={formatBRLFromCents(expense)} tone="bad" />
               <SummaryPill label="Valor parcial" value={formatBRLFromCents(previewPartial)} tone={previewPartial < 0 ? "bad" : "good"} />
             </View>
 
@@ -508,7 +625,7 @@ export default function ImportCsv() {
 
           <Card>
             <Row style={{ justifyContent: "space-between", gap: 10, alignItems: "center" }}>
-              <Label>Previa do extrato</Label>
+              <Label>Prévia do extrato</Label>
               {result.rows.length > 8 ? (
                 <Pressable
                   onPress={() => setShowAllPreview((value) => !value)}
@@ -547,12 +664,12 @@ export default function ImportCsv() {
               </Pressable>
             ) : null}
             {showAllPreview && result.rows.length > 8 ? (
-              <P muted>Mostrando todas as {result.rows.length} linhas validas.</P>
+              <P muted>Mostrando todas as {result.rows.length} linhas válidas.</P>
             ) : null}
-            {!result.rows.length ? <P muted>Nenhuma linha valida encontrada neste arquivo.</P> : null}
+            {!result.rows.length ? <P muted>Nenhuma linha válida encontrada neste arquivo.</P> : null}
           </Card>
 
-          <Button title={busy ? "Importando..." : "Importar transacoes"} onPress={onImport} disabled={busy || !result.rows.length} />
+          <Button title={busy ? "Importando..." : "Importar transações"} onPress={onImport} disabled={busy || !result.rows.length} />
         </>
       )}
     </Screen>

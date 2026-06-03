@@ -1,10 +1,10 @@
 // app/(onboarding)/goals.tsx
 import React, { useMemo, useState } from "react";
-import { Alert } from "react-native";
+import { Alert, View } from "react-native";
 import { router } from "expo-router";
 import Screen from "../../src/ui/Screen";
-import { Button, Card, H1, Input, Label, P } from "../../src/ui/components";
-import { parseBRLToCents, formatBRLFromCents } from "../../src/lib/format";
+import { Button, Card, H1, Input, Label, P, Pill, Row } from "../../src/ui/components";
+import { parseBRLToCents, formatBRLFromCents, formatBRLInputFromDigits } from "../../src/lib/format";
 import { useSession } from "../../src/providers/SessionProvider";
 import { getMyHouseholdId } from "../../src/lib/household";
 import { upsertGoals } from "../../src/lib/goals";
@@ -13,56 +13,49 @@ import { addMonths, ymd } from "../../src/lib/date";
 
 type GoalDraft = { title: string; value: string; months: string };
 
-// ✅ mesmo normalizador (ponto -> vírgula, 2 casas)
-function normalizeMoneyBR(text: string) {
-  if (!text) return "";
-
-  let s = text.replace(/[^\d.,]/g, "");
-  s = s.replace(/\./g, ",");
-
-  const idx = s.indexOf(",");
-  if (idx >= 0) {
-    const intPart = s.slice(0, idx).replace(/[^\d]/g, "");
-    const decPart = s.slice(idx + 1).replace(/[^\d]/g, "").slice(0, 2);
-    return decPart.length ? `${intPart},${decPart}` : `${intPart},`;
-  }
-
-  return s.replace(/[^\d]/g, "");
-}
-
 function onlyDigits(s: string) {
   return (s || "").replace(/\D/g, "");
 }
 
-// ✅ IMPORTANTE: componente fora do GoalsOnboarding (não remonta a cada tecla)
+function monthlyNeeded(valueCents: number, months: string) {
+  const m = Math.max(1, Number(months || "1"));
+  return Math.ceil(valueCents / m);
+}
+
 function GoalCard({
   idx,
   draft,
+  required,
   onChange,
-  previewCents,
 }: {
   idx: number;
   draft: GoalDraft;
+  required?: boolean;
   onChange: (next: GoalDraft) => void;
-  previewCents: number;
 }) {
+  const previewCents = parseBRLToCents(draft.value);
+  const monthly = monthlyNeeded(previewCents, draft.months);
+
   return (
     <Card>
-      <P muted>Meta {idx}</P>
+      <Row style={{ justifyContent: "space-between", gap: 10 }}>
+        <P muted>{required ? "Meta principal" : `Meta extra ${idx - 1}`}</P>
+        {required ? <Pill text="importante" tone="good" /> : <Pill text="opcional" />}
+      </Row>
 
-      <Label>Título</Label>
+      <Label>Nome da meta</Label>
       <Input
         value={draft.title}
         onChangeText={(t) => onChange({ ...draft, title: t })}
-        placeholder="Ex: Reserva de emergência"
+        placeholder="Ex: Reserva de emergencia"
       />
 
-      <Label>Valor (R$)</Label>
+      <Label>Valor desejado (R$)</Label>
       <Input
         value={draft.value}
-        onChangeText={(t) => onChange({ ...draft, value: normalizeMoneyBR(t) })}
-        placeholder="Ex: 5000,00"
-        keyboardType="decimal-pad"
+        onChangeText={(t) => onChange({ ...draft, value: formatBRLInputFromDigits(t) })}
+        placeholder="R$ 0,00"
+        keyboardType="numeric"
       />
       <P muted>Prévia: {formatBRLFromCents(previewCents)}</P>
 
@@ -73,6 +66,10 @@ function GoalCard({
         placeholder="Ex: 12"
         keyboardType="number-pad"
       />
+
+      {previewCents > 0 ? (
+        <P muted>Para chegar lá nesse prazo: cerca de {formatBRLFromCents(monthly)} por mês.</P>
+      ) : null}
     </Card>
   );
 }
@@ -82,27 +79,23 @@ export default function GoalsOnboarding() {
   const [busy, setBusy] = useState(false);
 
   const [g1, setG1] = useState<GoalDraft>({
-    title: "Reserva de emergência",
+    title: "Reserva de emergencia",
     value: "",
     months: "12",
   });
   const [g2, setG2] = useState<GoalDraft>({
-    title: "Viagem",
+    title: "",
     value: "",
     months: "10",
   });
   const [g3, setG3] = useState<GoalDraft>({
-    title: "Novo PC",
+    title: "",
     value: "",
     months: "8",
   });
 
-  const preview = useMemo(
-    () => ({
-      a: parseBRLToCents(g1.value),
-      b: parseBRLToCents(g2.value),
-      c: parseBRLToCents(g3.value),
-    }),
+  const totalTargets = useMemo(
+    () => parseBRLToCents(g1.value) + parseBRLToCents(g2.value) + parseBRLToCents(g3.value),
     [g1.value, g2.value, g3.value]
   );
 
@@ -117,29 +110,23 @@ export default function GoalsOnboarding() {
     const hh = await getMyHouseholdId(userId);
     if (!hh) return Alert.alert("Ops", "Crie um plano antes.");
 
-    const goals = [
-      {
-        title: g1.title.trim(),
-        target_cents: parseBRLToCents(g1.value),
-        desired_date: desiredDateFromMonths(g1.months),
-        priority: 1,
-      },
-      {
-        title: g2.title.trim(),
-        target_cents: parseBRLToCents(g2.value),
-        desired_date: desiredDateFromMonths(g2.months),
-        priority: 2,
-      },
-      {
-        title: g3.title.trim(),
-        target_cents: parseBRLToCents(g3.value),
-        desired_date: desiredDateFromMonths(g3.months),
-        priority: 3,
-      },
-    ];
+    const drafts = [g1, g2, g3];
+    const goals = drafts
+      .map((g, idx) => ({
+        title: g.title.trim(),
+        target_cents: parseBRLToCents(g.value),
+        desired_date: desiredDateFromMonths(g.months),
+        priority: idx + 1,
+      }))
+      .filter((g, idx) => idx === 0 || g.title || g.target_cents > 0);
+
+    const main = goals[0];
+    if (!main?.title || main.target_cents <= 0) {
+      return Alert.alert("Atenção", "Preencha pelo menos a meta principal com nome e valor.");
+    }
 
     if (goals.some((g) => !g.title || g.target_cents <= 0)) {
-      return Alert.alert("Atenção", "Preencha título e valor das 3 metas.");
+      return Alert.alert("Atenção", "Nas metas extras, preencha nome e valor ou deixe tudo em branco.");
     }
 
     try {
@@ -156,14 +143,26 @@ export default function GoalsOnboarding() {
 
   return (
     <Screen>
-      <H1>Suas 3 metas</H1>
-      <P muted>Isso vira o coração do app: estimativa de quando você chega lá.</P>
+      <H1>Escolha uma meta</H1>
+      <P muted>
+        Sem meta, o dinheiro só vai vivendo a própria vida. Com uma meta, o app mostra quanto falta, quanto guardar por mês e se os gastos estão ajudando ou atrapalhando.
+      </P>
 
-      <GoalCard idx={1} draft={g1} onChange={setG1} previewCents={preview.a} />
-      <GoalCard idx={2} draft={g2} onChange={setG2} previewCents={preview.b} />
-      <GoalCard idx={3} draft={g3} onChange={setG3} previewCents={preview.c} />
+      <Card intensity={18}>
+        <Row style={{ justifyContent: "space-between", gap: 10 }}>
+          <View style={{ flex: 1 }}>
+            <P muted>Total planejado</P>
+            <P style={{ fontWeight: "900" }}>{formatBRLFromCents(totalTargets)}</P>
+          </View>
+          <Pill text="alvo" tone="good" />
+        </Row>
+      </Card>
 
-      <Button title={busy ? "Finalizando..." : "Concluir"} onPress={onFinish} disabled={busy} />
+      <GoalCard idx={1} draft={g1} required onChange={setG1} />
+      <GoalCard idx={2} draft={g2} onChange={setG2} />
+      <GoalCard idx={3} draft={g3} onChange={setG3} />
+
+      <Button title={busy ? "Finalizando..." : "Entrar no app"} onPress={onFinish} disabled={busy} />
     </Screen>
   );
 }
