@@ -30,10 +30,6 @@ create policy "households_select_member"
 on public.households for select
 using (public.is_member(id));
 
-create policy "households_select_owner_before_membership"
-on public.households for select
-using (created_by = auth.uid());
-
 create policy "households_insert_owner"
 on public.households for insert
 with check (created_by = auth.uid());

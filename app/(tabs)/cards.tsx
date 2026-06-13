@@ -7,7 +7,7 @@ import { AppHeader, Button, Card, Input, Label, P, Row } from "../../src/ui/comp
 import { theme } from "../../src/ui/theme";
 import { useSession } from "../../src/providers/SessionProvider";
 import { useHouseholdId } from "../../src/hooks/useHousehold";
-import { parseBRLToCents, formatBRLFromCents, formatDateBRFromYMD } from "../../src/lib/format";
+import { parseBRLToCents, formatBRLFromCents, formatDateBRFromYMD, formatBRLInputFromDigits } from "../../src/lib/format";
 import {
   addCard,
   buildForecast,
@@ -21,22 +21,6 @@ import {
   monthKey,
 } from "../../src/lib/cards";
 import { addMonths, ymd } from "../../src/lib/date";
-
-function normalizeMoneyBR(text: string) {
-  if (!text) return "";
-  let s = text.replace(/[^\d.,]/g, "");
-  s = s.replace(/\./g, ",");
-  const idx = s.indexOf(",");
-  if (idx >= 0) {
-    const intPart = s.slice(0, idx).replace(/[^\d]/g, "");
-    const decPart = s
-      .slice(idx + 1)
-      .replace(/[^\d]/g, "")
-      .slice(0, 2);
-    return decPart.length ? `${intPart},${decPart}` : `${intPart},`;
-  }
-  return s.replace(/[^\d]/g, "");
-}
 
 function formatMonthLabel(ym: string) {
   const [y, m] = ym.split("-");
@@ -208,7 +192,7 @@ export default function CardsTab() {
 
             <View style={{ height: 10 }} />
             <Label>Limite total (R$)</Label>
-            <Input value={limit} onChangeText={(t) => setLimit(normalizeMoneyBR(t))} placeholder="Ex: 5.000,00" keyboardType="decimal-pad" />
+            <Input value={limit} onChangeText={(t) => setLimit(formatBRLInputFromDigits(t))} placeholder="Ex: 5.000,00" keyboardType="number-pad" />
 
             <View style={{ height: 10 }} />
             <Label>Dia do vencimento (1 a 28)</Label>

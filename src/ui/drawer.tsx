@@ -223,7 +223,6 @@ const styles = StyleSheet.create({
   hero: {
     paddingHorizontal: 24,
     paddingBottom: 24,
-    alignItems: "center",
   },
   closeBtn: {
     position: "absolute",
@@ -248,8 +247,8 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.28)",
   },
   avatarText: { color: "#fff", fontWeight: "900", fontSize: 26 },
-  userName: { color: "#fff", fontWeight: "900", fontSize: 20, marginTop: 12, textAlign: "center" },
-  userEmail: { color: "rgba(255,255,255,0.78)", fontWeight: "700", marginTop: 4, textAlign: "center" },
+  userName: { color: "#fff", fontWeight: "900", fontSize: 20, marginTop: 12 },
+  userEmail: { color: "rgba(255,255,255,0.78)", fontWeight: "700", marginTop: 4 },
   item: {
     minHeight: 52,
     paddingHorizontal: 16,

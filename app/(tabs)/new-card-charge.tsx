@@ -7,26 +7,10 @@ import { AppHeader, Button, Card, Input, Label, P, Row } from "../../src/ui/comp
 import { theme } from "../../src/ui/theme";
 import { useSession } from "../../src/providers/SessionProvider";
 import { useHouseholdId } from "../../src/hooks/useHousehold";
-import { formatBRLFromCents, parseBRLToCents, formatDateBRFromYMD } from "../../src/lib/format";
+import { formatBRLFromCents, parseBRLToCents, formatDateBRFromYMD, formatBRLInputFromDigits } from "../../src/lib/format";
 import { ymd } from "../../src/lib/date";
 import { listCards, PaymentMethod } from "../../src/lib/cards";
 import { addCardChargeAndInstallments } from "../../src/lib/cardCharges";
-
-function normalizeMoneyBR(text: string) {
-  if (!text) return "";
-  let s = text.replace(/[^\d.,]/g, "");
-  s = s.replace(/\./g, ",");
-  const idx = s.indexOf(",");
-  if (idx >= 0) {
-    const intPart = s.slice(0, idx).replace(/[^\d]/g, "");
-    const decPart = s
-      .slice(idx + 1)
-      .replace(/[^\d]/g, "")
-      .slice(0, 2);
-    return decPart.length ? `${intPart},${decPart}` : `${intPart},`;
-  }
-  return s.replace(/[^\d]/g, "");
-}
 
 export default function NewCardCharge() {
   const { userId } = useSession();
@@ -146,7 +130,7 @@ export default function NewCardCharge() {
 
             <View style={{ height: 10 }} />
             <Label>Valor total (R$)</Label>
-            <Input value={value} onChangeText={(t) => setValue(normalizeMoneyBR(t))} placeholder="Ex: 1.200,00" keyboardType="decimal-pad" />
+            <Input value={value} onChangeText={(t) => setValue(formatBRLInputFromDigits(t))} placeholder="Ex: 1.200,00" keyboardType="number-pad" />
             <P muted>Prévia: {formatBRLFromCents(preview)}</P>
 
             <View style={{ height: 10 }} />

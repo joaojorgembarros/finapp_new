@@ -7,28 +7,12 @@ import { theme } from "../../src/ui/theme";
 import { useSession } from "../../src/providers/SessionProvider";
 import { useHouseholdId } from "../../src/hooks/useHousehold";
 import { addMonths, ymd } from "../../src/lib/date";
-import { parseBRLToCents, formatBRLFromCents, formatDateBRFromYMD } from "../../src/lib/format";
+import { parseBRLToCents, formatBRLFromCents, formatDateBRFromYMD, formatBRLInputFromDigits } from "../../src/lib/format";
 import { addGoal, listGoals, Goal } from "../../src/lib/goals";
 import { emitGoalsChanged, onGoalsChanged } from "../../src/lib/bus";
 import { supabase } from "../../src/lib/supabase";
 
 // ✅ aceita ponto e converte pra vírgula (pt-BR), 2 casas
-function normalizeMoneyBR(text: string) {
-  if (!text) return "";
-  let s = text.replace(/[^\d.,]/g, "");
-  s = s.replace(/\./g, ",");
-  const idx = s.indexOf(",");
-  if (idx >= 0) {
-    const intPart = s.slice(0, idx).replace(/[^\d]/g, "");
-    const decPart = s
-      .slice(idx + 1)
-      .replace(/[^\d]/g, "")
-      .slice(0, 2);
-    return decPart.length ? `${intPart},${decPart}` : `${intPart},`;
-  }
-  return s.replace(/[^\d]/g, "");
-}
-
 function desiredDateFromMonths(m: string) {
   const months = Math.max(1, Number(m || "12"));
   return ymd(addMonths(new Date(), months));
@@ -187,7 +171,7 @@ export default function GoalsTab() {
     const gg: any = g as any;
     setGoalSel(g);
     setEditTitle(String(gg.title ?? ""));
-    setEditValue(normalizeMoneyBR(((Number(gg.target_cents ?? 0) || 0) / 100).toFixed(2).replace(".", ",")));
+    setEditValue(formatBRLFromCents(Number(gg.target_cents ?? 0) || 0));
 
     const y = String(gg.desired_date ?? "");
     if (/^\d{4}-\d{2}-\d{2}$/.test(y)) {
@@ -378,9 +362,9 @@ export default function GoalsTab() {
               <Label>Valor (R$)</Label>
               <Input
                 value={value}
-                onChangeText={(t) => setValue(normalizeMoneyBR(t))}
+                onChangeText={(t) => setValue(formatBRLInputFromDigits(t))}
                 placeholder="Ex: 5.000,00"
-                keyboardType="decimal-pad"
+                keyboardType="number-pad"
               />
               <P muted>Prévia: {formatBRLFromCents(previewCents)}</P>
 
@@ -447,9 +431,9 @@ export default function GoalsTab() {
               <Label>Valor alvo (R$)</Label>
               <Input
                 value={editValue}
-                onChangeText={(t) => setEditValue(normalizeMoneyBR(t))}
+                onChangeText={(t) => setEditValue(formatBRLInputFromDigits(t))}
                 placeholder="Ex: 8.000,00"
-                keyboardType="decimal-pad"
+                keyboardType="number-pad"
               />
               <P muted>Prévia: {formatBRLFromCents(parseBRLToCents(editValue))}</P>
 

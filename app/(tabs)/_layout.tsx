@@ -34,6 +34,7 @@ function AddIcon({ focused }: { focused: boolean }) {
 
 function TabsShell() {
   const insets = useSafeAreaInsets();
+  const bottomGuardHeight = Math.max(insets.bottom, 16);
 
   return (
     <>
@@ -109,9 +110,9 @@ function TabsShell() {
         <Tabs.Screen name="profile" options={{ href: null }} />
         <Tabs.Screen name="categories" options={{ href: null }} />
         <Tabs.Screen name="import-extract" options={{ href: null }} />
-        <Tabs.Screen name="import-csv" options={{ href: null }} />
       </Tabs>
 
+      <View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: bottomGuardHeight, backgroundColor: theme.colors.bg0 }} />
       <DrawerHost />
     </>
   );

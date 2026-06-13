@@ -19,7 +19,7 @@
       "supportsTablet": true
     },
     "android": {
-      "edgeToEdgeEnabled": false,
+      "edgeToEdgeEnabled": true,
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "backgroundColor": "#070a12"
@@ -32,7 +32,7 @@
     },
     "androidNavigationBar": {
       "barStyle": "dark-content",
-      "backgroundColor": "#faf5ff",
+      "backgroundColor": "#f8fafc",
       "enforceContrast": false
     },
     "extra": {}

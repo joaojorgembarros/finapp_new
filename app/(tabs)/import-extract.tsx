@@ -1,7 +1,6 @@
 // app/(tabs)/import-extract.tsx
 import React from "react";
 import { Alert, Pressable, Text, View } from "react-native";
-import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import Screen from "../../src/ui/Screen";
 import { AppHeader, Card, Row } from "../../src/ui/components";
@@ -14,29 +13,28 @@ type FileFormat = {
   iconColor: string;
   iconBg: string;
   recommended?: boolean;
-  route?: "/(tabs)/import-csv";
 };
 
 const formats: FileFormat[] = [
   {
     title: "CSV",
-    subtitle: "Ideal para importação rápida e estruturada",
+    subtitle: "Ideal para importacao rapida e estruturada",
     icon: "grid-outline",
     iconColor: theme.colors.primary,
     iconBg: theme.colors.primarySoft,
     recommended: true,
-    route: "/(tabs)/import-csv",
   },
   {
     title: "Excel (.xlsx)",
-    subtitle: "Importe planilhas bancárias em formato Excel",
+    subtitle: "Importe planilhas bancarias em formato Excel",
     icon: "document-text-outline",
     iconColor: theme.colors.good,
     iconBg: theme.colors.goodSoft,
+    recommended: true,
   },
   {
     title: "PDF",
-    subtitle: "Leitura disponível, mas pode exigir mais revisão",
+    subtitle: "Leitura disponivel, mas pode exigir mais revisao",
     icon: "document-outline",
     iconColor: theme.colors.muted,
     iconBg: "#f1f5f9",
@@ -45,12 +43,7 @@ const formats: FileFormat[] = [
 
 function FormatCard({ format }: { format: FileFormat }) {
   function onPress() {
-    if (format.route) {
-      router.push(format.route);
-      return;
-    }
-
-    Alert.alert("Em breve", `Importação por ${format.title} será conectada depois do MVP.`);
+    Alert.alert("Importar extrato", `Selecao de arquivo ${format.title} sera conectada na proxima etapa.`);
   }
 
   return (
@@ -100,7 +93,7 @@ function FormatCard({ format }: { format: FileFormat }) {
             </Text>
           </View>
 
-          <Ionicons name="chevron-forward" size={18} color={theme.colors.muted2} />
+          <Ionicons name="share-outline" size={18} color={theme.colors.muted2} />
         </Row>
       </Card>
     </Pressable>
@@ -149,7 +142,7 @@ function InfoCard({
 export default function ImportExtract() {
   return (
     <Screen>
-      <AppHeader title="Importar extrato" subtitle="Importe movimentações do banco e revise antes de salvar" />
+      <AppHeader title="Importar Extrato" subtitle="Importe movimentacoes do banco e revise antes de salvar" />
 
       <View style={{ gap: 12 }}>
         <Text style={{ color: theme.colors.text, fontWeight: "900", fontSize: 14 }}>
@@ -164,15 +157,15 @@ export default function ImportExtract() {
       <View style={{ gap: 12, marginTop: 2 }}>
         <InfoCard
           icon="checkmark-circle-outline"
-          title="Formato recomendado"
-          text="CSV garante melhor precisão na leitura dos dados. Você poderá revisar todas as transações antes de importar."
+          title="Formatos Recomendados"
+          text="CSV e Excel garantem melhor precisao na leitura dos dados. Voce podera revisar todas as transacoes antes de importar."
           tone="primary"
         />
 
         <InfoCard
           icon="alert-circle-outline"
-          title="Atenção com PDF"
-          text="Arquivos PDF podem exigir mais revisão manual devido às variações de formato entre bancos."
+          title="Atencao com PDF"
+          text="Arquivos PDF podem exigir mais revisao manual devido as variacoes de formato entre bancos."
           tone="warn"
         />
       </View>

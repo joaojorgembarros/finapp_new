@@ -1,105 +1,81 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+// app/(auth)/login.tsx
+import React, { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
-  ScrollView,
   Text,
   TextInput,
+  TextInputProps,
   View,
 } from "react-native";
 import { router } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
-import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { theme } from "../../src/ui/theme";
 import { supabase } from "../../src/lib/supabase";
+
+type FocusKey = "email" | "password" | null;
 
 function isValidEmail(s: string) {
   const x = s.trim();
   return x.includes("@") && x.includes(".");
 }
 
-function loginErrorMessage(err: any) {
-  const message = String(err?.message ?? "");
-  const lower = message.toLowerCase();
-  if (lower.includes("email not confirmed") || lower.includes("not confirmed")) {
-    return "Confirme seu e-mail antes de entrar. Enviamos um link para o endereço usado no cadastro.";
-  }
-  if (lower.includes("invalid login credentials") || lower.includes("invalid credentials")) {
-    return "Não encontramos uma conta com esse e-mail ou a senha está incorreta. Confira os dados ou crie uma conta nova.";
-  }
-  return message || "Não foi possível entrar agora.";
-}
-
-function Field({
-  label,
+function AuthField({
   icon,
   value,
   onChangeText,
   placeholder,
-  secureTextEntry,
   keyboardType,
-  inputRef,
-  returnKeyType,
-  onSubmitEditing,
+  secureTextEntry,
+  focused,
+  onFocus,
+  onBlur,
+  right,
 }: {
-  label: string;
   icon: keyof typeof Ionicons.glyphMap;
   value: string;
   onChangeText: (t: string) => void;
   placeholder: string;
+  keyboardType?: TextInputProps["keyboardType"];
   secureTextEntry?: boolean;
-  keyboardType?: any;
-  inputRef?: React.RefObject<TextInput | null>;
-  returnKeyType?: "done" | "go" | "next";
-  onSubmitEditing?: () => void;
+  focused: boolean;
+  onFocus: () => void;
+  onBlur: () => void;
+  right?: React.ReactNode;
 }) {
   return (
-    <View>
-      <Text style={{ color: theme.colors.text, fontWeight: "800", marginBottom: 8 }}>{label}</Text>
-      <View style={fieldWrap}>
-        <Ionicons name={icon} size={20} color={theme.colors.muted2} />
-        <TextInput
-          ref={inputRef}
-          value={value}
-          onChangeText={onChangeText}
-          placeholder={placeholder}
-          placeholderTextColor={theme.colors.muted2}
-          secureTextEntry={secureTextEntry}
-          keyboardType={keyboardType}
-          returnKeyType={returnKeyType}
-          onSubmitEditing={onSubmitEditing}
-          autoCapitalize="none"
-          autoCorrect={false}
-          style={{ flex: 1, color: theme.colors.text, fontWeight: "800", paddingVertical: 2 }}
-        />
-      </View>
+    <View style={[field, focused && fieldActive]}>
+      <Ionicons name={icon} size={21} color={focused ? theme.colors.primary : "#6b7280"} />
+      <TextInput
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor="#6b7280"
+        keyboardType={keyboardType}
+        secureTextEntry={secureTextEntry}
+        autoCapitalize="none"
+        autoCorrect={false}
+        onFocus={onFocus}
+        onBlur={onBlur}
+        style={fieldInput}
+      />
+      {right}
     </View>
   );
 }
 
 export default function LoginScreen() {
-  const passRef = useRef<TextInput | null>(null);
   const [email, setEmail] = useState("");
   const [pass, setPass] = useState("");
   const [loading, setLoading] = useState(false);
-  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [focused, setFocused] = useState<FocusKey>(null);
+  const [showPass, setShowPass] = useState(false);
   const canSubmit = useMemo(() => isValidEmail(email) && pass.trim().length >= 6 && !loading, [email, pass, loading]);
-
-  useEffect(() => {
-    const showSub = Keyboard.addListener("keyboardDidShow", () => setKeyboardVisible(true));
-    const hideSub = Keyboard.addListener("keyboardDidHide", () => setKeyboardVisible(false));
-
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
-  }, []);
 
   async function onLogin() {
     if (!canSubmit) return;
@@ -110,9 +86,9 @@ export default function LoginScreen() {
         password: pass,
       });
       if (error) throw error;
-      router.replace("/");
+      router.replace("/(tabs)/home");
     } catch (err: any) {
-      Alert.alert("Não foi possível entrar", loginErrorMessage(err));
+      Alert.alert("Erro ao entrar", err?.message ?? "Nao foi possivel entrar agora.");
     } finally {
       setLoading(false);
     }
@@ -127,109 +103,92 @@ export default function LoginScreen() {
       if (error) throw error;
       Alert.alert("Enviado", "Te mandei um e-mail para redefinir sua senha.");
     } catch (err: any) {
-      Alert.alert("Erro", err?.message ?? "Não foi possível enviar agora.");
+      Alert.alert("Erro", err?.message ?? "Nao foi possivel enviar agora.");
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <LinearGradient colors={theme.gradient.brand} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ flex: 1 }}>
-      <SafeAreaView style={{ flex: 1 }}>
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-          enabled={Platform.OS === "ios"}
-          style={{ flex: 1 }}
-        >
-          <ScrollView
-            contentContainerStyle={authRoot}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-          >
-            <View style={{ alignItems: "center", marginBottom: 28 }}>
-              <View style={logoBox}>
-                <Ionicons name="wallet-outline" size={42} color="#fff" />
-              </View>
-              <Text style={{ color: "#fff", fontWeight: "900", fontSize: 40, marginTop: 16 }}>FinApp</Text>
-              <Text style={{ color: "rgba(255,255,255,0.82)", fontWeight: "800", marginTop: 4 }}>
-                Suas finanças sob controle
-              </Text>
-            </View>
+    <SafeAreaView style={screen}>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={keyboard}>
+        <View style={root}>
+          <View style={brandBlock}>
+            <Text style={brand}>FinApp</Text>
+            <Text style={headline}>Entre para organizar seu mes</Text>
+            <Text style={subhead}>Acompanhe gastos, metas e saldo em um lugar simples.</Text>
+          </View>
 
-            <BlurView intensity={28} tint="light" style={authCard}>
-              <Text style={{ color: theme.colors.text, fontWeight: "900", fontSize: 24, marginBottom: 20 }}>
-                Bem-vindo de volta
-              </Text>
+          <View style={form}>
+            <AuthField
+              icon="mail-outline"
+              value={email}
+              onChangeText={setEmail}
+              placeholder="E-mail"
+              keyboardType="email-address"
+              focused={focused === "email"}
+              onFocus={() => setFocused("email")}
+              onBlur={() => setFocused(null)}
+            />
 
-              <View style={{ gap: 16 }}>
-                <Field
-                  label="E-mail"
-                  icon="mail-outline"
-                  value={email}
-                  onChangeText={setEmail}
-                  placeholder="seu@email.com"
-                  keyboardType="email-address"
-                  returnKeyType="next"
-                  onSubmitEditing={() => passRef.current?.focus()}
-                />
-                <Field
-                  label="Senha"
-                  icon="lock-closed-outline"
-                  value={pass}
-                  onChangeText={setPass}
-                  placeholder="••••••••"
-                  secureTextEntry
-                  inputRef={passRef}
-                  returnKeyType="go"
-                  onSubmitEditing={onLogin}
-                />
-
-                <Pressable onPress={onForgot} style={{ alignSelf: "flex-end" }}>
-                  <Text style={{ color: theme.colors.primary, fontWeight: "900" }}>Esqueceu a senha?</Text>
+            <AuthField
+              icon="lock-closed-outline"
+              value={pass}
+              onChangeText={setPass}
+              placeholder="Senha"
+              secureTextEntry={!showPass}
+              focused={focused === "password"}
+              onFocus={() => setFocused("password")}
+              onBlur={() => setFocused(null)}
+              right={
+                <Pressable onPress={() => setShowPass((v) => !v)} hitSlop={10} style={eyeButton}>
+                  <Ionicons name={showPass ? "eye-off-outline" : "eye-outline"} size={21} color="#52605a" />
                 </Pressable>
+              }
+            />
 
-                <Pressable
-                  onPress={onLogin}
-                  disabled={!canSubmit}
-                  style={{ borderRadius: 18, overflow: "hidden", opacity: canSubmit ? 1 : 0.58 }}
-                >
-                  <LinearGradient colors={["#2563eb", "#9333ea"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={primaryBtn}>
-                    {loading ? <ActivityIndicator color="#fff" /> : <Text style={primaryBtnText}>Entrar</Text>}
-                  </LinearGradient>
-                </Pressable>
-              </View>
+            <Pressable onPress={onForgot} style={forgotLink} hitSlop={10}>
+              <Text style={forgotText}>Esqueci minha senha</Text>
+            </Pressable>
 
-              <Pressable onPress={() => router.push("/(auth)/signup")} style={{ marginTop: 22, alignItems: "center" }}>
-                <Text style={{ color: theme.colors.muted, fontWeight: "700" }}>
-                  Não tem uma conta? <Text style={{ color: theme.colors.primary, fontWeight: "900" }}>Criar conta</Text>
-                </Text>
-              </Pressable>
-            </BlurView>
+            <Pressable onPress={onLogin} disabled={!canSubmit} style={{ opacity: canSubmit ? 1 : 0.48 }}>
+              <LinearGradient
+                colors={["#2563eb", "#9333ea"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={primaryButton}
+              >
+                {loading ? <ActivityIndicator color="#fff" /> : <Text style={primaryText}>Entrar</Text>}
+              </LinearGradient>
+            </Pressable>
+          </View>
 
-            <Text style={{ color: "rgba(255,255,255,0.80)", fontWeight: "700", marginTop: 22, textAlign: "center" }}>
-              Seguro, confiável e feito para você
-            </Text>
-          </ScrollView>
-        </KeyboardAvoidingView>
-      </SafeAreaView>
-      {Platform.OS === "android" && !keyboardVisible ? <View pointerEvents="none" style={androidNavGuard} /> : null}
-    </LinearGradient>
+          <Pressable onPress={() => router.push("/(auth)/signup")} style={bottomLink}>
+            <Text style={bottomText}>Ainda nao tem uma conta?</Text>
+            <Text style={bottomStrong}>Criar conta</Text>
+          </Pressable>
+        </View>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
-const authRoot = { flexGrow: 1, paddingHorizontal: 18, paddingVertical: 24, justifyContent: "center" } as const;
-const logoBox = { width: 82, height: 82, borderRadius: 26, backgroundColor: "rgba(255,255,255,0.18)", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.24)" } as const;
-const authCard = { borderRadius: 28, overflow: "hidden", padding: 24, backgroundColor: "rgba(255,255,255,0.94)", ...theme.shadow } as const;
-const fieldWrap = { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 18, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: "#f8fafc", paddingHorizontal: 14, paddingVertical: 12 } as const;
-const primaryBtn = { paddingVertical: 15, alignItems: "center", justifyContent: "center" } as const;
-const primaryBtnText = { color: "#fff", fontWeight: "900", fontSize: 16 } as const;
-const androidNavGuard = {
-  position: "absolute",
-  left: 0,
-  right: 0,
-  bottom: 0,
-  height: 48,
-  backgroundColor: theme.colors.bg2,
-  zIndex: 20,
-  elevation: 20,
-} as const;
+const screen = { flex: 1, backgroundColor: "#f7faf7" } as const;
+const keyboard = { flex: 1 } as const;
+const root = { flex: 1, paddingHorizontal: 28, paddingTop: 64, paddingBottom: Platform.OS === "android" ? 54 : 30 } as const;
+const brandBlock = { alignItems: "center", marginBottom: 46 } as const;
+const brand = { color: "#1f2937", fontWeight: "900", fontSize: 42, letterSpacing: 0 } as const;
+const headline = { color: "#26352d", fontWeight: "900", fontSize: 23, textAlign: "center", marginTop: 24, letterSpacing: 0 } as const;
+const subhead = { color: "#66736d", fontWeight: "700", fontSize: 14, textAlign: "center", lineHeight: 20, marginTop: 8 } as const;
+const form = { gap: 14 } as const;
+const field = { minHeight: 64, borderRadius: 20, backgroundColor: "#e5ebe4", flexDirection: "row", alignItems: "center", gap: 14, paddingHorizontal: 18, borderWidth: 1, borderColor: "transparent" } as const;
+const fieldActive = { backgroundColor: "#fff", borderColor: "rgba(37,99,235,0.36)" } as const;
+const fieldInput = { flex: 1, color: "#1f2937", fontWeight: "800", fontSize: 16, paddingVertical: 2 } as const;
+const eyeButton = { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" } as const;
+const forgotLink = { alignSelf: "flex-end", paddingVertical: 4 } as const;
+const forgotText = { color: theme.colors.primary, fontWeight: "900", fontSize: 14 } as const;
+const primaryButton = { minHeight: 60, borderRadius: 24, alignItems: "center", justifyContent: "center", marginTop: 10 } as const;
+const primaryText = { color: "#fff", fontWeight: "900", fontSize: 17 } as const;
+const bottomLink = { marginTop: "auto", minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 } as const;
+const bottomText = { color: "#53615b", fontWeight: "800", fontSize: 15 } as const;
+const bottomStrong = { color: "#1f2937", fontWeight: "900", fontSize: 15 } as const;

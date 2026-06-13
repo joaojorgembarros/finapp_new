@@ -9,32 +9,13 @@ import { useSession } from "../../src/providers/SessionProvider";
 import { useHouseholdId } from "../../src/hooks/useHousehold";
 import { listCategories, Category, Flow, Kind } from "../../src/lib/categories";
 import { addTransaction, TxType } from "../../src/lib/transactions";
-import { parseBRLToCents, formatBRLFromCents, formatDateBRFromYMD } from "../../src/lib/format";
+import { parseBRLToCents, formatBRLFromCents, formatDateBRFromYMD, formatBRLInputFromDigits } from "../../src/lib/format";
 import { emitTxChanged } from "../../src/lib/bus";
 import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import { ymd } from "../../src/lib/date";
 
 // ✅ aceita ponto no teclado e converte pra vírgula (pt-BR)
 // ✅ mantém só 1 separador e no máximo 2 casas decimais
-function normalizeMoneyBR(text: string) {
-  if (!text) return "";
-
-  let s = text.replace(/[^\d.,]/g, "");
-  s = s.replace(/\./g, ",");
-
-  const idx = s.indexOf(",");
-  if (idx >= 0) {
-    const intPart = s.slice(0, idx).replace(/[^\d]/g, "");
-    const decPart = s
-      .slice(idx + 1)
-      .replace(/[^\d]/g, "")
-      .slice(0, 2);
-    return decPart.length ? `${intPart},${decPart}` : `${intPart},`;
-  }
-
-  return s.replace(/[^\d]/g, "");
-}
-
 export default function AddTransaction() {
   const { userId } = useSession();
   const { householdId } = useHouseholdId(userId);
@@ -201,9 +182,9 @@ export default function AddTransaction() {
         <Label>Valor (R$)</Label>
         <Input
           value={amount}
-          onChangeText={(t) => setAmount(normalizeMoneyBR(t))}
+          onChangeText={(t) => setAmount(formatBRLInputFromDigits(t))}
           placeholder="Ex: 35,90"
-          keyboardType="decimal-pad"
+          keyboardType="number-pad"
         />
         <P muted>Prévia: {formatBRLFromCents(cents)}</P>
 

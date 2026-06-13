@@ -1,6 +1,6 @@
 // src/ui/Screen.tsx
-import React, { useEffect, useState } from "react";
-import { Keyboard, KeyboardAvoidingView, Platform, ScrollView, StatusBar as RNStatusBar, StyleSheet, View, ViewStyle } from "react-native";
+import React from "react";
+import { KeyboardAvoidingView, Platform, ScrollView, StatusBar as RNStatusBar, StyleSheet, View, ViewStyle } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { theme } from "./theme";
@@ -9,31 +9,22 @@ export default function Screen({
   children,
   scroll = true,
   style,
+  contentTopOffset = 0,
 }: {
   children: React.ReactNode;
   scroll?: boolean;
   style?: ViewStyle;
+  contentTopOffset?: number;
 }) {
   const insets = useSafeAreaInsets();
-  const [keyboardVisible, setKeyboardVisible] = useState(false);
   const topInset = Math.max(insets.top, Platform.OS === "android" ? RNStatusBar.currentHeight ?? 0 : 0);
-  const bottomInset = Math.max(insets.bottom, Platform.OS === "android" ? 48 : 0);
-
-  useEffect(() => {
-    const showSub = Keyboard.addListener("keyboardDidShow", () => setKeyboardVisible(true));
-    const hideSub = Keyboard.addListener("keyboardDidHide", () => setKeyboardVisible(false));
-
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
-  }, []);
+  const bottomInset = Math.max(insets.bottom, Platform.OS === "android" ? 32 : 0);
 
   const contentStyle = [
     styles.content,
     {
-      paddingTop: topInset + 28,
-      paddingBottom: bottomInset + 118,
+      paddingTop: topInset + 16 + contentTopOffset,
+      paddingBottom: bottomInset + 96,
     },
     style,
   ];
@@ -46,13 +37,11 @@ export default function Screen({
         end={{ x: 1, y: 1 }}
         style={StyleSheet.absoluteFill}
       />
-      <View pointerEvents="none" style={[styles.topGuard, { height: topInset }]} />
-      {Platform.OS === "android" && !keyboardVisible ? (
-        <View pointerEvents="none" style={[styles.navGuard, { height: bottomInset }]} />
-      ) : null}
+      <View pointerEvents="none" style={[styles.topGuard, { height: topInset + 2 }]} />
+      <View pointerEvents="none" style={[styles.bottomGuard, { height: bottomInset }]} />
+
       <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        enabled={Platform.OS === "ios"}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
         keyboardVerticalOffset={0}
         style={styles.keyboard}
       >
@@ -61,7 +50,7 @@ export default function Screen({
             contentContainerStyle={contentStyle}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
-            keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+            keyboardDismissMode="interactive"
           >
             {children}
           </ScrollView>
@@ -85,14 +74,14 @@ const styles = StyleSheet.create({
     elevation: 10,
     backgroundColor: theme.colors.bg0,
   },
-  navGuard: {
+  bottomGuard: {
     position: "absolute",
+    bottom: 0,
     left: 0,
     right: 0,
-    bottom: 0,
-    zIndex: 20,
-    elevation: 20,
-    backgroundColor: theme.colors.bg2,
+    zIndex: 10,
+    elevation: 10,
+    backgroundColor: theme.colors.bg0,
   },
   content: {
     paddingHorizontal: 16,

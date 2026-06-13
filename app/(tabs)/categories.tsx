@@ -49,7 +49,7 @@ export default function Categories() {
   async function onAdd() {
     if (!householdId) return;
     const n = name.trim();
-    if (!n) return Alert.alert("Atenção", "Digite o nome da categoria.");
+    if (!n) return;
 
     try {
       await createCategory({ householdId, flow, kind, name: n });
@@ -62,11 +62,10 @@ export default function Categories() {
 
   return (
     <Screen>
-      <AppHeader title="Categorias" subtitle="Crie os grupos que você realmente usa" />
+      <AppHeader title="Categorias" subtitle="Organize receitas, despesas fixas e variáveis" />
 
       <Card>
         <Label>Nova categoria</Label>
-        <P muted>Essas categorias aparecem nos lançamentos e no orçamento mensal.</P>
         <View style={{ flexDirection: "row", gap: 10, marginTop: 8 }}>
           {(["expense", "income"] as Flow[]).map((f) => {
             const active = flow === f;
@@ -118,7 +117,7 @@ export default function Categories() {
         </View>
 
         <View style={{ height: 10 }} />
-        <Input value={name} onChangeText={setName} placeholder="Ex: Lazer, Mercado, Transporte..." />
+        <Input value={name} onChangeText={setName} placeholder="Nome (ex: Mercado)" />
         <Button title="Adicionar" onPress={onAdd} />
       </Card>
 

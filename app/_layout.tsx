@@ -1,6 +1,6 @@
 // app/_layout.tsx
-import React, { useEffect } from "react";
-import { Platform } from "react-native";
+import React from "react";
+import { Platform, StatusBar as NativeStatusBar } from "react-native";
 import { Stack } from "expo-router";
 import * as NavigationBar from "expo-navigation-bar";
 import { StatusBar } from "expo-status-bar";
@@ -9,13 +9,13 @@ import { SessionProvider } from "../src/providers/SessionProvider";
 import { theme } from "../src/ui/theme";
 
 export default function RootLayout() {
-  useEffect(() => {
+  React.useEffect(() => {
     if (Platform.OS !== "android") return;
-
-    NavigationBar.setPositionAsync("relative");
-    NavigationBar.setBackgroundColorAsync(theme.colors.bg2);
-    NavigationBar.setButtonStyleAsync("dark");
-    NavigationBar.setBorderColorAsync(theme.colors.bg2);
+    NativeStatusBar.setTranslucent(false);
+    NativeStatusBar.setBackgroundColor(theme.colors.bg0);
+    NativeStatusBar.setBarStyle("dark-content");
+    NavigationBar.setBackgroundColorAsync(theme.colors.bg0).catch(() => {});
+    NavigationBar.setButtonStyleAsync("dark").catch(() => {});
   }, []);
 
   return (

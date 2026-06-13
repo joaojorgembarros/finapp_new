@@ -6,7 +6,7 @@ import { AppHeader, Button, Card, Input, P, Row } from "../../src/ui/components"
 import { theme } from "../../src/ui/theme";
 import { useSession } from "../../src/providers/SessionProvider";
 import { useHouseholdId } from "../../src/hooks/useHousehold";
-import { formatBRLFromCents, formatDateBRFromYMD, parseBRLToCents } from "../../src/lib/format";
+import { formatBRLFromCents, formatDateBRFromYMD, formatBRLInputFromDigits, parseBRLToCents } from "../../src/lib/format";
 import { ymd } from "../../src/lib/date";
 import {
   listGoals,
@@ -26,22 +26,6 @@ import {
 } from "../../src/lib/paySchedule";
 
 // ✅ aceita ponto e converte pra vírgula (pt-BR), 2 casas
-function normalizeMoneyBR(text: string) {
-  if (!text) return "";
-  let s = text.replace(/[^\d.,]/g, "");
-  s = s.replace(/\./g, ",");
-  const idx = s.indexOf(",");
-  if (idx >= 0) {
-    const intPart = s.slice(0, idx).replace(/[^\d]/g, "");
-    const decPart = s
-      .slice(idx + 1)
-      .replace(/[^\d]/g, "")
-      .slice(0, 2);
-    return decPart.length ? `${intPart},${decPart}` : `${intPart},`;
-  }
-  return s.replace(/[^\d]/g, "");
-}
-
 export default function ClosuresTab() {
   const { userId } = useSession();
   const { householdId, loading: hhLoading } = useHouseholdId(userId);
@@ -270,7 +254,7 @@ export default function ClosuresTab() {
 
   function centsToInput(cents: number) {
     if (!cents || cents <= 0) return "";
-    return normalizeMoneyBR((cents / 100).toFixed(2).replace(".", ","));
+    return formatBRLFromCents(cents);
   }
 
   function suggestedAllocations(netCents: number) {
@@ -291,7 +275,7 @@ export default function ClosuresTab() {
 
       const put = Math.min(left, remaining);
       remaining -= put;
-      next[g.id] = normalizeMoneyBR((put / 100).toFixed(2).replace(".", ","));
+      next[g.id] = formatBRLFromCents(put);
     }
 
     for (const g of goals) if (!(g.id in next)) next[g.id] = "";
@@ -631,9 +615,9 @@ export default function ClosuresTab() {
 
                         <Input
                           value={alloc[g.id] ?? ""}
-                          onChangeText={(t) => setAlloc((prev) => ({ ...prev, [g.id]: normalizeMoneyBR(t) }))}
+                          onChangeText={(t) => setAlloc((prev) => ({ ...prev, [g.id]: formatBRLInputFromDigits(t) }))}
                           placeholder="0,00"
-                          keyboardType="decimal-pad"
+                          keyboardType="number-pad"
                         />
                       </View>
                     ))}

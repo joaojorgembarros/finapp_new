@@ -135,8 +135,8 @@ export function Label({ children }: { children: React.ReactNode }) {
   return <Text style={{ color: theme.colors.muted, fontWeight: "900" }}>{children}</Text>;
 }
 
-export function H1({ children }: { children: React.ReactNode }) {
-  return <Text style={[theme.text.h1, { color: theme.colors.text, letterSpacing: 0 }]}>{children}</Text>;
+export function H1({ children, style }: { children: React.ReactNode; style?: TextStyle }) {
+  return <Text style={[theme.text.h1, { color: theme.colors.text, letterSpacing: 0 }, style]}>{children}</Text>;
 }
 
 export function H2({ children }: { children: React.ReactNode }) {
@@ -191,7 +191,7 @@ export function AppHeader({
 }) {
   return (
     <View style={{ minHeight: 62, justifyContent: "center" }}>
-      <View style={{ position: "absolute", left: -16, top: 4 }}>
+      <View style={{ position: "absolute", left: 0, top: 4 }}>
         <SideMenu />
       </View>
       {right ? <View style={{ position: "absolute", right: 0, top: 4 }}>{right}</View> : null}

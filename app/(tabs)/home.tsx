@@ -32,16 +32,27 @@ function StatPill({ label, value }: { label: string; value: string }) {
   );
 }
 
+function greetingFromDisplayName(displayName: string) {
+  const raw = String(displayName || "").trim();
+  if (!raw) return "pessoa";
+  if (raw.includes("@")) return "pessoa";
+
+  const spaced = raw.replace(/[._-]+/g, " ").trim();
+  const firstTwoNames = spaced.split(/\s+/).filter(Boolean).slice(0, 2).join(" ") || spaced;
+
+  if (firstTwoNames.length <= 22) return firstTwoNames;
+  return `${firstTwoNames.slice(0, 20)}...`;
+}
+
 export default function HomeTab() {
   const { session, userId } = useSession();
   const { householdId, loading: hhLoading } = useHouseholdId(userId);
   const [net, setNet] = useState({ income: 0, expense: 0, net: 0 });
   const displayName =
-    session?.user?.user_metadata?.name ||
     session?.user?.user_metadata?.full_name ||
-    session?.user?.email?.split("@")[0] ||
-    "pessoa";
-  const greetingName = String(displayName).trim().split(/\s+/).slice(0, 2).join(" ") || "pessoa";
+    session?.user?.user_metadata?.name ||
+    "";
+  const greetingName = greetingFromDisplayName(displayName);
 
   const load = useCallback(async () => {
     if (!householdId) return;
@@ -69,10 +80,17 @@ export default function HomeTab() {
     <Screen>
       <AppHeader title="Início" subtitle="Visão rápida do mês" right={<ProfileAvatarMenu />} />
 
-      <View style={{ marginTop: 6, marginBottom: 2, paddingLeft: 12 }}>
+      <View style={{ marginTop: 8, marginBottom: 2, paddingHorizontal: 8 }}>
         <Text style={{ color: "#0f2a4a", fontWeight: "400", fontSize: 16 }}>Olá,</Text>
         <Row style={{ gap: 8, marginTop: 8, alignItems: "center" }}>
-          <Text style={{ color: "#0f2a4a", fontWeight: "900", fontSize: 30 }}>{greetingName}</Text>
+          <Text
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.72}
+            style={{ color: "#0f2a4a", fontWeight: "900", fontSize: 30, flex: 1 }}
+          >
+            {greetingName}
+          </Text>
           <Text style={{ fontSize: 28 }}>👋</Text>
         </Row>
       </View>

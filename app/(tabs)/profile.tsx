@@ -9,7 +9,7 @@ import { AppHeader, Button, Card, Input, Label, P, Row, SoftIcon } from "../../s
 import { theme } from "../../src/ui/theme";
 import { useSession } from "../../src/providers/SessionProvider";
 import { getProfile, upsertProfile, EmploymentType, expectedMonthlyIncomeCents } from "../../src/lib/profile";
-import { formatBRLFromCents, parseBRLToCents } from "../../src/lib/format";
+import { formatBRLFromCents, formatBRLInputFromDigits, parseBRLToCents } from "../../src/lib/format";
 import { supabase } from "../../src/lib/supabase";
 
 const TYPES: EmploymentType[] = ["CLT", "PJ", "Autônomo", "Estudante", "Outro"];
@@ -48,20 +48,9 @@ function SettingsRow({
   );
 }
 
-function normalizeMoneyBR(text: string) {
-  if (!text) return "";
-  let s = text.replace(/[^\d.,]/g, "").replace(/\./g, ",");
-  const idx = s.indexOf(",");
-  if (idx >= 0) {
-    const intPart = s.slice(0, idx).replace(/[^\d]/g, "");
-    const decPart = s.slice(idx + 1).replace(/[^\d]/g, "").slice(0, 2);
-    return decPart.length ? `${intPart},${decPart}` : `${intPart},`;
-  }
-  return s.replace(/[^\d]/g, "");
-}
-
 function centsToBRInput(cents: number) {
-  return (Number(cents || 0) / 100).toFixed(2).replace(".", ",");
+  if (!cents) return "";
+  return formatBRLFromCents(cents);
 }
 
 export default function Profile() {
@@ -188,11 +177,11 @@ export default function Profile() {
         <Text style={{ color: theme.colors.text, fontWeight: "900", fontSize: 18 }}>Informações financeiras</Text>
 
         <Label>Renda fixa mensal (R$)</Label>
-        <Input value={fixed} onChangeText={(t) => setFixed(normalizeMoneyBR(t))} placeholder="Ex: 2400,00" keyboardType="decimal-pad" />
+        <Input value={fixed} onChangeText={(t) => setFixed(formatBRLInputFromDigits(t))} placeholder="Ex: 2400,00" keyboardType="number-pad" />
         <P muted>Prévia: {formatBRLFromCents(fixedCents)}</P>
 
         <Label>Média de renda extra (R$)</Label>
-        <Input value={variableAvg} onChangeText={(t) => setVariableAvg(normalizeMoneyBR(t))} placeholder="Ex: 300,00" keyboardType="decimal-pad" />
+        <Input value={variableAvg} onChangeText={(t) => setVariableAvg(formatBRLInputFromDigits(t))} placeholder="Ex: 300,00" keyboardType="number-pad" />
         <P muted>Prévia: {formatBRLFromCents(varCents)}</P>
 
         <Card intensity={10} style={{ shadowOpacity: 0, elevation: 0 }}>
