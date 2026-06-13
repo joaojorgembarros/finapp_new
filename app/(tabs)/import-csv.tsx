@@ -25,6 +25,7 @@ type ParsedTx = {
 type ParseResult = {
   rows: ParsedTx[];
   errors: string[];
+  ignoredRows: number;
   initialBalanceCents: number | null;
   finalBalanceCents: number | null;
 };
@@ -253,12 +254,13 @@ function parseCsv(content: string): ParseResult {
     .filter(Boolean);
 
   if (lines.length < 2) {
-    return { rows: [], errors: ["O arquivo precisa ter cabecalho e pelo menos uma transacao."], initialBalanceCents: null, finalBalanceCents: null };
+    return { rows: [], errors: ["O arquivo precisa ter cabecalho e pelo menos uma transacao."], ignoredRows: 0, initialBalanceCents: null, finalBalanceCents: null };
   }
 
   const errors: string[] = [];
   const rows: ParsedTx[] = [];
   const balanceRows: Array<{ occurred_on: string; rawLine: number; signedCents: number; balanceCents: number }> = [];
+  let ignoredRows = 0;
   let baselineBalanceCents: number | null = null;
   let explicitFinalBalanceCents: number | null = null;
   let current:
@@ -308,6 +310,10 @@ function parseCsv(content: string): ParseResult {
         .join(" - ")
         .trim() || `Importado CSV linha ${lineNumber}`;
     const normalizedNote = normalizeHeader(note);
+    const isAutomaticInvestment =
+      normalizedNote.includes("bbrendefacil") ||
+      normalizedNote.includes("rendefacil") ||
+      normalizedNote.includes("rendefcil");
     const isBalanceLine =
       ["saldoanterior", "saldododia", "saldo"].includes(normalizedNote) ||
       normalizedNote.startsWith("saldo") ||
@@ -320,6 +326,11 @@ function parseCsv(content: string): ParseResult {
 
     if (isBalanceLine) {
       explicitFinalBalanceCents = signedCents;
+      return;
+    }
+
+    if (isAutomaticInvestment) {
+      ignoredRows += 1;
       return;
     }
 
@@ -360,6 +371,7 @@ function parseCsv(content: string): ParseResult {
     return {
       rows: [],
       errors: ["Nao encontrei o cabecalho do extrato. Procure colunas como data e valor, ou credito e debito."],
+      ignoredRows,
       initialBalanceCents: null,
       finalBalanceCents: null,
     };
@@ -376,7 +388,7 @@ function parseCsv(content: string): ParseResult {
     : null);
   const finalBalanceCents = explicitFinalBalanceCents;
 
-  return { rows, errors, initialBalanceCents, finalBalanceCents };
+  return { rows, errors, ignoredRows, initialBalanceCents, finalBalanceCents };
 }
 
 function formatFileSize(size?: number | null) {
@@ -437,10 +449,11 @@ export default function ImportCsv() {
   const [busy, setBusy] = useState(false);
   const [showAllPreview, setShowAllPreview] = useState(false);
 
-  const result = useMemo(() => (csv ? parseCsv(csv) : { rows: [], errors: [], initialBalanceCents: null, finalBalanceCents: null }), [csv]);
+  const result = useMemo(() => (csv ? parseCsv(csv) : { rows: [], errors: [], ignoredRows: 0, initialBalanceCents: null, finalBalanceCents: null }), [csv]);
   const income = result.rows.filter((row) => row.type === "income").reduce((sum, row) => sum + row.amount_cents, 0);
   const expense = result.rows.filter((row) => row.type === "expense").reduce((sum, row) => sum + row.amount_cents, 0);
   const partial = income - expense;
+  const accountBalance = result.initialBalanceCents === null ? partial : result.initialBalanceCents + partial;
   const hasFile = Boolean(file);
   const previewRows = showAllPreview ? result.rows : result.rows.slice(0, 8);
 
@@ -590,8 +603,14 @@ export default function ImportCsv() {
               <SummaryPill label="Validas" value={String(result.rows.length)} tone="primary" />
               <SummaryPill label="Entradas" value={formatBRLFromCents(income)} tone="good" />
               <SummaryPill label="Saidas" value={formatBRLFromCents(expense)} tone="bad" />
-              <SummaryPill label="Resultado" value={formatBRLFromCents(partial)} tone={partial < 0 ? "bad" : "good"} />
+              <SummaryPill label="Saldo da conta" value={formatBRLFromCents(accountBalance)} tone={accountBalance < 0 ? "bad" : "good"} />
             </View>
+
+            {result.ignoredRows ? (
+              <P muted>
+                {result.ignoredRows} lancamento(s) BB Rende Facil ignorado(s), pois sao aplicacao ou resgate automatico.
+              </P>
+            ) : null}
 
             {result.errors.length ? (
               <View style={{ gap: 6, marginTop: 4 }}>
