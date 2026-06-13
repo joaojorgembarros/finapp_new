@@ -34,6 +34,110 @@ type PickedFile = {
   size?: number | null;
 };
 
+const cp1252Controls: Record<number, string> = {
+  0x80: "€",
+  0x82: "‚",
+  0x83: "ƒ",
+  0x84: "„",
+  0x85: "…",
+  0x86: "†",
+  0x87: "‡",
+  0x88: "ˆ",
+  0x89: "‰",
+  0x8a: "Š",
+  0x8b: "‹",
+  0x8c: "Œ",
+  0x8e: "Ž",
+  0x91: "‘",
+  0x92: "’",
+  0x93: "“",
+  0x94: "”",
+  0x95: "•",
+  0x96: "–",
+  0x97: "—",
+  0x98: "˜",
+  0x99: "™",
+  0x9a: "š",
+  0x9b: "›",
+  0x9c: "œ",
+  0x9e: "ž",
+  0x9f: "Ÿ",
+};
+
+function base64ToBytes(base64: string) {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  const clean = base64.replace(/[^A-Za-z0-9+/=]/g, "");
+  const bytes: number[] = [];
+
+  for (let i = 0; i < clean.length; i += 4) {
+    const a = chars.indexOf(clean[i] ?? "A");
+    const b = chars.indexOf(clean[i + 1] ?? "A");
+    const c = clean[i + 2] === "=" ? -1 : chars.indexOf(clean[i + 2] ?? "A");
+    const d = clean[i + 3] === "=" ? -1 : chars.indexOf(clean[i + 3] ?? "A");
+    const chunk = (a << 18) | (b << 12) | ((c < 0 ? 0 : c) << 6) | (d < 0 ? 0 : d);
+
+    bytes.push((chunk >> 16) & 255);
+    if (c >= 0) bytes.push((chunk >> 8) & 255);
+    if (d >= 0) bytes.push(chunk & 255);
+  }
+
+  return bytes;
+}
+
+function decodeUtf8(bytes: number[]) {
+  let text = "";
+
+  for (let i = 0; i < bytes.length; i += 1) {
+    const b1 = bytes[i];
+
+    if (b1 < 0x80) {
+      text += String.fromCharCode(b1);
+      continue;
+    }
+
+    if (b1 >= 0xc2 && b1 <= 0xdf) {
+      const b2 = bytes[i + 1];
+      if ((b2 & 0xc0) !== 0x80) return null;
+      text += String.fromCharCode(((b1 & 0x1f) << 6) | (b2 & 0x3f));
+      i += 1;
+      continue;
+    }
+
+    if (b1 >= 0xe0 && b1 <= 0xef) {
+      const b2 = bytes[i + 1];
+      const b3 = bytes[i + 2];
+      if ((b2 & 0xc0) !== 0x80 || (b3 & 0xc0) !== 0x80) return null;
+      text += String.fromCharCode(((b1 & 0x0f) << 12) | ((b2 & 0x3f) << 6) | (b3 & 0x3f));
+      i += 2;
+      continue;
+    }
+
+    if (b1 >= 0xf0 && b1 <= 0xf4) {
+      const b2 = bytes[i + 1];
+      const b3 = bytes[i + 2];
+      const b4 = bytes[i + 3];
+      if ((b2 & 0xc0) !== 0x80 || (b3 & 0xc0) !== 0x80 || (b4 & 0xc0) !== 0x80) return null;
+      text += String.fromCodePoint(((b1 & 0x07) << 18) | ((b2 & 0x3f) << 12) | ((b3 & 0x3f) << 6) | (b4 & 0x3f));
+      i += 3;
+      continue;
+    }
+
+    return null;
+  }
+
+  return text;
+}
+
+function decodeWindows1252(bytes: number[]) {
+  return bytes.map((byte) => cp1252Controls[byte] ?? String.fromCharCode(byte)).join("");
+}
+
+async function readCsvText(uri: string) {
+  const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+  const bytes = base64ToBytes(base64);
+  return decodeUtf8(bytes) ?? decodeWindows1252(bytes);
+}
+
 function splitCsvLine(line: string, delimiter: string) {
   const cells: string[] = [];
   let current = "";
@@ -337,8 +441,6 @@ export default function ImportCsv() {
   const income = result.rows.filter((row) => row.type === "income").reduce((sum, row) => sum + row.amount_cents, 0);
   const expense = result.rows.filter((row) => row.type === "expense").reduce((sum, row) => sum + row.amount_cents, 0);
   const partial = income - expense;
-  const adjustedPartial = partial + (result.initialBalanceCents ?? 0);
-  const previewPartial = result.finalBalanceCents ?? adjustedPartial;
   const hasFile = Boolean(file);
   const previewRows = showAllPreview ? result.rows : result.rows.slice(0, 8);
 
@@ -358,7 +460,7 @@ export default function ImportCsv() {
       const asset = picked.assets[0];
       if (!asset) return;
 
-      const content = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.UTF8 });
+      const content = await readCsvText(asset.uri);
       setCsv(content);
       setFile({ name: asset.name || "extrato.csv", size: asset.size });
       setShowAllPreview(false);
@@ -488,7 +590,7 @@ export default function ImportCsv() {
               <SummaryPill label="Validas" value={String(result.rows.length)} tone="primary" />
               <SummaryPill label="Entradas" value={formatBRLFromCents(income)} tone="good" />
               <SummaryPill label="Saidas" value={formatBRLFromCents(expense)} tone="bad" />
-              <SummaryPill label="Valor parcial" value={formatBRLFromCents(previewPartial)} tone={previewPartial < 0 ? "bad" : "good"} />
+              <SummaryPill label="Resultado" value={formatBRLFromCents(partial)} tone={partial < 0 ? "bad" : "good"} />
             </View>
 
             {result.errors.length ? (
