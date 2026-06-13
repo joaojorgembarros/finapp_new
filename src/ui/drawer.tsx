@@ -74,7 +74,7 @@ export function DrawerHost() {
     { label: "Início", route: "/(tabs)/home", icon: "home-outline" },
     { label: "Orçamento", route: "/(tabs)/planning", icon: "pie-chart-outline" },
     { label: "Gráficos", route: "/(tabs)/insights", icon: "bar-chart-outline" },
-    { label: "Importar Extrato", route: "/(tabs)/import-extract", icon: "cloud-upload-outline" },
+    { label: "Importar CSV", route: "/(tabs)/import-csv", icon: "cloud-upload-outline" },
     { label: "Planejamento", route: "/(tabs)/goals", icon: "trophy-outline" },
     { label: "Fechamentos", route: "/(tabs)/closures", icon: "checkmark-circle-outline" },
     { label: "Categorias", route: "/(tabs)/categories", icon: "pricetags-outline" },
