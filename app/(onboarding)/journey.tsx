@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { BlurView } from "expo-blur";
 import Svg, {
   Circle,
   Defs,
@@ -12,14 +13,40 @@ import Svg, {
   Stop,
 } from "react-native-svg";
 import { router, useLocalSearchParams } from "expo-router";
-import { OB, OnboardingShell, PrimaryButton } from "../../src/ui/OnboardingKit";
-import { formatBRLFromCents, parseBRLToCents } from "../../src/lib/format";
+import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
+import { formatBRLFromCents, formatBRLInputFromDigits, parseBRLToCents } from "../../src/lib/format";
 import { supabase } from "../../src/lib/supabase";
+import { useSession } from "../../src/providers/SessionProvider";
 
 type Tab = "controle" | "jornada" | "desafios";
 type MenuIcon = keyof typeof Ionicons.glyphMap;
 type TrailPoint = { x: number; y: number };
 type TrailSegment = { start: TrailPoint; c1: TrailPoint; c2: TrailPoint; end: TrailPoint };
+type TxType = "Receita" | "Despesa" | "Investimento";
+type Filter = "Todos" | TxType;
+type Tx = { id: string; type: TxType; description: string; category: string; date: string; amount: number };
+
+const SEED: Tx[] = [
+  { id: "1", type: "Receita", description: "Salario junho", category: "Salario", date: "2026-06-05", amount: 520000 },
+  { id: "2", type: "Despesa", description: "Supermercado semanal", category: "Supermercado", date: "2026-06-10", amount: 38400 },
+  { id: "3", type: "Investimento", description: "Aporte CDB", category: "CDB", date: "2026-06-12", amount: 100000 },
+  { id: "4", type: "Despesa", description: "Plano de saude", category: "Plano de saude", date: "2026-06-13", amount: 42000 },
+  { id: "5", type: "Receita", description: "Freela design", category: "Renda extra", date: "2026-06-15", amount: 80000 },
+];
+
+const CATEGORIES: Record<TxType, string[]> = {
+  Receita: ["Salario", "Renda extra", "Aluguel", "13o salario", "Ferias", "Outros"],
+  Despesa: ["Aluguel", "Supermercado", "Internet", "Plano de saude", "Restaurantes", "Academia", "Outros"],
+  Investimento: ["Poupanca", "CDB", "Tesouro Direto", "Renda fixa", "Acoes", "Outros"],
+};
+
+const WEB_DRAWER_BLUR_STYLE =
+  Platform.OS === "web"
+    ? ({
+        backdropFilter: "blur(6px)",
+        WebkitBackdropFilter: "blur(6px)",
+      } as any)
+    : null;
 
 const TRAIL_SEGMENTS: TrailSegment[] = [
   {
@@ -124,6 +151,20 @@ function readJson<T>(raw: string | string[] | undefined, fallback: T): T {
   }
 }
 
+function formatDate(iso: string) {
+  const [y, m, d] = iso.split("-");
+  return `${d}/${m}/${y}`;
+}
+
+function initialsFrom(nameOrEmail: string) {
+  const s = (nameOrEmail || "").trim();
+  if (!s) return "U";
+  if (s.includes("@")) return (s.split("@")[0]?.slice(0, 2) || "U").toUpperCase();
+  const parts = s.split(/\s+/).filter(Boolean);
+  if (parts.length === 1) return (parts[0].slice(0, 2) || "U").toUpperCase();
+  return `${parts[0]?.[0] ?? "U"}${parts[parts.length - 1]?.[0] ?? ""}`.toUpperCase();
+}
+
 function MountainHero({ progress }: { progress: number }) {
   const progressPct = clampProgress(progress);
   const marker = pointAtProgress(progressPct);
@@ -213,14 +254,8 @@ function MountainHero({ progress }: { progress: number }) {
       </Svg>
 
       <View style={styles.heroTextBlock}>
-        <Text style={styles.heroEyebrow}>Sua jornada</Text>
         <Text style={styles.heroTitle}>Sua jornada</Text>
         <Text style={styles.heroSubtitle}>Acompanhe o progresso dos seus sonhos.</Text>
-      </View>
-
-      <View style={styles.badge}>
-        <Ionicons name="trail-sign-outline" size={22} color="#DCEBFF" />
-        <Text style={styles.badgeText}>{progressPct}% concluído</Text>
       </View>
 
     </View>
@@ -247,6 +282,176 @@ function ProgressCard({ label, value, percent, icon }: { label: string; value: s
   );
 }
 
+function SummaryCard({ label, value, icon, color }: { label: string; value: number; icon: string; color: string }) {
+  return (
+    <View style={styles.summaryCard}>
+      <View style={[styles.summaryAccent, { backgroundColor: color }]} />
+      <View style={[styles.summaryIcon, { backgroundColor: `${color}1A` }]}>
+        <Ionicons name={icon as any} size={17} color={color} />
+      </View>
+      <Text style={styles.summaryLabel}>{label}</Text>
+      <Text style={styles.summaryValue}>{formatBRLFromCents(value)}</Text>
+    </View>
+  );
+}
+
+function TxRow({ tx }: { tx: Tx }) {
+  const color = tx.type === "Receita" ? "#22a96b" : tx.type === "Investimento" ? OB.support : "#e05252";
+  const sign = tx.type === "Receita" ? "+" : tx.type === "Investimento" ? "~" : "-";
+
+  return (
+    <View style={styles.txRow}>
+      <View style={[styles.txDot, { backgroundColor: `${color}1A` }]}>
+        <Text style={[styles.txDotText, { color }]}>{sign}</Text>
+      </View>
+      <View style={styles.txInfo}>
+        <Text style={styles.txDesc} numberOfLines={1}>{tx.description}</Text>
+        <Text style={styles.txMeta}>{tx.category} - {formatDate(tx.date)}</Text>
+      </View>
+      <View style={styles.txAmountWrap}>
+        <Text style={[styles.txAmount, { color }]}>{sign}{formatBRLFromCents(tx.amount)}</Text>
+        <Text style={[styles.txType, { color, backgroundColor: `${color}1A` }]}>{tx.type}</Text>
+      </View>
+    </View>
+  );
+}
+
+function AddModal({ visible, onClose, onSave }: { visible: boolean; onClose: () => void; onSave: (tx: Tx) => void }) {
+  const [type, setType] = useState<TxType>("Receita");
+  const [amount, setAmount] = useState("");
+  const [desc, setDesc] = useState("");
+  const [category, setCategory] = useState(CATEGORIES.Receita[0]);
+
+  function changeType(next: TxType) {
+    setType(next);
+    setCategory(CATEGORIES[next][0]);
+  }
+
+  function save() {
+    const cents = parseBRLToCents(amount);
+    if (!cents || !desc.trim()) return;
+    onSave({
+      id: Date.now().toString(),
+      type,
+      amount: cents,
+      description: desc.trim(),
+      category,
+      date: new Date().toISOString().slice(0, 10),
+    });
+    setAmount("");
+    setDesc("");
+    onClose();
+  }
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={styles.modalShade}>
+        <View style={styles.sheet}>
+          <View style={styles.sheetHandle} />
+          <View style={styles.sheetHeader}>
+            <Text style={styles.sheetTitle}>Novo lancamento</Text>
+            <Pressable onPress={onClose} hitSlop={12}>
+              <Ionicons name="close" size={21} color={OB.support} />
+            </Pressable>
+          </View>
+
+          <View style={styles.typeTabs}>
+            {(["Receita", "Despesa", "Investimento"] as TxType[]).map((item) => {
+              const active = item === type;
+              return (
+                <Pressable key={item} onPress={() => changeType(item)} style={[styles.typeTab, active && styles.typeTabActive]}>
+                  <Text style={[styles.typeTabText, active && styles.typeTabTextActive]}>{item}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <Text style={styles.fieldLabel}>Valor</Text>
+          <View style={styles.inputBox}>
+            <Text style={styles.currency}>R$</Text>
+            <TextInput value={amount.replace("R$", "").trim()} onChangeText={(text) => setAmount(formatBRLInputFromDigits(text))} placeholder="0,00" placeholderTextColor={OB.support} keyboardType="number-pad" style={styles.input} />
+          </View>
+
+          <Text style={styles.fieldLabel}>Categoria</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categories}>
+            {CATEGORIES[type].map((item) => {
+              const active = item === category;
+              return (
+                <Pressable key={item} onPress={() => setCategory(item)} style={[styles.category, active && styles.categoryActive]}>
+                  <Text style={[styles.categoryText, active && styles.categoryTextActive]}>{item}</Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+
+          <Text style={styles.fieldLabel}>Descricao</Text>
+          <TextInput value={desc} onChangeText={setDesc} placeholder="Ex: compra mercado" placeholderTextColor={OB.support} style={styles.inputBoxText} />
+
+          <Pressable onPress={save} disabled={!parseBRLToCents(amount) || !desc.trim()} style={[styles.saveButton, (!parseBRLToCents(amount) || !desc.trim()) && styles.saveButtonDisabled]}>
+            <Text style={[styles.saveButtonText, (!parseBRLToCents(amount) || !desc.trim()) && styles.saveButtonTextDisabled]}>Salvar lancamento</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function ControlPanel() {
+  const [txs, setTxs] = useState<Tx[]>(SEED);
+  const [modal, setModal] = useState(false);
+  const [filter, setFilter] = useState<Filter>("Todos");
+
+  const totals = useMemo(() => {
+    const income = txs.filter((tx) => tx.type === "Receita").reduce((sum, tx) => sum + tx.amount, 0);
+    const expense = txs.filter((tx) => tx.type === "Despesa").reduce((sum, tx) => sum + tx.amount, 0);
+    const invest = txs.filter((tx) => tx.type === "Investimento").reduce((sum, tx) => sum + tx.amount, 0);
+    return { income, expense, invest, balance: income - expense - invest };
+  }, [txs]);
+
+  const filtered = filter === "Todos" ? txs : txs.filter((tx) => tx.type === filter);
+
+  return (
+    <>
+      <ScrollView contentContainerStyle={styles.controlScroll} showsVerticalScrollIndicator={false}>
+        <View style={styles.controlHeader}>
+          <Text style={styles.controlEyebrow}>Controle financeiro</Text>
+          <Text style={styles.controlTitle}>Liberdade financeira</Text>
+          <Text style={styles.controlSubtitle}>Organize seus lancamentos e acompanhe seu dinheiro com clareza.</Text>
+        </View>
+
+        <View style={styles.summaryGrid}>
+          <SummaryCard label="Receitas do mes" value={totals.income} color="#22a96b" icon="trending-up-outline" />
+          <SummaryCard label="Despesas do mes" value={totals.expense} color="#e05252" icon="trending-down-outline" />
+          <SummaryCard label="Saldo atual" value={totals.balance} color={OB.primary} icon="wallet-outline" />
+          <SummaryCard label="Investimentos" value={totals.invest} color={OB.support} icon="briefcase-outline" />
+        </View>
+
+        <Pressable onPress={() => setModal(true)} style={styles.newButton}>
+          <Ionicons name="add" size={19} color="#fff" />
+          <Text style={styles.newText}>Novo lancamento</Text>
+        </Pressable>
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
+          {(["Todos", "Receita", "Despesa", "Investimento"] as Filter[]).map((item) => {
+            const active = item === filter;
+            return (
+              <Pressable key={item} onPress={() => setFilter(item)} style={[styles.filter, active && styles.filterActive]}>
+                <Text style={[styles.filterText, active && styles.filterTextActive]}>{item}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+
+        <View style={styles.txList}>
+          {filtered.map((tx) => <TxRow key={tx.id} tx={tx} />)}
+        </View>
+      </ScrollView>
+
+      <AddModal visible={modal} onClose={() => setModal(false)} onSave={(tx) => setTxs((prev) => [tx, ...prev])} />
+    </>
+  );
+}
+
 function DrawerButton({
   icon,
   label,
@@ -270,12 +475,16 @@ function DrawerButton({
 function JourneyDrawer({
   open,
   activeTab,
+  displayName,
+  avatarUrl,
   onClose,
   onTab,
   onLogout,
 }: {
   open: boolean;
   activeTab: Tab;
+  displayName: string;
+  avatarUrl?: string | null;
   onClose: () => void;
   onTab: (tab: Tab) => void;
   onLogout: () => void;
@@ -287,31 +496,48 @@ function JourneyDrawer({
     onClose();
   }
 
-  function goRoute(pathname: "/(onboarding)/dreams" | "/(onboarding)/dream-values" | "/(onboarding)/financial-freedom") {
+  function goProfile() {
     onClose();
-    router.push(pathname);
+    router.push("/(onboarding)/profile");
   }
 
   return (
     <View style={styles.drawerLayer}>
-      <Pressable onPress={onClose} style={styles.drawerScrim} />
+      <Pressable onPress={onClose} style={[styles.drawerScrim, WEB_DRAWER_BLUR_STYLE]}>
+        <BlurView
+          intensity={24}
+          tint="default"
+          blurReductionFactor={3}
+          experimentalBlurMethod="dimezisBlurView"
+          pointerEvents="none"
+          style={StyleSheet.absoluteFill}
+        />
+        <View style={styles.drawerScrimTint} />
+      </Pressable>
       <View style={styles.drawerPanel}>
         <View style={styles.drawerHero}>
           <Pressable onPress={onClose} style={styles.drawerClose} hitSlop={12}>
             <Ionicons name="close" size={21} color="#fff" />
           </Pressable>
-          <View style={styles.drawerAvatar}>
-            <Text style={styles.drawerAvatarText}>F</Text>
+          <View style={styles.drawerProfile}>
+            <Pressable onPress={goProfile} style={styles.drawerAvatar} accessibilityRole="button" accessibilityLabel="Editar perfil">
+              {avatarUrl ? (
+                <Image source={{ uri: avatarUrl }} style={styles.drawerAvatarImage} />
+              ) : (
+                <Text style={styles.drawerAvatarText}>{initialsFrom(displayName)}</Text>
+              )}
+              <View style={styles.drawerAvatarEdit}>
+                <Ionicons name="camera" size={12} color="#fff" />
+              </View>
+            </Pressable>
+            <Text style={styles.drawerUserName} numberOfLines={1}>{displayName}</Text>
+            <Text style={styles.drawerSubtitle}>Sua jornada financeira</Text>
           </View>
-          <Text style={styles.drawerTitle}>Finapp</Text>
-          <Text style={styles.drawerSubtitle}>Sua jornada financeira</Text>
         </View>
 
         <View style={styles.drawerList}>
           <DrawerButton icon="compass-outline" label="Jornada" active={activeTab === "jornada"} onPress={() => goTab("jornada")} />
-          <DrawerButton icon="sparkles-outline" label="Sonhos" onPress={() => goRoute("/(onboarding)/dreams")} />
-          <DrawerButton icon="cash-outline" label="Valores dos sonhos" onPress={() => goRoute("/(onboarding)/dream-values")} />
-          <DrawerButton icon="wallet-outline" label="Painel financeiro" active={activeTab === "controle"} onPress={() => goRoute("/(onboarding)/financial-freedom")} />
+          <DrawerButton icon="wallet-outline" label="Controle financeiro" active={activeTab === "controle"} onPress={() => goTab("controle")} />
           <DrawerButton icon="trophy-outline" label="Desafios" active={activeTab === "desafios"} onPress={() => goTab("desafios")} />
         </View>
 
@@ -328,9 +554,18 @@ function JourneyDrawer({
 
 export default function JourneyScreen() {
   const params = useLocalSearchParams<{ dreams?: string; values?: string }>();
+  const { session } = useSession();
   const [tab, setTab] = useState<Tab>("jornada");
   const [menuOpen, setMenuOpen] = useState(false);
   const [challengeDone, setChallengeDone] = useState(false);
+
+  const userMeta = session?.user?.user_metadata as Record<string, any> | undefined;
+  const displayName =
+    userMeta?.full_name ||
+    userMeta?.name ||
+    session?.user?.email?.split("@")[0] ||
+    "Usuario";
+  const avatarUrl = userMeta?.avatar_url || userMeta?.picture || null;
 
   const dreams = useMemo(() => readJson<string[]>(params.dreams, ["Reserva de emergência", "Investir mais", "Liberdade financeira"]), [params.dreams]);
   const values = useMemo(() => readJson<Record<string, string>>(params.values, {}), [params.values]);
@@ -346,10 +581,6 @@ export default function JourneyScreen() {
   });
   const journeyProgress = cards[0]?.percent ?? 0;
 
-  function goToPanel() {
-    router.replace("/(onboarding)/financial-freedom");
-  }
-
   async function logout() {
     setMenuOpen(false);
     await supabase.auth.signOut();
@@ -360,13 +591,14 @@ export default function JourneyScreen() {
     <OnboardingShell light>
       <View style={styles.root}>
         <View style={styles.content}>
-          {tab === "jornada" ? (
+          {tab === "controle" ? (
+            <ControlPanel />
+          ) : tab === "jornada" ? (
             <>
               <MountainHero progress={journeyProgress} />
               <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionTitle}>Seus sonhos</Text>
-                  <Text style={styles.sectionLink}>ver todos</Text>
                 </View>
                 {cards.map((card) => (
                   <ProgressCard key={card.label} {...card} />
@@ -393,22 +625,22 @@ export default function JourneyScreen() {
                   </Pressable>
                 </View>
 
-                <PrimaryButton title="Ir para o painel" onPress={goToPanel} style={{ marginTop: 4 }} />
               </ScrollView>
             </>
           ) : (
             <View style={styles.placeholder}>
-              <Ionicons name={tab === "controle" ? "bar-chart-outline" : "trophy-outline"} size={42} color={OB.support} />
-              <Text style={styles.placeholderTitle}>{tab === "controle" ? "Controle financeiro" : "Desafios em breve"}</Text>
-              <Text style={styles.placeholderText}>{tab === "controle" ? "Seu painel completo aparece na próxima tela." : "Missões financeiras para manter sua jornada viva."}</Text>
+              <Ionicons name="trophy-outline" size={42} color={OB.support} />
+              <Text style={styles.placeholderTitle}>Desafios em breve</Text>
+              <Text style={styles.placeholderText}>Missões financeiras para manter sua jornada viva.</Text>
             </View>
           )}
         </View>
 
         <View style={styles.nav}>
           <Pressable onPress={() => setMenuOpen(true)} style={styles.navItem}>
-            <Ionicons name="menu-outline" size={23} color={OB.primary} />
-            <Text style={[styles.navText, styles.navTextActive]}>Menu</Text>
+            <Ionicons name="menu-outline" size={23} color={menuOpen ? OB.primary : OB.support} />
+            <Text style={[styles.navText, menuOpen && styles.navTextActive]}>Menu</Text>
+            {menuOpen ? <View style={styles.navIndicator} /> : null}
           </Pressable>
 
           {[
@@ -426,7 +658,15 @@ export default function JourneyScreen() {
             );
           })}
         </View>
-        <JourneyDrawer open={menuOpen} activeTab={tab} onClose={() => setMenuOpen(false)} onTab={setTab} onLogout={logout} />
+        <JourneyDrawer
+          open={menuOpen}
+          activeTab={tab}
+          displayName={displayName}
+          avatarUrl={avatarUrl}
+          onClose={() => setMenuOpen(false)}
+          onTab={setTab}
+          onLogout={logout}
+        />
       </View>
     </OnboardingShell>
   );
@@ -441,42 +681,15 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   hero: {
-    height: 252,
+    height: 218,
     backgroundColor: OB.primary,
     overflow: "hidden",
-  },
-  badge: {
-    position: "absolute",
-    right: 18,
-    top: 18,
-    minHeight: 38,
-    borderRadius: 99,
-    paddingHorizontal: 14,
-    flexDirection: "row",
-    gap: 9,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.14)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.18)",
-  },
-  badgeText: {
-    color: OB.offWhite,
-    fontSize: 13,
-    fontWeight: "900",
   },
   heroTextBlock: {
     position: "absolute",
     left: 24,
-    top: 30,
+    top: 22,
     maxWidth: 210,
-  },
-  heroEyebrow: {
-    color: "#7BAFFF",
-    fontSize: 12,
-    fontWeight: "900",
-    letterSpacing: 2.2,
-    textTransform: "uppercase",
   },
   heroTitle: {
     color: OB.offWhite,
@@ -506,11 +719,6 @@ const styles = StyleSheet.create({
     color: OB.primary,
     fontSize: 15,
     fontWeight: "900",
-  },
-  sectionLink: {
-    color: OB.support,
-    fontSize: 12,
-    fontWeight: "800",
   },
   goalCard: {
     flexDirection: "row",
@@ -641,6 +849,308 @@ const styles = StyleSheet.create({
     backgroundColor: OB.primary,
     borderColor: OB.primary,
   },
+  controlScroll: {
+    padding: 16,
+    paddingTop: 14,
+    paddingBottom: 24,
+    gap: 16,
+  },
+  controlHeader: {
+    borderRadius: 22,
+    padding: 20,
+    backgroundColor: OB.primary,
+    overflow: "hidden",
+  },
+  controlEyebrow: {
+    color: OB.textOnDarkMid,
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 2,
+    textTransform: "uppercase",
+  },
+  controlTitle: {
+    color: OB.textOnDark,
+    fontSize: 25,
+    fontWeight: "900",
+    marginTop: 8,
+  },
+  controlSubtitle: {
+    color: OB.textOnDarkMid,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 20,
+    marginTop: 6,
+  },
+  summaryGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  summaryCard: {
+    width: "48.5%",
+    minHeight: 112,
+    borderRadius: 18,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.85)",
+    padding: 14,
+    overflow: "hidden",
+    shadowColor: OB.primary,
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
+  },
+  summaryAccent: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 3,
+  },
+  summaryIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 10,
+  },
+  summaryLabel: {
+    color: OB.support,
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  summaryValue: {
+    color: OB.primary,
+    fontSize: 15,
+    fontWeight: "900",
+    marginTop: 4,
+  },
+  newButton: {
+    minHeight: 54,
+    borderRadius: 16,
+    backgroundColor: OB.primary,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  newText: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  filters: {
+    gap: 8,
+  },
+  filter: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 99,
+    backgroundColor: "#fff",
+  },
+  filterActive: {
+    backgroundColor: OB.primary,
+  },
+  filterText: {
+    color: OB.support,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  filterTextActive: {
+    color: "#fff",
+  },
+  txList: {
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    backgroundColor: "#fff",
+  },
+  txRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: OB.supportSoft,
+  },
+  txDot: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  txDotText: {
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  txInfo: {
+    flex: 1,
+  },
+  txDesc: {
+    color: OB.primary,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  txMeta: {
+    color: OB.support,
+    fontSize: 11,
+    fontWeight: "700",
+    marginTop: 2,
+  },
+  txAmountWrap: {
+    alignItems: "flex-end",
+  },
+  txAmount: {
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  txType: {
+    fontSize: 10,
+    fontWeight: "900",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    marginTop: 3,
+  },
+  modalShade: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(6,21,46,0.62)",
+  },
+  sheet: {
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    backgroundColor: "#fff",
+    padding: 20,
+    paddingTop: 12,
+    gap: 10,
+  },
+  sheetHandle: {
+    alignSelf: "center",
+    width: 38,
+    height: 4,
+    borderRadius: 99,
+    backgroundColor: OB.supportSoft,
+    marginBottom: 4,
+  },
+  sheetHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  sheetTitle: {
+    color: OB.primary,
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  typeTabs: {
+    flexDirection: "row",
+    gap: 7,
+    marginBottom: 4,
+  },
+  typeTab: {
+    flex: 1,
+    minHeight: 39,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: OB.offWhite,
+  },
+  typeTabActive: {
+    backgroundColor: OB.primary,
+  },
+  typeTabText: {
+    color: OB.support,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  typeTabTextActive: {
+    color: "#fff",
+  },
+  fieldLabel: {
+    color: OB.support,
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    marginTop: 4,
+  },
+  inputBox: {
+    minHeight: 50,
+    borderRadius: 15,
+    borderWidth: 1.5,
+    borderColor: OB.supportSoft,
+    backgroundColor: OB.offWhite,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 15,
+  },
+  currency: {
+    color: OB.primary,
+    fontSize: 15,
+    fontWeight: "900",
+    marginRight: 6,
+  },
+  input: {
+    flex: 1,
+    color: OB.primary,
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  inputBoxText: {
+    minHeight: 50,
+    borderRadius: 15,
+    borderWidth: 1.5,
+    borderColor: OB.supportSoft,
+    backgroundColor: OB.offWhite,
+    paddingHorizontal: 15,
+    color: OB.primary,
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  categories: {
+    gap: 8,
+    paddingVertical: 2,
+  },
+  category: {
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    backgroundColor: OB.offWhite,
+  },
+  categoryActive: {
+    backgroundColor: OB.primary,
+  },
+  categoryText: {
+    color: OB.support,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  categoryTextActive: {
+    color: "#fff",
+  },
+  saveButton: {
+    minHeight: 54,
+    borderRadius: 16,
+    backgroundColor: OB.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 14,
+  },
+  saveButtonDisabled: {
+    backgroundColor: "rgba(123,160,200,0.32)",
+  },
+  saveButtonText: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  saveButtonTextDisabled: {
+    color: OB.support,
+  },
   placeholder: {
     flex: 1,
     alignItems: "center",
@@ -700,15 +1210,19 @@ const styles = StyleSheet.create({
   },
   drawerScrim: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(6,21,46,0.58)",
+    overflow: "hidden",
+  },
+  drawerScrimTint: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(6,21,46,0.18)",
   },
   drawerPanel: {
     position: "absolute",
     top: 0,
     bottom: 0,
     left: 0,
-    width: "82%",
-    maxWidth: 320,
+    width: "72%",
+    maxWidth: 280,
     backgroundColor: OB.offWhite,
     shadowColor: "#000",
     shadowOpacity: 0.24,
@@ -717,65 +1231,88 @@ const styles = StyleSheet.create({
     elevation: 35,
   },
   drawerHero: {
-    minHeight: 198,
-    paddingHorizontal: 20,
-    paddingTop: 28,
-    paddingBottom: 20,
+    minHeight: 154,
+    paddingHorizontal: 16,
+    paddingTop: 22,
+    paddingBottom: 16,
     backgroundColor: OB.primary,
     justifyContent: "flex-end",
   },
   drawerClose: {
     position: "absolute",
-    top: 18,
-    right: 16,
-    width: 34,
-    height: 34,
-    borderRadius: 12,
+    top: 14,
+    right: 12,
+    width: 30,
+    height: 30,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "rgba(255,255,255,0.12)",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.18)",
   },
+  drawerProfile: {
+    alignItems: "flex-start",
+  },
   drawerAvatar: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 12,
-    backgroundColor: OB.support,
+    marginBottom: 11,
+    backgroundColor: "rgba(255,255,255,0.14)",
     borderWidth: 2,
     borderColor: "rgba(255,255,255,0.28)",
+    overflow: "visible",
+  },
+  drawerAvatarImage: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 29,
   },
   drawerAvatarText: {
     color: "#fff",
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: "900",
   },
-  drawerTitle: {
+  drawerAvatarEdit: {
+    position: "absolute",
+    right: -2,
+    bottom: -2,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: OB.support,
+    borderWidth: 2,
+    borderColor: OB.primary,
+  },
+  drawerUserName: {
     color: OB.offWhite,
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: "900",
+    maxWidth: "92%",
   },
   drawerSubtitle: {
     color: "rgba(160,200,235,0.86)",
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "700",
     marginTop: 3,
   },
   drawerList: {
-    padding: 14,
-    gap: 8,
+    padding: 10,
+    gap: 6,
     flex: 1,
   },
   drawerItem: {
-    minHeight: 52,
-    borderRadius: 16,
-    paddingHorizontal: 14,
+    minHeight: 46,
+    borderRadius: 13,
+    paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 10,
     backgroundColor: "transparent",
   },
   drawerItemActive: {
@@ -784,31 +1321,31 @@ const styles = StyleSheet.create({
   drawerItemText: {
     flex: 1,
     color: OB.primary,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "900",
   },
   drawerItemTextActive: {
     color: "#fff",
   },
   drawerFooter: {
-    padding: 14,
+    padding: 10,
     borderTopWidth: 1,
     borderTopColor: OB.supportSoft,
   },
   logoutButton: {
-    minHeight: 52,
-    borderRadius: 16,
-    paddingHorizontal: 14,
+    minHeight: 46,
+    borderRadius: 13,
+    paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 10,
     backgroundColor: "#FDE7E7",
     borderWidth: 1,
     borderColor: "#F5B9B9",
   },
   logoutText: {
     color: "#B94A4A",
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "900",
   },
 });

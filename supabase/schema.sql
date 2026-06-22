@@ -26,14 +26,17 @@ create table if not exists public.households (
 
 alter table public.households enable row level security;
 
+drop policy if exists "households_select_member" on public.households;
 create policy "households_select_member"
 on public.households for select
 using (public.is_member(id));
 
+drop policy if exists "households_insert_owner" on public.households;
 create policy "households_insert_owner"
 on public.households for insert
 with check (created_by = auth.uid());
 
+drop policy if exists "households_update_owner" on public.households;
 create policy "households_update_owner"
 on public.households for update
 using (created_by = auth.uid())
@@ -51,10 +54,12 @@ create table if not exists public.memberships (
 
 alter table public.memberships enable row level security;
 
+drop policy if exists "memberships_select_self" on public.memberships;
 create policy "memberships_select_self"
 on public.memberships for select
 using (user_id = auth.uid());
 
+drop policy if exists "memberships_insert_self" on public.memberships;
 create policy "memberships_insert_self"
 on public.memberships for insert
 with check (user_id = auth.uid());
@@ -70,18 +75,60 @@ create table if not exists public.profiles (
 
 alter table public.profiles enable row level security;
 
+drop policy if exists "profiles_select_self" on public.profiles;
 create policy "profiles_select_self"
 on public.profiles for select
 using (user_id = auth.uid());
 
+drop policy if exists "profiles_upsert_self" on public.profiles;
 create policy "profiles_upsert_self"
 on public.profiles for insert
 with check (user_id = auth.uid());
 
+drop policy if exists "profiles_update_self" on public.profiles;
 create policy "profiles_update_self"
 on public.profiles for update
 using (user_id = auth.uid())
 with check (user_id = auth.uid());
+
+-- AVATARS (foto de perfil)
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'avatars',
+  'avatars',
+  true,
+  5242880,
+  array['image/jpeg', 'image/png', 'image/webp']
+)
+on conflict (id) do update
+set public = excluded.public,
+    file_size_limit = excluded.file_size_limit,
+    allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists "avatars_select_public" on storage.objects;
+create policy "avatars_select_public"
+on storage.objects for select
+using (bucket_id = 'avatars');
+
+drop policy if exists "avatars_insert_self" on storage.objects;
+create policy "avatars_insert_self"
+on storage.objects for insert
+with check (
+  bucket_id = 'avatars'
+  and auth.uid()::text = (storage.foldername(name))[1]
+);
+
+drop policy if exists "avatars_update_self" on storage.objects;
+create policy "avatars_update_self"
+on storage.objects for update
+using (
+  bucket_id = 'avatars'
+  and auth.uid()::text = (storage.foldername(name))[1]
+)
+with check (
+  bucket_id = 'avatars'
+  and auth.uid()::text = (storage.foldername(name))[1]
+);
 
 -- CATEGORIES
 create table if not exists public.categories (
@@ -97,6 +144,7 @@ create table if not exists public.categories (
 
 alter table public.categories enable row level security;
 
+drop policy if exists "categories_member_rw" on public.categories;
 create policy "categories_member_rw"
 on public.categories for all
 using (public.is_member(household_id))
@@ -117,6 +165,7 @@ create table if not exists public.transactions (
 
 alter table public.transactions enable row level security;
 
+drop policy if exists "transactions_member_rw" on public.transactions;
 create policy "transactions_member_rw"
 on public.transactions for all
 using (public.is_member(household_id))
@@ -154,6 +203,7 @@ end $$;
 
 alter table public.budgets enable row level security;
 
+drop policy if exists "budgets_member_rw" on public.budgets;
 create policy "budgets_member_rw"
 on public.budgets for all
 using (public.is_member(household_id))
@@ -175,6 +225,7 @@ create table if not exists public.goals (
 
 alter table public.goals enable row level security;
 
+drop policy if exists "goals_member_rw" on public.goals;
 create policy "goals_member_rw"
 on public.goals for all
 using (public.is_member(household_id))

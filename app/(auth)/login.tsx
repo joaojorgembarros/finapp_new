@@ -17,6 +17,8 @@ import {
 import { router } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
+import { StatusBar } from "expo-status-bar";
+import * as NavigationBar from "expo-navigation-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Svg, {
   Circle,
@@ -146,6 +148,7 @@ function AuthField({
   keyboardType,
   secureTextEntry,
   focused,
+  keyboardVisible,
   onFocus,
   onBlur,
   right,
@@ -159,18 +162,41 @@ function AuthField({
   keyboardType?: TextInputProps["keyboardType"];
   secureTextEntry?: boolean;
   focused: boolean;
+  keyboardVisible: boolean;
   onFocus: () => void;
   onBlur: () => void;
   right?: React.ReactNode;
   inputRef?: React.RefObject<TextInput | null>;
 }) {
   const localInputRef = React.useRef<TextInput>(null);
+  const refocusTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const ref = inputRef ?? localInputRef;
+
+  React.useEffect(() => {
+    return () => {
+      if (refocusTimer.current) clearTimeout(refocusTimer.current);
+    };
+  }, []);
+
+  function focusInput() {
+    if (refocusTimer.current) clearTimeout(refocusTimer.current);
+
+    if (Platform.OS === "android" && !keyboardVisible) {
+      ref.current?.blur();
+      refocusTimer.current = setTimeout(() => {
+        ref.current?.focus();
+        refocusTimer.current = null;
+      }, 30);
+      return;
+    }
+
+    ref.current?.focus();
+  }
 
   return (
     <View>
       <Text style={styles.fieldLabel}>{label}</Text>
-      <Pressable onPress={() => ref.current?.focus()} style={[styles.field, focused && styles.fieldActive]}>
+      <Pressable onPress={focusInput} style={[styles.field, focused && styles.fieldActive]}>
         <Ionicons name={icon} size={18} color={focused ? T.primary : T.support} />
         <TextInput
           ref={ref}
@@ -182,6 +208,7 @@ function AuthField({
           secureTextEntry={secureTextEntry}
           autoCapitalize="none"
           autoCorrect={false}
+          onPressIn={focusInput}
           onFocus={onFocus}
           onBlur={onBlur}
           style={styles.fieldInput}
@@ -236,19 +263,27 @@ export default function LoginScreen() {
   const [showPass, setShowPass] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const passwordInputRef = useRef<TextInput>(null);
-  const passwordKeyboardActive = focused === "password" && keyboardVisible;
+  const inputKeyboardActive = focused !== null && keyboardVisible;
 
   useEffect(() => {
+    if (Platform.OS === "android") {
+      NavigationBar.setBackgroundColorAsync("#163870").catch(() => {});
+      NavigationBar.setButtonStyleAsync("light").catch(() => {});
+    }
+
     const showSub = Keyboard.addListener("keyboardDidShow", () => setKeyboardVisible(true));
     const hideSub = Keyboard.addListener("keyboardDidHide", () => {
       setKeyboardVisible(false);
       setFocused(null);
-      passwordInputRef.current?.blur();
     });
 
     return () => {
       showSub.remove();
       hideSub.remove();
+      if (Platform.OS === "android") {
+        NavigationBar.setBackgroundColorAsync(T.offWhite).catch(() => {});
+        NavigationBar.setButtonStyleAsync("dark").catch(() => {});
+      }
     };
   }, []);
 
@@ -294,23 +329,25 @@ export default function LoginScreen() {
   }
 
   return (
-    <SafeAreaView edges={["top", "bottom"]} style={styles.screen}>
+    <View style={styles.screen}>
+      <StatusBar style="light" backgroundColor="transparent" translucent />
       <AbstractBackground />
+      <SafeAreaView edges={["top", "bottom"]} style={styles.safeArea}>
       <KeyboardAvoidingView enabled={Platform.OS === "ios"} behavior="padding" style={styles.keyboard}>
-        <View style={[styles.root, compact && styles.rootCompact, passwordKeyboardActive && styles.rootKeyboardActive]}>
-          <View style={[styles.brandRow, passwordKeyboardActive && styles.keyboardHidden]}>
+        <View style={[styles.root, compact && styles.rootCompact, inputKeyboardActive && styles.rootKeyboardActive]}>
+          <View style={[styles.brandRow, inputKeyboardActive && styles.keyboardHidden]}>
             <LogoMark />
             <Text style={styles.brandName}>FinApp</Text>
           </View>
 
-          <View style={[styles.copyBlock, compact && styles.copyBlockCompact, passwordKeyboardActive && styles.keyboardHidden]}>
+          <View style={[styles.copyBlock, compact && styles.copyBlockCompact, inputKeyboardActive && styles.keyboardHidden]}>
             <Text style={styles.eyebrow}>Bem-vindo de volta</Text>
             <Text style={[styles.headline, compact && styles.headlineCompact]}>Assuma o controle do seu dinheiro sem complicação.</Text>
             <Text style={styles.subhead}>Organize sua vida financeira com leveza e transforme objetivos em conquistas.</Text>
           </View>
 
-          <View style={[styles.card, passwordKeyboardActive && styles.cardKeyboardActive]}>
-            <View style={[styles.form, compact && styles.formCompact, passwordKeyboardActive && styles.formKeyboardActive]}>
+          <View style={[styles.card, inputKeyboardActive && styles.cardKeyboardActive]}>
+            <View style={[styles.form, compact && styles.formCompact, inputKeyboardActive && styles.formKeyboardActive]}>
                 <AuthField
                   icon="mail-outline"
                   label="E-mail"
@@ -319,6 +356,7 @@ export default function LoginScreen() {
                   placeholder="seu@email.com"
                   keyboardType="email-address"
                   focused={focused === "email"}
+                  keyboardVisible={keyboardVisible}
                   onFocus={() => setFocused("email")}
                   onBlur={() => setFocused(null)}
                 />
@@ -331,6 +369,7 @@ export default function LoginScreen() {
                   placeholder="Sua senha"
                   secureTextEntry={!showPass}
                   focused={focused === "password"}
+                  keyboardVisible={keyboardVisible}
                   inputRef={passwordInputRef}
                   onFocus={() => setFocused("password")}
                   onBlur={() => setFocused(null)}
@@ -345,9 +384,16 @@ export default function LoginScreen() {
                   <Text style={styles.forgotText}>Esqueci minha senha</Text>
                 </Pressable>
 
-              <Pressable onPress={onLogin} disabled={loading} style={[styles.primaryTouch, loading && styles.disabledButton]}>
+              <Pressable onPress={onLogin} disabled={loading} style={styles.primaryTouch}>
                   <LinearGradient colors={["#06152e", T.primary, "#163870"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.primaryButton}>
-                    {loading ? <ActivityIndicator color="#ffffff" /> : <Text style={styles.primaryText}>Continuar</Text>}
+                    {loading ? (
+                      <View style={styles.loadingContent}>
+                        <ActivityIndicator color="#ffffff" size="small" />
+                        <Text style={styles.primaryText}>Entrando...</Text>
+                      </View>
+                    ) : (
+                      <Text style={styles.primaryText}>Continuar</Text>
+                    )}
                   </LinearGradient>
                 </Pressable>
 
@@ -368,14 +414,18 @@ export default function LoginScreen() {
           </View>
         </View>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: "#06152e",
+    backgroundColor: "#163870",
+  },
+  safeArea: {
+    flex: 1,
   },
   keyboard: {
     flex: 1,
@@ -385,11 +435,11 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
     paddingHorizontal: 12,
     paddingTop: Platform.OS === "android" ? 12 : 8,
-    paddingBottom: 10,
+    paddingBottom: Platform.OS === "ios" ? 48 : 10,
   },
   rootCompact: {
     paddingTop: 8,
-    paddingBottom: 8,
+    paddingBottom: Platform.OS === "ios" ? 38 : 8,
   },
   rootKeyboardActive: {
     justifyContent: "flex-start",
@@ -615,8 +665,11 @@ const styles = StyleSheet.create({
   primaryTouch: {
     borderRadius: 14,
   },
-  disabledButton: {
-    opacity: 0.5,
+  loadingContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
   },
   primaryText: {
     color: "#ffffff",
