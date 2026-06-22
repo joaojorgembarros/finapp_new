@@ -3,13 +3,12 @@ import React, { useEffect, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
 import { router } from "expo-router";
 import { useSession } from "../src/providers/SessionProvider";
-import { theme } from "../src/ui/theme";
-import { getMyHouseholdId } from "../src/lib/household";
-import { getProfile } from "../src/lib/profile";
+import { hasCompletedNewOnboarding } from "../src/lib/newOnboarding";
+import { OB } from "../src/ui/OnboardingKit";
 
 export default function Index() {
   const { userId, loading } = useSession();
-  const [busy, setBusy] = useState(true);
+  const [checking, setChecking] = useState(true);
 
   useEffect(() => {
     let alive = true;
@@ -23,23 +22,10 @@ export default function Index() {
           return;
         }
 
-        const hh = await getMyHouseholdId(userId);
-        if (!hh) {
-          router.replace("/(tabs)/create-household");
-          return;
-        }
-
-        const profile = await getProfile(userId);
-        if (!profile || !profile.onboarding_done) {
-          router.replace("/(onboarding)/income");
-          return;
-        }
-
-        router.replace("/(tabs)/home");
-      } catch {
-        router.replace("/(auth)/login");
+        const done = await hasCompletedNewOnboarding(userId);
+        router.replace(done ? "/(onboarding)/journey" : "/(onboarding)/dreams");
       } finally {
-        if (alive) setBusy(false);
+        if (alive) setChecking(false);
       }
     }
 
@@ -47,14 +33,15 @@ export default function Index() {
     return () => {
       alive = false;
     };
-  }, [userId, loading]);
+  }, [loading, userId]);
 
-  if (busy || loading) {
+  if (loading || checking) {
     return (
-      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.bg0 }}>
-        <ActivityIndicator />
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: OB.offWhite }}>
+        <ActivityIndicator color={OB.primary} />
       </View>
     );
   }
+
   return null;
 }

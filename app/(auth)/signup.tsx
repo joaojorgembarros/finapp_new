@@ -133,7 +133,7 @@ export default function SignupScreen() {
       Alert.alert("Conta criada", "Agora entre com seu e-mail e senha.");
       router.replace("/(auth)/login");
     } catch (err: any) {
-      Alert.alert("Erro ao criar conta", err?.message ?? "Nao foi possivel criar sua conta agora.");
+      Alert.alert("Erro ao criar conta", err?.message ?? "Não foi possível criar sua conta agora.");
     } finally {
       setLoading(false);
     }
@@ -217,7 +217,7 @@ export default function SignupScreen() {
           </View>
 
           <Pressable onPress={() => router.replace("/(auth)/login")} style={bottomLink}>
-            <Text style={bottomText}>Ja tem uma conta?</Text>
+            <Text style={bottomText}>Já tem uma conta?</Text>
             <Text style={bottomStrong}>Entrar</Text>
           </Pressable>
         </Animated.View>
