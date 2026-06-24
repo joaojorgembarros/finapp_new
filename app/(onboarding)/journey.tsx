@@ -1,6 +1,6 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
-import { Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, View } from "react-native";
 import { BlurView } from "expo-blur";
 import Svg, {
   Circle,
@@ -13,6 +13,7 @@ import Svg, {
   Stop,
 } from "react-native-svg";
 import { router, useLocalSearchParams } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
 import { formatBRLFromCents, formatBRLInputFromDigits, parseBRLToCents } from "../../src/lib/format";
 import { supabase } from "../../src/lib/supabase";
@@ -27,17 +28,17 @@ type Filter = "Todos" | TxType;
 type Tx = { id: string; type: TxType; description: string; category: string; date: string; amount: number };
 
 const SEED: Tx[] = [
-  { id: "1", type: "Receita", description: "Salario junho", category: "Salario", date: "2026-06-05", amount: 520000 },
+  { id: "1", type: "Receita", description: "Salário junho", category: "Salário", date: "2026-06-05", amount: 520000 },
   { id: "2", type: "Despesa", description: "Supermercado semanal", category: "Supermercado", date: "2026-06-10", amount: 38400 },
   { id: "3", type: "Investimento", description: "Aporte CDB", category: "CDB", date: "2026-06-12", amount: 100000 },
-  { id: "4", type: "Despesa", description: "Plano de saude", category: "Plano de saude", date: "2026-06-13", amount: 42000 },
+  { id: "4", type: "Despesa", description: "Plano de saúde", category: "Plano de saúde", date: "2026-06-13", amount: 42000 },
   { id: "5", type: "Receita", description: "Freela design", category: "Renda extra", date: "2026-06-15", amount: 80000 },
 ];
 
 const CATEGORIES: Record<TxType, string[]> = {
-  Receita: ["Salario", "Renda extra", "Aluguel", "13o salario", "Ferias", "Outros"],
-  Despesa: ["Aluguel", "Supermercado", "Internet", "Plano de saude", "Restaurantes", "Academia", "Outros"],
-  Investimento: ["Poupanca", "CDB", "Tesouro Direto", "Renda fixa", "Acoes", "Outros"],
+  Receita: ["Salário", "Renda extra", "Aluguel", "13º salário", "Férias", "Outros"],
+  Despesa: ["Aluguel", "Supermercado", "Internet", "Plano de saúde", "Restaurantes", "Academia", "Outros"],
+  Investimento: ["Poupança", "CDB", "Tesouro Direto", "Renda fixa", "Ações", "Outros"],
 };
 
 const WEB_DRAWER_BLUR_STYLE =
@@ -317,10 +318,55 @@ function TxRow({ tx }: { tx: Tx }) {
 }
 
 function AddModal({ visible, onClose, onSave }: { visible: boolean; onClose: () => void; onSave: (tx: Tx) => void }) {
+  const insets = useSafeAreaInsets();
+  const androidStatusBar = Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0;
+  const topInset = Math.max(insets.top, androidStatusBar, 18);
+  const scrollRef = useRef<ScrollView>(null);
+  const descriptionFocused = useRef(false);
+  const [descriptionY, setDescriptionY] = useState(0);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [type, setType] = useState<TxType>("Receita");
   const [amount, setAmount] = useState("");
   const [desc, setDesc] = useState("");
   const [category, setCategory] = useState(CATEGORIES.Receita[0]);
+
+  function scrollDescriptionIntoView(delay = 80) {
+    setTimeout(() => {
+      scrollRef.current?.scrollTo({ y: Math.max(descriptionY - 18, 0), animated: true });
+    }, delay);
+  }
+
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+
+    const showSub = Keyboard.addListener("keyboardDidShow", (event) => {
+      setKeyboardHeight(event.endCoordinates.height);
+      if (descriptionFocused.current) {
+        scrollDescriptionIntoView(120);
+      }
+    });
+    const hideSub = Keyboard.addListener("keyboardDidHide", () => {
+      setKeyboardHeight(0);
+      descriptionFocused.current = false;
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  function scrollToDescription() {
+    if (Platform.OS !== "android") return;
+
+    descriptionFocused.current = true;
+    if (keyboardHeight > 0) {
+      scrollDescriptionIntoView();
+      return;
+    }
+
+    scrollDescriptionIntoView(260);
+  }
 
   function changeType(next: TxType) {
     setType(next);
@@ -343,55 +389,107 @@ function AddModal({ visible, onClose, onSave }: { visible: boolean; onClose: () 
     onClose();
   }
 
+  function openImportStatement() {
+    onClose();
+    router.push("/(onboarding)/import-extract");
+  }
+
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.modalShade}>
+    <Modal visible={visible} animationType="fade" presentationStyle="fullScreen" onRequestClose={onClose}>
+      <StatusBar barStyle="dark-content" backgroundColor={OB.offWhite} translucent />
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalShade}>
         <View style={styles.sheet}>
-          <View style={styles.sheetHandle} />
-          <View style={styles.sheetHeader}>
-            <Text style={styles.sheetTitle}>Novo lancamento</Text>
-            <Pressable onPress={onClose} hitSlop={12}>
-              <Ionicons name="close" size={21} color={OB.support} />
+          <View pointerEvents="none" style={[styles.modalSafeTop, { height: topInset + 8 }]} />
+          <ScrollView
+            ref={scrollRef}
+            showsVerticalScrollIndicator={false}
+            bounces={false}
+            overScrollMode="never"
+            keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "none"}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={[
+              styles.sheetContent,
+              {
+                paddingTop: topInset + 16,
+                paddingBottom: Math.max(insets.bottom, 18) + (keyboardHeight ? keyboardHeight + 52 : 28),
+              },
+            ]}
+          >
+            <View style={styles.sheetHero}>
+              <Pressable onPress={onClose} hitSlop={12} style={styles.sheetClose}>
+                <Ionicons name="close" size={21} color="#fff" />
+              </Pressable>
+              <Text style={styles.sheetEyebrow}>Controle financeiro</Text>
+              <Text style={styles.sheetTitle}>Novo lançamento</Text>
+              <Text style={styles.sheetSubtitle}>Registre entradas, saídas e investimentos com clareza.</Text>
+            </View>
+
+            <Pressable onPress={openImportStatement} style={styles.importStatementButton}>
+              <View style={styles.importStatementIcon}>
+                <Ionicons name="cloud-upload-outline" size={18} color={OB.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.importStatementTitle}>Importar extrato</Text>
+                <Text style={styles.importStatementText}>Carregue movimentações do banco por arquivo</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={OB.support} />
             </Pressable>
-          </View>
 
-          <View style={styles.typeTabs}>
-            {(["Receita", "Despesa", "Investimento"] as TxType[]).map((item) => {
-              const active = item === type;
-              return (
-                <Pressable key={item} onPress={() => changeType(item)} style={[styles.typeTab, active && styles.typeTabActive]}>
-                  <Text style={[styles.typeTabText, active && styles.typeTabTextActive]}>{item}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
+            <View style={styles.typeTabs}>
+              {(["Receita", "Despesa", "Investimento"] as TxType[]).map((item) => {
+                const active = item === type;
+                return (
+                  <Pressable key={item} onPress={() => changeType(item)} style={[styles.typeTab, active && styles.typeTabActive]}>
+                    <Text style={[styles.typeTabText, active && styles.typeTabTextActive]}>{item}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
 
-          <Text style={styles.fieldLabel}>Valor</Text>
-          <View style={styles.inputBox}>
-            <Text style={styles.currency}>R$</Text>
-            <TextInput value={amount.replace("R$", "").trim()} onChangeText={(text) => setAmount(formatBRLInputFromDigits(text))} placeholder="0,00" placeholderTextColor={OB.support} keyboardType="number-pad" style={styles.input} />
-          </View>
+            <Text style={styles.fieldLabel}>Valor</Text>
+            <View style={styles.inputBox}>
+              <Text style={styles.currency}>R$</Text>
+              <TextInput value={amount.replace("R$", "").trim()} onChangeText={(text) => setAmount(formatBRLInputFromDigits(text))} placeholder="0,00" placeholderTextColor={OB.support} keyboardType="number-pad" style={styles.input} />
+            </View>
 
-          <Text style={styles.fieldLabel}>Categoria</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categories}>
-            {CATEGORIES[type].map((item) => {
-              const active = item === category;
-              return (
-                <Pressable key={item} onPress={() => setCategory(item)} style={[styles.category, active && styles.categoryActive]}>
-                  <Text style={[styles.categoryText, active && styles.categoryTextActive]}>{item}</Text>
-                </Pressable>
-              );
-            })}
+            <Text style={styles.fieldLabel}>Categoria</Text>
+            <View style={styles.categoryPanel}>
+              {CATEGORIES[type].map((item) => {
+                const active = item === category;
+                return (
+                  <Pressable key={item} onPress={() => setCategory(item)} style={[styles.category, active && styles.categoryActive]}>
+                    {active ? <Ionicons name="checkmark-circle" size={15} color="#fff" /> : null}
+                    <Text style={[styles.categoryText, active && styles.categoryTextActive]}>{item}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <View
+              style={styles.descriptionField}
+              onLayout={(event) => setDescriptionY(event.nativeEvent.layout.y)}
+            >
+              <Text style={styles.fieldLabel}>Descrição</Text>
+              <TextInput
+                value={desc}
+                onChangeText={setDesc}
+                onFocus={scrollToDescription}
+                onPressIn={scrollToDescription}
+                onBlur={() => {
+                  descriptionFocused.current = false;
+                }}
+                placeholder="Ex: compra mercado"
+                placeholderTextColor={OB.support}
+                style={styles.inputBoxText}
+              />
+            </View>
+
+            <Pressable onPress={save} disabled={!parseBRLToCents(amount) || !desc.trim()} style={[styles.saveButton, (!parseBRLToCents(amount) || !desc.trim()) && styles.saveButtonDisabled]}>
+              <Text style={[styles.saveButtonText, (!parseBRLToCents(amount) || !desc.trim()) && styles.saveButtonTextDisabled]}>Salvar lançamento</Text>
+            </Pressable>
           </ScrollView>
-
-          <Text style={styles.fieldLabel}>Descricao</Text>
-          <TextInput value={desc} onChangeText={setDesc} placeholder="Ex: compra mercado" placeholderTextColor={OB.support} style={styles.inputBoxText} />
-
-          <Pressable onPress={save} disabled={!parseBRLToCents(amount) || !desc.trim()} style={[styles.saveButton, (!parseBRLToCents(amount) || !desc.trim()) && styles.saveButtonDisabled]}>
-            <Text style={[styles.saveButtonText, (!parseBRLToCents(amount) || !desc.trim()) && styles.saveButtonTextDisabled]}>Salvar lancamento</Text>
-          </Pressable>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -416,19 +514,19 @@ function ControlPanel() {
         <View style={styles.controlHeader}>
           <Text style={styles.controlEyebrow}>Controle financeiro</Text>
           <Text style={styles.controlTitle}>Liberdade financeira</Text>
-          <Text style={styles.controlSubtitle}>Organize seus lancamentos e acompanhe seu dinheiro com clareza.</Text>
+          <Text style={styles.controlSubtitle}>Organize seus lançamentos e acompanhe seu dinheiro com clareza.</Text>
         </View>
 
         <View style={styles.summaryGrid}>
-          <SummaryCard label="Receitas do mes" value={totals.income} color="#22a96b" icon="trending-up-outline" />
-          <SummaryCard label="Despesas do mes" value={totals.expense} color="#e05252" icon="trending-down-outline" />
+          <SummaryCard label="Receitas do mês" value={totals.income} color="#22a96b" icon="trending-up-outline" />
+          <SummaryCard label="Despesas do mês" value={totals.expense} color="#e05252" icon="trending-down-outline" />
           <SummaryCard label="Saldo atual" value={totals.balance} color={OB.primary} icon="wallet-outline" />
           <SummaryCard label="Investimentos" value={totals.invest} color={OB.support} icon="briefcase-outline" />
         </View>
 
         <Pressable onPress={() => setModal(true)} style={styles.newButton}>
           <Ionicons name="add" size={19} color="#fff" />
-          <Text style={styles.newText}>Novo lancamento</Text>
+          <Text style={styles.newText}>Novo lançamento</Text>
         </Pressable>
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
@@ -501,6 +599,11 @@ function JourneyDrawer({
     router.push("/(onboarding)/profile");
   }
 
+  function goCategories() {
+    onClose();
+    router.push("/(onboarding)/categories");
+  }
+
   return (
     <View style={styles.drawerLayer}>
       <Pressable onPress={onClose} style={[styles.drawerScrim, WEB_DRAWER_BLUR_STYLE]}>
@@ -538,6 +641,7 @@ function JourneyDrawer({
         <View style={styles.drawerList}>
           <DrawerButton icon="compass-outline" label="Jornada" active={activeTab === "jornada"} onPress={() => goTab("jornada")} />
           <DrawerButton icon="wallet-outline" label="Controle financeiro" active={activeTab === "controle"} onPress={() => goTab("controle")} />
+          <DrawerButton icon="pricetags-outline" label="Categorias" onPress={goCategories} />
           <DrawerButton icon="trophy-outline" label="Desafios" active={activeTab === "desafios"} onPress={() => goTab("desafios")} />
         </View>
 
@@ -564,7 +668,7 @@ export default function JourneyScreen() {
     userMeta?.full_name ||
     userMeta?.name ||
     session?.user?.email?.split("@")[0] ||
-    "Usuario";
+    "Usuário";
   const avatarUrl = userMeta?.avatar_url || userMeta?.picture || null;
 
   const dreams = useMemo(() => readJson<string[]>(params.dreams, ["Reserva de emergência", "Investir mais", "Liberdade financeira"]), [params.dreams]);
@@ -1016,51 +1120,114 @@ const styles = StyleSheet.create({
   },
   modalShade: {
     flex: 1,
-    justifyContent: "flex-end",
-    backgroundColor: "rgba(6,21,46,0.62)",
+    backgroundColor: OB.offWhite,
   },
   sheet: {
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    backgroundColor: "#fff",
+    flex: 1,
+    backgroundColor: OB.offWhite,
+  },
+  modalSafeTop: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    backgroundColor: OB.offWhite,
+  },
+  sheetHero: {
+    borderRadius: 22,
     padding: 20,
-    paddingTop: 12,
-    gap: 10,
+    paddingRight: 62,
+    alignItems: "flex-start",
+    backgroundColor: OB.primary,
+    overflow: "hidden",
   },
-  sheetHandle: {
-    alignSelf: "center",
-    width: 38,
-    height: 4,
-    borderRadius: 99,
-    backgroundColor: OB.supportSoft,
-    marginBottom: 4,
-  },
-  sheetHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 8,
+  sheetEyebrow: {
+    color: OB.textOnDarkMid,
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 2,
+    textTransform: "uppercase",
   },
   sheetTitle: {
-    color: OB.primary,
-    fontSize: 18,
+    color: OB.textOnDark,
+    fontSize: 25,
     fontWeight: "900",
+    marginTop: 8,
+  },
+  sheetSubtitle: {
+    color: OB.textOnDarkMid,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 20,
+    marginTop: 6,
+  },
+  sheetClose: {
+    position: "absolute",
+    right: 14,
+    top: 14,
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.14)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.20)",
   },
   typeTabs: {
     flexDirection: "row",
-    gap: 7,
-    marginBottom: 4,
+    gap: 8,
+    marginBottom: 6,
   },
-  typeTab: {
-    flex: 1,
-    minHeight: 39,
-    borderRadius: 12,
+  sheetContent: {
+    paddingHorizontal: 20,
+    gap: 14,
+  },
+  importStatementButton: {
+    minHeight: 66,
+    borderRadius: 18,
+    padding: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  importStatementIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: OB.offWhite,
   },
+  importStatementTitle: {
+    color: OB.primary,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  importStatementText: {
+    color: OB.support,
+    fontSize: 11,
+    fontWeight: "800",
+    lineHeight: 16,
+    marginTop: 2,
+  },
+  typeTab: {
+    flex: 1,
+    minHeight: 52,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
   typeTabActive: {
     backgroundColor: OB.primary,
+    borderColor: OB.primary,
   },
   typeTabText: {
     color: OB.support,
@@ -1076,11 +1243,11 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     letterSpacing: 1,
     textTransform: "uppercase",
-    marginTop: 4,
+    marginTop: 2,
   },
   inputBox: {
-    minHeight: 50,
-    borderRadius: 15,
+    minHeight: 58,
+    borderRadius: 17,
     borderWidth: 1.5,
     borderColor: OB.supportSoft,
     backgroundColor: OB.offWhite,
@@ -1100,9 +1267,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "900",
   },
+  descriptionField: {
+    gap: 12,
+  },
   inputBoxText: {
-    minHeight: 50,
-    borderRadius: 15,
+    minHeight: 58,
+    borderRadius: 17,
     borderWidth: 1.5,
     borderColor: OB.supportSoft,
     backgroundColor: OB.offWhite,
@@ -1111,18 +1281,31 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "800",
   },
-  categories: {
-    gap: 8,
-    paddingVertical: 2,
+  categoryPanel: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 9,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+    backgroundColor: "#fff",
+    padding: 10,
   },
   category: {
-    borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    minHeight: 38,
+    borderRadius: 13,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
     backgroundColor: OB.offWhite,
+    borderWidth: 1,
+    borderColor: "transparent",
   },
   categoryActive: {
     backgroundColor: OB.primary,
+    borderColor: OB.primary,
   },
   categoryText: {
     color: OB.support,
@@ -1133,12 +1316,12 @@ const styles = StyleSheet.create({
     color: "#fff",
   },
   saveButton: {
-    minHeight: 54,
-    borderRadius: 16,
+    minHeight: 58,
+    borderRadius: 18,
     backgroundColor: OB.primary,
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 14,
+    marginTop: 8,
   },
   saveButtonDisabled: {
     backgroundColor: "rgba(123,160,200,0.32)",

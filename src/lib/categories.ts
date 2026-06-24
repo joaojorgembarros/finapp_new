@@ -53,6 +53,16 @@ export async function createCategory(params: {
   return data as Category;
 }
 
+export async function deleteCategory(categoryId: string, householdId: string) {
+  const { error } = await supabase
+    .from("categories")
+    .delete()
+    .eq("id", categoryId)
+    .eq("household_id", householdId);
+
+  if (error) throw error;
+}
+
 export async function seedDefaultCategories(householdId: string) {
   const { data: exists } = await supabase.from("categories").select("id").eq("household_id", householdId).limit(1);
   if (exists && exists.length) return;

@@ -3,33 +3,33 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Animated,
-  Easing,
   Keyboard,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
+  ScrollView,
+  StyleSheet,
   Text,
   TextInput,
   TextInputProps,
   View,
 } from "react-native";
-import { router } from "expo-router";
-import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import { router } from "expo-router";
+import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { theme } from "../../src/ui/theme";
+import { OB, OnboardingBackground } from "../../src/ui/OnboardingKit";
 import { supabase } from "../../src/lib/supabase";
 
 type FocusKey = "name" | "email" | "password" | "confirm" | null;
 
-function isValidEmail(s: string) {
-  const x = s.trim();
-  return x.includes("@") && x.includes(".");
+function isValidEmail(value: string) {
+  const email = value.trim();
+  return email.includes("@") && email.includes(".");
 }
 
 function AuthField({
   icon,
+  label,
   value,
   onChangeText,
   placeholder,
@@ -38,209 +38,440 @@ function AuthField({
   focused,
   onFocus,
   onBlur,
+  onLayout,
   right,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
+  label: string;
   value: string;
-  onChangeText: (t: string) => void;
+  onChangeText: (value: string) => void;
   placeholder: string;
   keyboardType?: TextInputProps["keyboardType"];
   secureTextEntry?: boolean;
   focused: boolean;
   onFocus: () => void;
   onBlur: () => void;
+  onLayout?: (y: number) => void;
   right?: React.ReactNode;
 }) {
   return (
-    <View style={[field, focused && fieldActive]}>
-      <Ionicons name={icon} size={20} color={focused ? theme.colors.primary : "#6b7280"} />
-      <TextInput
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor="#6b7280"
-        keyboardType={keyboardType}
-        secureTextEntry={secureTextEntry}
-        autoCapitalize={keyboardType === "email-address" ? "none" : "words"}
-        autoCorrect={false}
-        onFocus={onFocus}
-        onBlur={onBlur}
-        style={fieldInput}
-      />
-      {right}
+    <View onLayout={(event) => onLayout?.(event.nativeEvent.layout.y)}>
+      <Text style={styles.fieldLabel}>{label}</Text>
+      <View style={[styles.field, focused && styles.fieldActive]}>
+        <Ionicons name={icon} size={18} color={focused ? OB.primary : OB.support} />
+        <TextInput
+          value={value}
+          onChangeText={onChangeText}
+          placeholder={placeholder}
+          placeholderTextColor={OB.support}
+          keyboardType={keyboardType}
+          secureTextEntry={secureTextEntry}
+          autoCapitalize={keyboardType === "email-address" ? "none" : "words"}
+          autoCorrect={false}
+          onFocus={onFocus}
+          onBlur={onBlur}
+          style={styles.fieldInput}
+        />
+        {right}
+      </View>
     </View>
   );
 }
 
 export default function SignupScreen() {
+  const background = useMemo(() => <OnboardingBackground />, []);
+  const scrollRef = useRef<ScrollView>(null);
+  const focusedRef = useRef<FocusKey>(null);
+  const fieldY = useRef<Record<string, number>>({});
+  const cardY = useRef(0);
+  const formY = useRef(0);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [pass, setPass] = useState("");
+  const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [loading, setLoading] = useState(false);
   const [focused, setFocused] = useState<FocusKey>(null);
-  const [showPass, setShowPass] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
-  const lift = useRef(new Animated.Value(0)).current;
-  const lastFocused = useRef<FocusKey>(null);
-  const liftTarget = Platform.OS === "android" ? (focused === "confirm" ? -86 : focused === "password" ? -64 : 0) : 0;
 
   const canSubmit = useMemo(
-    () => name.trim().length >= 2 && isValidEmail(email) && pass.trim().length >= 6 && pass === confirm && !loading,
-    [name, email, pass, confirm, loading]
+    () => name.trim().length >= 2 && isValidEmail(email) && password.length >= 6 && password === confirm && !loading,
+    [confirm, email, loading, name, password]
   );
+  const passwordKeyboardLocked = keyboardHeight > 0 && (focused === "password" || focused === "confirm");
 
   useEffect(() => {
-    Animated.timing(lift, {
-      toValue: liftTarget,
-      duration: 180,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start();
-  }, [lift, liftTarget]);
-
-  useEffect(() => {
-    const hideSub = Keyboard.addListener("keyboardDidHide", () => setFocused(null));
-    const showSub = Keyboard.addListener("keyboardDidShow", () => {
-      if (lastFocused.current) setFocused(lastFocused.current);
+    const showSub = Keyboard.addListener("keyboardDidShow", (event) => {
+      setKeyboardHeight(event.endCoordinates.height);
+      if (focusedRef.current === "password" || focusedRef.current === "confirm") {
+        scrollToField(focusedRef.current, 90);
+      }
     });
+    const hideSub = Keyboard.addListener("keyboardDidHide", () => {
+      setKeyboardHeight(0);
+      focusedRef.current = null;
+    });
+
     return () => {
-      hideSub.remove();
       showSub.remove();
+      hideSub.remove();
     };
   }, []);
 
+  function scrollToField(key: FocusKey, delay = 40) {
+    if (!key) return;
+    const y = fieldY.current[key];
+    if (typeof y !== "number") return;
+    const fieldTopOnPage = cardY.current + formY.current + y;
+    const targetTop = key === "confirm" ? 248 : key === "password" ? 260 : 18;
+
+    setTimeout(() => {
+      scrollRef.current?.scrollTo({ y: Math.max(fieldTopOnPage - targetTop, 0), animated: true });
+    }, delay);
+  }
+
   function focusField(key: FocusKey) {
-    lastFocused.current = key;
+    focusedRef.current = key;
     setFocused(key);
+
+    if (key === "password" || key === "confirm") {
+      scrollToField(key, keyboardHeight ? 40 : 220);
+    }
   }
 
   function blurField(key: FocusKey) {
     setFocused((current) => (current === key ? null : current));
-    if (lastFocused.current === key) lastFocused.current = null;
+    if (focusedRef.current === key) focusedRef.current = null;
   }
 
   async function onSignup() {
     if (!canSubmit) return;
+
     try {
       setLoading(true);
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email: email.trim().toLowerCase(),
-        password: pass,
+        password,
         options: { data: { full_name: name.trim() } },
       });
+
       if (error) throw error;
-      Alert.alert("Conta criada", "Agora entre com seu e-mail e senha.");
+
+      if (data.session) {
+        router.replace("/(onboarding)/dreams");
+        return;
+      }
+
+      Alert.alert("Conta criada", "Agora entre com seu e-mail e senha para começar.");
       router.replace("/(auth)/login");
-    } catch (err: any) {
-      Alert.alert("Erro ao criar conta", err?.message ?? "Não foi possível criar sua conta agora.");
+    } catch (error: any) {
+      Alert.alert("Erro ao criar conta", error?.message ?? "Não foi possível criar sua conta agora.");
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <SafeAreaView style={screen}>
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={keyboard}>
-        <Animated.View style={[root, { transform: [{ translateY: lift }] }]}>
-          <Pressable onPress={() => router.replace("/(auth)/login")} hitSlop={12} style={backButton}>
-            <Ionicons name="chevron-back" size={24} color="#26352d" />
-          </Pressable>
+    <View style={styles.screen}>
+      <StatusBar style="light" backgroundColor="transparent" translucent />
+      {background}
+      <SafeAreaView edges={["top", "bottom"]} style={styles.safeArea}>
+          <ScrollView
+            ref={scrollRef}
+            contentContainerStyle={[
+              styles.scroll,
+              { paddingBottom: 28 + (keyboardHeight ? keyboardHeight + 24 : 0) },
+            ]}
+            scrollEnabled={!passwordKeyboardLocked}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="none"
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.topBar}>
+              <Pressable onPress={() => router.replace("/(auth)/login")} style={styles.backButton} hitSlop={12}>
+                <Ionicons name="arrow-back" size={18} color="#fff" />
+              </Pressable>
+              <Text style={styles.brandName}>FinApp</Text>
+            </View>
 
-          <View style={brandBlock}>
-            <Text style={brand}>FinApp</Text>
-            <Text style={headline}>Comece seu plano</Text>
-            <Text style={subhead}>Crie sua conta para montar metas e acompanhar seu dinheiro.</Text>
-          </View>
+            <View style={styles.copyBlock}>
+              <Text style={styles.eyebrow}>Novo começo</Text>
+              <Text style={styles.headline}>Crie sua conta e monte seu plano financeiro.</Text>
+              <Text style={styles.subhead}>Vamos começar pelo que importa: seus sonhos, sua rotina e seu controle.</Text>
+            </View>
 
-          <View style={form}>
-            <AuthField
-              icon="person-outline"
-              value={name}
-              onChangeText={setName}
-              placeholder="Nome completo"
-              focused={focused === "name"}
-              onFocus={() => focusField("name")}
-              onBlur={() => blurField("name")}
-            />
-            <AuthField
-              icon="mail-outline"
-              value={email}
-              onChangeText={setEmail}
-              placeholder="E-mail"
-              keyboardType="email-address"
-              focused={focused === "email"}
-              onFocus={() => focusField("email")}
-              onBlur={() => blurField("email")}
-            />
-            <AuthField
-              icon="lock-closed-outline"
-              value={pass}
-              onChangeText={setPass}
-              placeholder="Senha"
-              secureTextEntry={!showPass}
-              focused={focused === "password"}
-              onFocus={() => focusField("password")}
-              onBlur={() => blurField("password")}
-              right={
-                <Pressable onPress={() => setShowPass((v) => !v)} hitSlop={10} style={eyeButton}>
-                  <Ionicons name={showPass ? "eye-off-outline" : "eye-outline"} size={20} color="#52605a" />
-                </Pressable>
-              }
-            />
-            <AuthField
-              icon="shield-checkmark-outline"
-              value={confirm}
-              onChangeText={setConfirm}
-              placeholder="Confirmar senha"
-              secureTextEntry={!showConfirm}
-              focused={focused === "confirm"}
-              onFocus={() => focusField("confirm")}
-              onBlur={() => blurField("confirm")}
-              right={
-                <Pressable onPress={() => setShowConfirm((v) => !v)} hitSlop={10} style={eyeButton}>
-                  <Ionicons name={showConfirm ? "eye-off-outline" : "eye-outline"} size={20} color="#52605a" />
-                </Pressable>
-              }
-            />
+            <View
+              style={styles.card}
+              onLayout={(event) => {
+                cardY.current = event.nativeEvent.layout.y;
+              }}
+            >
+              <Text style={styles.cardTitle}>Criar conta</Text>
+              <Text style={styles.cardText}>Use seus dados para acessar o novo fluxo do app.</Text>
 
-            <Pressable onPress={onSignup} disabled={!canSubmit} style={{ opacity: canSubmit ? 1 : 0.48 }}>
-              <LinearGradient
-                colors={["#2563eb", "#9333ea"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={primaryButton}
+              <View
+                style={styles.form}
+                onLayout={(event) => {
+                  formY.current = event.nativeEvent.layout.y;
+                }}
               >
-                {loading ? <ActivityIndicator color="#fff" /> : <Text style={primaryText}>Criar conta</Text>}
-              </LinearGradient>
-            </Pressable>
-          </View>
+                <AuthField
+                  icon="person-outline"
+                  label="Nome"
+                  value={name}
+                  onChangeText={setName}
+                  placeholder="Seu nome completo"
+                  focused={focused === "name"}
+                  onFocus={() => focusField("name")}
+                  onBlur={() => blurField("name")}
+                  onLayout={(y) => {
+                    fieldY.current.name = y;
+                  }}
+                />
+                <AuthField
+                  icon="mail-outline"
+                  label="E-mail"
+                  value={email}
+                  onChangeText={setEmail}
+                  placeholder="seu@email.com"
+                  keyboardType="email-address"
+                  focused={focused === "email"}
+                  onFocus={() => focusField("email")}
+                  onBlur={() => blurField("email")}
+                  onLayout={(y) => {
+                    fieldY.current.email = y;
+                  }}
+                />
+                <AuthField
+                  icon="lock-closed-outline"
+                  label="Senha"
+                  value={password}
+                  onChangeText={setPassword}
+                  placeholder="Mínimo de 6 caracteres"
+                  secureTextEntry={!showPassword}
+                  focused={focused === "password"}
+                  onFocus={() => focusField("password")}
+                  onBlur={() => blurField("password")}
+                  onLayout={(y) => {
+                    fieldY.current.password = y;
+                  }}
+                  right={
+                    <Pressable onPress={() => setShowPassword((value) => !value)} style={styles.eyeButton} hitSlop={10}>
+                      <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={19} color={showPassword ? OB.primary : OB.support} />
+                    </Pressable>
+                  }
+                />
+                <AuthField
+                  icon="shield-checkmark-outline"
+                  label="Confirmar senha"
+                  value={confirm}
+                  onChangeText={setConfirm}
+                  placeholder="Repita sua senha"
+                  secureTextEntry={!showConfirm}
+                  focused={focused === "confirm"}
+                  onFocus={() => focusField("confirm")}
+                  onBlur={() => blurField("confirm")}
+                  onLayout={(y) => {
+                    fieldY.current.confirm = y;
+                  }}
+                  right={
+                    <Pressable onPress={() => setShowConfirm((value) => !value)} style={styles.eyeButton} hitSlop={10}>
+                      <Ionicons name={showConfirm ? "eye-off-outline" : "eye-outline"} size={19} color={showConfirm ? OB.primary : OB.support} />
+                    </Pressable>
+                  }
+                />
+              </View>
 
-          <Pressable onPress={() => router.replace("/(auth)/login")} style={bottomLink}>
-            <Text style={bottomText}>Já tem uma conta?</Text>
-            <Text style={bottomStrong}>Entrar</Text>
-          </Pressable>
-        </Animated.View>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+              <Pressable onPress={onSignup} disabled={!canSubmit} style={[styles.primaryTouch, !canSubmit && styles.disabled]}>
+                <LinearGradient colors={["#06152e", OB.primary, "#163870"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.primaryButton}>
+                  {loading ? (
+                    <View style={styles.loadingContent}>
+                      <ActivityIndicator color="#fff" size="small" />
+                      <Text style={styles.primaryText}>Criando...</Text>
+                    </View>
+                  ) : (
+                    <Text style={styles.primaryText}>Criar conta</Text>
+                  )}
+                </LinearGradient>
+              </Pressable>
+
+              <Pressable onPress={() => router.replace("/(auth)/login")} style={styles.loginLink}>
+                <Text style={styles.loginText}>Já tem uma conta?</Text>
+                <Text style={styles.loginStrong}>Entrar</Text>
+              </Pressable>
+            </View>
+          </ScrollView>
+      </SafeAreaView>
+    </View>
   );
 }
 
-const screen = { flex: 1, backgroundColor: "#f7faf7" } as const;
-const keyboard = { flex: 1 } as const;
-const root = { flex: 1, paddingHorizontal: 28, paddingTop: 18, paddingBottom: Platform.OS === "android" ? 54 : 30 } as const;
-const backButton = { width: 44, height: 44, borderRadius: 18, alignItems: "center", justifyContent: "center", marginLeft: -10 } as const;
-const brandBlock = { alignItems: "center", marginTop: 10, marginBottom: 34 } as const;
-const brand = { color: "#1f2937", fontWeight: "900", fontSize: 38, letterSpacing: 0 } as const;
-const headline = { color: "#26352d", fontWeight: "900", fontSize: 23, textAlign: "center", marginTop: 20, letterSpacing: 0 } as const;
-const subhead = { color: "#66736d", fontWeight: "700", fontSize: 14, textAlign: "center", lineHeight: 20, marginTop: 8 } as const;
-const form = { gap: 12 } as const;
-const field = { minHeight: 58, borderRadius: 19, backgroundColor: "#e5ebe4", flexDirection: "row", alignItems: "center", gap: 13, paddingHorizontal: 17, borderWidth: 1, borderColor: "transparent" } as const;
-const fieldActive = { backgroundColor: "#fff", borderColor: "rgba(37,99,235,0.36)" } as const;
-const fieldInput = { flex: 1, color: "#1f2937", fontWeight: "800", fontSize: 15, paddingVertical: 1 } as const;
-const eyeButton = { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" } as const;
-const primaryButton = { minHeight: 58, borderRadius: 24, alignItems: "center", justifyContent: "center", marginTop: 10 } as const;
-const primaryText = { color: "#fff", fontWeight: "900", fontSize: 17 } as const;
-const bottomLink = { marginTop: "auto", minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 } as const;
-const bottomText = { color: "#53615b", fontWeight: "800", fontSize: 15 } as const;
-const bottomStrong = { color: "#1f2937", fontWeight: "900", fontSize: 15 } as const;
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: OB.primaryDeep,
+  },
+  safeArea: {
+    flex: 1,
+  },
+  scroll: {
+    flexGrow: 1,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 28,
+  },
+  topBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  backButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.18)",
+  },
+  brandName: {
+    color: OB.textOnDark,
+    fontSize: 13,
+    fontWeight: "800",
+    letterSpacing: 2.3,
+    textTransform: "uppercase",
+  },
+  copyBlock: {
+    paddingTop: 42,
+    paddingBottom: 26,
+  },
+  eyebrow: {
+    color: OB.textOnDarkMid,
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 2.4,
+    textTransform: "uppercase",
+  },
+  headline: {
+    color: OB.textOnDark,
+    fontSize: 29,
+    fontWeight: "900",
+    lineHeight: 35,
+    marginTop: 12,
+  },
+  subhead: {
+    color: OB.textOnDarkMid,
+    fontSize: 14,
+    fontWeight: "700",
+    lineHeight: 22,
+    marginTop: 10,
+  },
+  card: {
+    borderRadius: 24,
+    padding: 18,
+    backgroundColor: "rgba(255,255,255,0.97)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.78)",
+    shadowColor: OB.primary,
+    shadowOpacity: 0.32,
+    shadowRadius: 28,
+    shadowOffset: { width: 0, height: 18 },
+    elevation: 10,
+  },
+  cardTitle: {
+    color: OB.primary,
+    fontSize: 22,
+    fontWeight: "900",
+  },
+  cardText: {
+    color: OB.support,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 19,
+    marginTop: 4,
+  },
+  form: {
+    gap: 11,
+    marginTop: 18,
+  },
+  fieldLabel: {
+    color: OB.support,
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    marginBottom: 7,
+  },
+  field: {
+    minHeight: 52,
+    borderRadius: 16,
+    backgroundColor: OB.offWhite,
+    borderWidth: 1.5,
+    borderColor: OB.supportSoft,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 15,
+  },
+  fieldActive: {
+    backgroundColor: "#fff",
+    borderColor: OB.primary,
+  },
+  fieldInput: {
+    flex: 1,
+    color: OB.primary,
+    fontSize: 14,
+    fontWeight: "800",
+    paddingVertical: 1,
+  },
+  eyeButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  primaryTouch: {
+    borderRadius: 16,
+    marginTop: 18,
+  },
+  primaryButton: {
+    minHeight: 54,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  disabled: {
+    opacity: 0.48,
+  },
+  loadingContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  primaryText: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  loginLink: {
+    minHeight: 46,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    marginTop: 8,
+  },
+  loginText: {
+    color: OB.support,
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  loginStrong: {
+    color: OB.primary,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+});
