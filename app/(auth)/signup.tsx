@@ -159,7 +159,7 @@ export default function SignupScreen() {
       if (error) throw error;
 
       if (data.session) {
-        router.replace("/(onboarding)/dreams");
+        router.replace("/");
         return;
       }
 

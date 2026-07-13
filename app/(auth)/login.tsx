@@ -31,7 +31,8 @@ import Svg, {
   Stop,
 } from "react-native-svg";
 import { supabase } from "../../src/lib/supabase";
-import { hasCompletedNewOnboarding } from "../../src/lib/newOnboarding";
+import { requestPasswordReset } from "../../src/lib/auth";
+import { LEGAL_URLS, openLegalUrl } from "../../src/lib/legal";
 
 const T = {
   primary: "#0C2348",
@@ -219,40 +220,6 @@ function AuthField({
   );
 }
 
-function PasswordDisplayField({
-  value,
-  focused,
-  showPass,
-  onPress,
-  onToggleVisibility,
-}: {
-  value: string;
-  focused: boolean;
-  showPass: boolean;
-  onPress: () => void;
-  onToggleVisibility: () => void;
-}) {
-  const displayValue = showPass ? value : "•".repeat(value.length);
-
-  return (
-    <View>
-      <Text style={styles.fieldLabel}>Senha</Text>
-      <Pressable onPress={onPress} style={[styles.field, focused && styles.fieldActive]}>
-        <Ionicons name="lock-closed-outline" size={18} color={focused ? T.primary : T.support} />
-        <View style={styles.fakeInput}>
-          <Text style={[styles.fakeInputText, !value && styles.fakePlaceholder]} numberOfLines={1}>
-            {value ? displayValue : "Sua senha"}
-          </Text>
-          {focused && <View style={styles.fakeCaret} />}
-        </View>
-        <Pressable onPress={onToggleVisibility} hitSlop={10} style={styles.eyeButton}>
-          <Ionicons name={showPass ? "eye-off-outline" : "eye-outline"} size={19} color={showPass ? T.primary : T.support} />
-        </Pressable>
-      </Pressable>
-    </View>
-  );
-}
-
 export default function LoginScreen() {
   const { height } = useWindowDimensions();
   const compact = height < 790;
@@ -299,13 +266,8 @@ export default function LoginScreen() {
         password: pass,
       });
       if (error) throw error;
-      const userId = data.user?.id;
-      if (!userId) {
-        router.replace("/");
-        return;
-      }
-      const done = await hasCompletedNewOnboarding(userId);
-      router.replace(done ? "/(onboarding)/journey" : "/(onboarding)/dreams");
+      if (!data.user?.id) throw new Error("Não foi possível identificar sua conta.");
+      router.replace("/");
     } catch (err: any) {
       Alert.alert("Erro ao entrar", err?.message ?? "Não foi possível entrar agora.");
     } finally {
@@ -318,8 +280,7 @@ export default function LoginScreen() {
     if (!isValidEmail(e)) return Alert.alert("Recuperar senha", "Digite seu e-mail primeiro.");
     try {
       setLoading(true);
-      const { error } = await supabase.auth.resetPasswordForEmail(e);
-      if (error) throw error;
+      await requestPasswordReset(e);
       Alert.alert("Enviado", "Te mandei um e-mail para redefinir sua senha.");
     } catch (err: any) {
       Alert.alert("Erro", err?.message ?? "Não foi possível enviar agora.");
@@ -408,7 +369,7 @@ export default function LoginScreen() {
                 </Pressable>
 
                 <Text style={styles.terms}>
-                Ao continuar, você concorda com nossos <Text style={styles.termLink}>Termos</Text> e <Text style={styles.termLink}>Privacidade</Text>.
+                Ao continuar, você concorda com nossos <Text onPress={() => openLegalUrl(LEGAL_URLS.terms).catch((error) => Alert.alert("Termos", error.message))} style={styles.termLink}>Termos</Text> e <Text onPress={() => openLegalUrl(LEGAL_URLS.privacy).catch((error) => Alert.alert("Privacidade", error.message))} style={styles.termLink}>Privacidade</Text>.
                 </Text>
             </View>
           </View>

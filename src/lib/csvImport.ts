@@ -248,7 +248,7 @@ export function parseCsv(content: string): CsvParseResult {
 
   const errors: string[] = [];
   const rows: ParsedCsvTx[] = [];
-  const balanceRows: Array<{ occurred_on: string; rawLine: number; signedCents: number; balanceCents: number }> = [];
+  const balanceRows: { occurred_on: string; rawLine: number; signedCents: number; balanceCents: number }[] = [];
   let ignoredRows = 0;
   let baselineBalanceCents: number | null = null;
   let explicitFinalBalanceCents: number | null = null;

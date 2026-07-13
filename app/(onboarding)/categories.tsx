@@ -9,7 +9,7 @@ import { Category, createCategory, deleteCategory, Flow, Kind, listCategories } 
 
 type CategoryGroup = `${Flow}/${Kind}`;
 
-const ICON_OPTIONS: Array<{ label: string; icon: keyof typeof Ionicons.glyphMap }> = [
+const ICON_OPTIONS: { label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { label: "Mercado", icon: "cart-outline" },
   { label: "Casa", icon: "home-outline" },
   { label: "Transporte", icon: "car-outline" },
@@ -20,7 +20,7 @@ const ICON_OPTIONS: Array<{ label: string; icon: keyof typeof Ionicons.glyphMap 
   { label: "Outros", icon: "pricetag-outline" },
 ];
 
-const GROUPS: Array<{ key: CategoryGroup; title: string; icon: keyof typeof Ionicons.glyphMap; color: string }> = [
+const GROUPS: { key: CategoryGroup; title: string; icon: keyof typeof Ionicons.glyphMap; color: string }[] = [
   { key: "expense/fixed", title: "Saídas fixas", icon: "calendar-outline", color: "#e05252" },
   { key: "expense/variable", title: "Saídas variáveis", icon: "swap-horizontal-outline", color: "#f59e0b" },
   { key: "income/fixed", title: "Entradas fixas", icon: "cash-outline", color: "#22a96b" },

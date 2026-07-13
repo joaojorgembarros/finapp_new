@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, View } from "react-native";
 import { BlurView } from "expo-blur";
@@ -330,11 +330,11 @@ function AddModal({ visible, onClose, onSave }: { visible: boolean; onClose: () 
   const [desc, setDesc] = useState("");
   const [category, setCategory] = useState(CATEGORIES.Receita[0]);
 
-  function scrollDescriptionIntoView(delay = 80) {
+  const scrollDescriptionIntoView = useCallback((delay = 80) => {
     setTimeout(() => {
       scrollRef.current?.scrollTo({ y: Math.max(descriptionY - 18, 0), animated: true });
     }, delay);
-  }
+  }, [descriptionY]);
 
   useEffect(() => {
     if (Platform.OS !== "android") return;
@@ -354,7 +354,7 @@ function AddModal({ visible, onClose, onSave }: { visible: boolean; onClose: () 
       showSub.remove();
       hideSub.remove();
     };
-  }, []);
+  }, [scrollDescriptionIntoView]);
 
   function scrollToDescription() {
     if (Platform.OS !== "android") return;
@@ -671,8 +671,12 @@ export default function JourneyScreen() {
     "Usuário";
   const avatarUrl = userMeta?.avatar_url || userMeta?.picture || null;
 
-  const dreams = useMemo(() => readJson<string[]>(params.dreams, ["Reserva de emergência", "Investir mais", "Liberdade financeira"]), [params.dreams]);
-  const values = useMemo(() => readJson<Record<string, string>>(params.values, {}), [params.values]);
+  const savedDreams = Array.isArray(userMeta?.finapp_dreams) ? JSON.stringify(userMeta.finapp_dreams) : undefined;
+  const savedValues = userMeta?.finapp_dream_values && typeof userMeta.finapp_dream_values === "object"
+    ? JSON.stringify(userMeta.finapp_dream_values)
+    : undefined;
+  const dreams = useMemo(() => readJson<string[]>(params.dreams ?? savedDreams, ["Reserva de emergência", "Investir mais", "Liberdade financeira"]), [params.dreams, savedDreams]);
+  const values = useMemo(() => readJson<Record<string, string>>(params.values ?? savedValues, {}), [params.values, savedValues]);
 
   const cards = dreams.slice(0, 3).map((dream, index) => {
     const cents = parseBRLToCents(values[dream] ?? "");

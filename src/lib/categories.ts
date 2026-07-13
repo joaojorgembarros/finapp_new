@@ -67,7 +67,7 @@ export async function seedDefaultCategories(householdId: string) {
   const { data: exists } = await supabase.from("categories").select("id").eq("household_id", householdId).limit(1);
   if (exists && exists.length) return;
 
-  const defaults: Array<Omit<Category, "id" | "household_id">> = [
+  const defaults: Omit<Category, "id" | "household_id">[] = [
     // INCOME
     { flow: "income", kind: "fixed", name: "Salário", icon: "cash-outline", sort: 10 },
     { flow: "income", kind: "variable", name: "Extra (Uber, bico)", icon: "rocket-outline", sort: 20 },

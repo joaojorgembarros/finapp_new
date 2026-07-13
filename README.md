@@ -23,3 +23,17 @@ Aplicativo mobile de controle financeiro desenvolvido com **React Native**, **Ex
 ```bash
 npm install
 npx expo start
+```
+
+## Verificação
+
+```bash
+npm run verify
+```
+
+## Banco e release
+
+- O schema canônico está em `supabase/migrations` e deve ser aplicado com `supabase db push`.
+- Copie `.env.example` para `.env` e configure Supabase e URLs legais.
+- Builds de loja usam os perfis de `eas.json`.
+- Os identificadores iOS e Android são `com.joaojorgembarros.finapp`; antes da primeira publicação, preencha os documentos em `docs/` e publique as URLs legais.

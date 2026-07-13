@@ -9,6 +9,8 @@ import { useSession } from "../../src/providers/SessionProvider";
 import { expectedMonthlyIncomeCents, EmploymentType, getProfile, upsertProfile } from "../../src/lib/profile";
 import { formatBRLFromCents, formatBRLInputFromDigits, parseBRLToCents } from "../../src/lib/format";
 import { supabase } from "../../src/lib/supabase";
+import { deleteOwnAccount, requestPasswordReset } from "../../src/lib/auth";
+import { LEGAL_URLS, openLegalUrl } from "../../src/lib/legal";
 
 const TYPES: EmploymentType[] = ["CLT", "PJ", "Autônomo", "Estudante", "Outro"];
 
@@ -84,7 +86,7 @@ export default function OnboardingProfileScreen() {
         setVariableAvg(moneyInputFromCents(profile.income_variable_avg_cents || 0));
         setEmployment((profile.employment_type as EmploymentType) || "CLT");
       } catch (error: any) {
-        Alert.alert("Perfil", error?.message ?? "Nao foi possivel carregar seus dados.");
+        Alert.alert("Perfil", error?.message ?? "Não foi possível carregar seus dados.");
       } finally {
         if (alive) setBusy(false);
       }
@@ -102,7 +104,7 @@ export default function OnboardingProfileScreen() {
     income_fixed_cents: fixedCents,
     income_variable_avg_cents: variableCents,
   });
-  const previewName = name.trim() || email || "Usuario";
+  const previewName = name.trim() || email || "Usuário";
   const cleanAvatarUrl = avatarUrl.trim();
   const cleanEmail = accountEmail.trim().toLowerCase();
   const cleanPhone = phone.trim();
@@ -118,7 +120,7 @@ export default function OnboardingProfileScreen() {
       return Alert.alert("Perfil", "Informe seu nome.");
     }
     if (!isValidEmail(cleanEmail)) {
-      return Alert.alert("Perfil", "Informe um e-mail valido.");
+      return Alert.alert("Perfil", "Informe um e-mail válido.");
     }
 
     try {
@@ -143,11 +145,11 @@ export default function OnboardingProfileScreen() {
       Alert.alert(
         "Perfil",
         cleanEmail !== email.toLowerCase()
-          ? "Dados atualizados. Confirme o novo e-mail pelo link enviado para concluir a alteracao."
+          ? "Dados atualizados. Confirme o novo e-mail pelo link enviado para concluir a alteração."
           : "Dados atualizados."
       );
     } catch (error: any) {
-      Alert.alert("Erro", error?.message ?? "Nao foi possivel salvar.");
+      Alert.alert("Erro", error?.message ?? "Não foi possível salvar.");
     } finally {
       setBusy(false);
     }
@@ -195,25 +197,53 @@ export default function OnboardingProfileScreen() {
       setAvatarUrl(publicUrl);
       Alert.alert("Foto de perfil", "Foto atualizada.");
     } catch (error: any) {
-      Alert.alert("Erro ao enviar foto", error?.message ?? "Nao foi possivel atualizar sua foto agora.");
+      Alert.alert("Erro ao enviar foto", error?.message ?? "Não foi possível atualizar sua foto agora.");
     } finally {
       setUploadingAvatar(false);
     }
   }
 
   async function resetPassword() {
-    if (!email) return Alert.alert("Senha", "Nao encontramos um e-mail para esta conta.");
+    if (!email) return Alert.alert("Senha", "Não encontramos um e-mail para esta conta.");
     try {
-      await supabase.auth.resetPasswordForEmail(email);
-      Alert.alert("Senha", "Enviamos um link de recuperacao para seu e-mail.");
+      await requestPasswordReset(email);
+      Alert.alert("Senha", "Enviamos um link de recuperação para seu e-mail.");
     } catch (error: any) {
-      Alert.alert("Erro", error?.message ?? "Nao foi possivel enviar o link agora.");
+      Alert.alert("Erro", error?.message ?? "Não foi possível enviar o link agora.");
     }
   }
 
   async function logout() {
     await signOut();
     router.replace("/(auth)/login");
+  }
+
+  function openLegalDocument(url: string) {
+    openLegalUrl(url).catch((error: any) => {
+      Alert.alert("Não foi possível abrir", error?.message ?? "Confira a URL configurada para esta versão.");
+    });
+  }
+
+  function confirmAccountDeletion() {
+    Alert.alert(
+      "Excluir conta definitivamente?",
+      "Seus dados pessoais serão removidos. Esta ação não pode ser desfeita.",
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Excluir conta",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await deleteOwnAccount();
+              router.replace("/(auth)/login");
+            } catch (error: any) {
+              Alert.alert("Erro ao excluir conta", error?.message ?? "Não foi possível excluir sua conta agora.");
+            }
+          },
+        },
+      ],
+    );
   }
 
   return (
@@ -226,7 +256,7 @@ export default function OnboardingProfileScreen() {
           <View style={styles.headerContent}>
             <Text style={styles.headerEyebrow}>Perfil</Text>
             <Text style={styles.headerTitle}>Editar perfil</Text>
-            <Text style={styles.headerSubtitle}>Atualize seus dados, contato e preferencias da sua jornada.</Text>
+            <Text style={styles.headerSubtitle}>Atualize seus dados, contato e preferências da sua jornada.</Text>
           </View>
         </View>
 
@@ -279,7 +309,7 @@ export default function OnboardingProfileScreen() {
           </View>
 
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Informacoes financeiras</Text>
+            <Text style={styles.cardTitle}>Informações financeiras</Text>
             <Text style={styles.label}>Renda fixa mensal</Text>
             <TextInput
               value={fixed}
@@ -290,7 +320,7 @@ export default function OnboardingProfileScreen() {
               style={styles.input}
             />
 
-            <Text style={styles.label}>Media de renda extra</Text>
+            <Text style={styles.label}>Média de renda extra</Text>
             <TextInput
               value={variableAvg}
               onChangeText={(text) => setVariableAvg(formatBRLInputFromDigits(text))}
@@ -331,14 +361,34 @@ export default function OnboardingProfileScreen() {
               </View>
               <Ionicons name="chevron-forward" size={18} color={OB.support} />
             </Pressable>
+            <Pressable onPress={() => openLegalDocument(LEGAL_URLS.terms)} style={styles.settingRow}>
+              <Ionicons name="document-text-outline" size={20} color={OB.primary} />
+              <View style={styles.settingInfo}>
+                <Text style={styles.settingTitle}>Termos de uso</Text>
+                <Text style={styles.settingSubtitle}>Consulte as regras do FinApp</Text>
+              </View>
+              <Ionicons name="open-outline" size={18} color={OB.support} />
+            </Pressable>
+            <Pressable onPress={() => openLegalDocument(LEGAL_URLS.privacy)} style={styles.settingRow}>
+              <Ionicons name="shield-checkmark-outline" size={20} color={OB.primary} />
+              <View style={styles.settingInfo}>
+                <Text style={styles.settingTitle}>Política de privacidade</Text>
+                <Text style={styles.settingSubtitle}>Saiba como seus dados são tratados</Text>
+              </View>
+              <Ionicons name="open-outline" size={18} color={OB.support} />
+            </Pressable>
           </View>
 
           <Pressable onPress={saveProfile} disabled={busy} style={[styles.primaryButton, busy && styles.buttonDisabled]}>
-            <Text style={styles.primaryText}>{busy ? "Salvando..." : "Salvar alteracoes"}</Text>
+            <Text style={styles.primaryText}>{busy ? "Salvando..." : "Salvar alterações"}</Text>
           </Pressable>
           <Pressable onPress={logout} style={styles.dangerButton}>
             <Ionicons name="log-out-outline" size={20} color="#B94A4A" />
             <Text style={styles.dangerText}>Sair da conta</Text>
+          </Pressable>
+          <Pressable onPress={confirmAccountDeletion} style={styles.deleteButton}>
+            <Ionicons name="trash-outline" size={20} color="#B94A4A" />
+            <Text style={styles.dangerText}>Excluir minha conta</Text>
           </Pressable>
         </ScrollView>
       </View>
@@ -617,5 +667,17 @@ const styles = StyleSheet.create({
     color: "#B94A4A",
     fontSize: 14,
     fontWeight: "900",
+  },
+  deleteButton: {
+    minHeight: 54,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    borderWidth: 1,
+    borderColor: "#E8A2A2",
+    backgroundColor: "transparent",
   },
 });

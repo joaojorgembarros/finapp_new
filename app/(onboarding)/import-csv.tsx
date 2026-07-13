@@ -7,7 +7,6 @@ import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
 import { useSession } from "../../src/providers/SessionProvider";
 import { useHouseholdId } from "../../src/hooks/useHousehold";
 import { addTransaction } from "../../src/lib/transactions";
-import { emitTxChanged } from "../../src/lib/bus";
 import { formatBRLFromCents, formatDateBRFromYMD } from "../../src/lib/format";
 import { CsvParseResult, formatFileSize, ParsedCsvTx, PickedCsvFile, parseCsv, readCsvText } from "../../src/lib/csvImport";
 
@@ -120,7 +119,6 @@ export default function ImportCsvOnboarding() {
         });
       }
 
-      emitTxChanged({ householdId });
       Alert.alert("Importação concluída", `${result.rows.length} transações foram salvas.`);
       clearFile();
     } catch (error: any) {

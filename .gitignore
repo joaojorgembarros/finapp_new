@@ -3,3 +3,7 @@ node_modules
 .expo
 *.log
 *.err.log
+/android
+/ios
+/coverage
+/.tmp-*

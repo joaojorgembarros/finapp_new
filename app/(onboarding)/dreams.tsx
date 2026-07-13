@@ -57,7 +57,8 @@ export default function DreamsScreen() {
 
     setSelected((prev) => {
       const next = new Set(prev);
-      next.has(label) ? next.delete(label) : next.add(label);
+      if (next.has(label)) next.delete(label);
+      else next.add(label);
       return next;
     });
   }
@@ -99,7 +100,7 @@ export default function DreamsScreen() {
           eyebrow="Seus objetivos"
           title="Quais sonhos você quer conquistar?"
           subtitle="Escolha seus objetivos e organize sua jornada por prazo."
-          onBack={() => router.back()}
+          onBack={() => router.replace("/(auth)/login")}
         />
 
         <View style={styles.card}>

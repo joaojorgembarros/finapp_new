@@ -75,7 +75,7 @@ export default function DreamValuesScreen() {
     try {
       setSaving(true);
       if (userId) {
-        await markNewOnboardingDone(userId);
+        await markNewOnboardingDone(userId, dreams, values);
       }
     } catch {
       // O fluxo visual não deve travar se o armazenamento local falhar.

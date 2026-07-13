@@ -1,47 +1,43 @@
-// app/index.tsx
 import React, { useEffect, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
-import { router } from "expo-router";
+import { Href, Redirect } from "expo-router";
 import { useSession } from "../src/providers/SessionProvider";
-import { hasCompletedNewOnboarding } from "../src/lib/newOnboarding";
-import { OB } from "../src/ui/OnboardingKit";
+import { hasCompletedNewOnboarding, syncNewOnboardingCompletion } from "../src/lib/newOnboarding";
+import { theme } from "../src/ui/theme";
 
 export default function Index() {
-  const { userId, loading } = useSession();
-  const [checking, setChecking] = useState(true);
+  const { session, userId, loading } = useSession();
+  const [destination, setDestination] = useState<Href | null>(null);
 
   useEffect(() => {
     let alive = true;
-
-    async function run() {
-      if (loading) return;
-
-      try {
-        if (!userId) {
-          router.replace("/(auth)/login");
-          return;
-        }
-
-        const done = await hasCompletedNewOnboarding(userId);
-        router.replace(done ? "/(onboarding)/journey" : "/(onboarding)/dreams");
-      } finally {
-        if (alive) setChecking(false);
-      }
+    if (loading) return;
+    if (!userId || !session) {
+      setDestination("/(auth)/login");
+      return;
     }
 
-    run();
-    return () => {
-      alive = false;
-    };
-  }, [loading, userId]);
+    const remoteDone = session.user.user_metadata?.new_onboarding_done === true;
+    if (remoteDone) {
+      setDestination("/(onboarding)/journey");
+      return;
+    }
 
-  if (loading || checking) {
-    return (
-      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: OB.offWhite }}>
-        <ActivityIndicator color={OB.primary} />
-      </View>
-    );
-  }
+    hasCompletedNewOnboarding(userId).then((localDone) => {
+      if (!alive) return;
+      if (localDone) {
+        syncNewOnboardingCompletion().catch(() => {});
+        setDestination("/(onboarding)/journey");
+      } else {
+        setDestination("/(onboarding)/dreams");
+      }
+    });
 
-  return null;
+    return () => { alive = false; };
+  }, [loading, session, userId]);
+
+  if (destination) return <Redirect href={destination} />;
+  return <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.bg0 }}>
+    <ActivityIndicator color={theme.colors.primary} />
+  </View>;
 }

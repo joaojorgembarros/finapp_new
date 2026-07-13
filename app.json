@@ -4,6 +4,7 @@
     "slug": "finapp-zero-newdb",
     "scheme": "finapp",
     "version": "1.0.0",
+    "icon": "./assets/icon.png",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "plugins": [
@@ -12,18 +13,28 @@
       "@react-native-community/datetimepicker"
     ],
     "splash": {
+      "image": "./assets/icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#070a12"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.joaojorgembarros.finapp",
+      "infoPlist": { "ITSAppUsesNonExemptEncryption": false }
     },
     "android": {
       "edgeToEdgeEnabled": true,
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "backgroundColor": "#070a12"
-      }
+      },
+      "package": "com.joaojorgembarros.finapp",
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.SYSTEM_ALERT_WINDOW"
+      ]
     },
     "androidStatusBar": {
       "barStyle": "dark-content",

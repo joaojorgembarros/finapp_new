@@ -6,38 +6,14 @@ export type PlanType = "individual" | "couple";
 export async function createHousehold(opts: {
   name: string;
   type: PlanType;
-  userId?: string;
 }) {
-  const { data: userData, error: userErr } = await supabase.auth.getUser();
-  if (userErr) throw userErr;
-
-  const uid = userData.user?.id ?? opts.userId;
-  if (!uid) throw new Error("Usuário não autenticado.");
-
-  // 1) cria household (precisa bater created_by = auth.uid())
-  const { data: hh, error: hhErr } = await supabase
-    .from("households")
-    .insert({
-      name: opts.name,
-      type: opts.type,
-      created_by: uid,
-    })
-    .select("id")
-    .single();
-
-  if (hhErr) throw hhErr;
-  const householdId = hh.id as string;
-
-  // 2) cria membership (ANTES do seed)
-  const { error: memErr } = await supabase.from("memberships").insert({
-    household_id: householdId,
-    user_id: uid,
-    role: "owner",
+  const { data, error } = await supabase.rpc("create_household", {
+    household_name: opts.name.trim(),
+    household_type: opts.type,
   });
-
-  if (memErr) throw memErr;
-
-  return householdId;
+  if (error) throw error;
+  if (!data) throw new Error("Não foi possível criar a casa.");
+  return data as string;
 }
 
 export async function getMyHouseholdId(userId: string) {
