@@ -1,3 +1,9 @@
+---
+layout: default
+title: Exclusão de conta
+permalink: /exclusao-de-conta/
+---
+
 # Exclusão de conta
 
 No aplicativo, acesse **Perfil → Excluir minha conta** e confirme a exclusão definitiva.

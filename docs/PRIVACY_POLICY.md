@@ -1,3 +1,9 @@
+---
+layout: default
+title: Política de Privacidade
+permalink: /privacidade/
+---
+
 # Política de Privacidade do FinApp
 
 Última atualização: 14 de julho de 2026.
