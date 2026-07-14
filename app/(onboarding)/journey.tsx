@@ -101,7 +101,12 @@ const TRAIL_POINTS = buildTrailPoints();
 
 function clampProgress(progress: number) {
   if (!Number.isFinite(progress)) return 0;
-  return Math.max(0, Math.min(100, Math.round(progress)));
+  return Math.max(0, Math.min(100, progress));
+}
+
+function progressLabel(progress: number) {
+  const pct = clampProgress(progress);
+  return pct > 0 && pct < 1 ? "<1%" : `${Math.round(pct)}%`;
 }
 
 function distance(a: TrailPoint, b: TrailPoint) {
@@ -268,7 +273,7 @@ function ProgressCard({ goal, icon, onOpen }: { goal: GoalProgress; icon: string
           <Ionicons name="chevron-forward" size={14} color={OB.primary} />
         </Pressable>
       </View>
-      <View style={styles.ring}><Text style={styles.ringText}>{progress}%</Text></View>
+      <View style={styles.ring}><Text style={styles.ringText}>{progressLabel(progress)}</Text></View>
     </View>
   );
 }
