@@ -1,0 +1,7 @@
+title: FinApp
+description: Informações legais e suporte do FinApp
+lang: pt-BR
+url: https://joaojorgembarros.github.io
+baseurl: /finapp_new
+exclude:
+  - RELEASE_CHECKLIST.md
