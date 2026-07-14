@@ -1,21 +1,19 @@
 import React, { useMemo, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { OB, OnboardingBackground, OnboardingShell, PrimaryButton, ScreenIntro, SecondaryButton } from "../../src/ui/OnboardingKit";
 import { formatBRLFromCents, formatBRLInputFromDigits, parseBRLToCents } from "../../src/lib/format";
 import { useSession } from "../../src/providers/SessionProvider";
 import { markNewOnboardingDone } from "../../src/lib/newOnboarding";
 
-const FALLBACK = ["Reserva de emergência", "Investir mais", "Liberdade financeira"];
-
 function readDreams(raw: string | string[] | undefined) {
   try {
     const value = Array.isArray(raw) ? raw[0] : raw;
     const parsed = value ? JSON.parse(value) : null;
-    return Array.isArray(parsed) && parsed.length ? parsed.map(String) : FALLBACK;
+    return Array.isArray(parsed) && parsed.length ? parsed.map(String) : [];
   } catch {
-    return FALLBACK;
+    return [];
   }
 }
 
@@ -68,30 +66,28 @@ export default function DreamValuesScreen() {
   const [saving, setSaving] = useState(false);
 
   const filled = Object.values(values).filter((value) => parseBRLToCents(value) > 0).length;
-  const canContinue = filled > 0;
+  const canContinue = dreams.length > 0 && filled > 0;
 
   async function next() {
     if (saving) return;
+    if (!userId) return Alert.alert("Sessão expirada", "Entre novamente para continuar.");
+
     try {
       setSaving(true);
-      if (userId) {
-        await markNewOnboardingDone(userId, dreams, values);
-      }
-    } catch {
-      // O fluxo visual não deve travar se o armazenamento local falhar.
+      await markNewOnboardingDone(userId, dreams, values);
+      router.push({
+        pathname: "/(onboarding)/journey",
+        params: {
+          dreams: JSON.stringify(dreams),
+          values: JSON.stringify(values),
+        },
+      });
+    } catch (error: any) {
+      Alert.alert("Não foi possível concluir", error?.message ?? "Tente novamente em instantes.");
     } finally {
       setSaving(false);
     }
-
-    router.push({
-      pathname: "/(onboarding)/journey",
-      params: {
-        dreams: JSON.stringify(dreams),
-        values: JSON.stringify(values),
-      },
-    });
   }
-
   return (
     <OnboardingShell>
       <OnboardingBackground />
@@ -107,10 +103,10 @@ export default function DreamValuesScreen() {
           <View style={styles.progressWrap}>
             <View style={styles.progressHeader}>
               <Text style={styles.progressText}>{filled} de {dreams.length} preenchidos</Text>
-              <Text style={styles.progressText}>{Math.round((filled / dreams.length) * 100)}%</Text>
+              <Text style={styles.progressText}>{Math.round((filled / Math.max(dreams.length, 1)) * 100)}%</Text>
             </View>
             <View style={styles.progressTrack}>
-              <View style={[styles.progressFill, { width: `${(filled / dreams.length) * 100}%` }]} />
+              <View style={[styles.progressFill, { width: `${(filled / Math.max(dreams.length, 1)) * 100}%` }]} />
             </View>
           </View>
 

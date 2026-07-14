@@ -1,5 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "./supabase";
+import { createHousehold, getMyHouseholdId } from "./household";
+import { seedDefaultCategories } from "./categories";
 
 function keyFor(userId: string) {
   return `finapp:new-figma-onboarding:${userId}`;
@@ -18,6 +20,11 @@ export async function syncNewOnboardingCompletion(dreams?: string[], values?: Re
 }
 
 export async function markNewOnboardingDone(userId: string, dreams: string[], values: Record<string, string>) {
+  let householdId = await getMyHouseholdId(userId);
+  if (!householdId) {
+    householdId = await createHousehold({ name: "Minha casa", type: "individual" });
+  }
+  await seedDefaultCategories(householdId);
   await AsyncStorage.setItem(keyFor(userId), "done");
   await syncNewOnboardingCompletion(dreams, values);
 }

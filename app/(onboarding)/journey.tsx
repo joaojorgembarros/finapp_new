@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
-import { Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, View } from "react-native";
 import { BlurView } from "expo-blur";
 import Svg, {
   Circle,
@@ -18,28 +18,18 @@ import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
 import { formatBRLFromCents, formatBRLInputFromDigits, parseBRLToCents } from "../../src/lib/format";
 import { supabase } from "../../src/lib/supabase";
 import { useSession } from "../../src/providers/SessionProvider";
+import { useHouseholdId } from "../../src/hooks/useHousehold";
+import { Category, listCategories } from "../../src/lib/categories";
+import { addTransaction, listTransactionsByMonth, TxRow as DatabaseTx } from "../../src/lib/transactions";
 
 type Tab = "controle" | "jornada" | "desafios";
 type MenuIcon = keyof typeof Ionicons.glyphMap;
 type TrailPoint = { x: number; y: number };
 type TrailSegment = { start: TrailPoint; c1: TrailPoint; c2: TrailPoint; end: TrailPoint };
-type TxType = "Receita" | "Despesa" | "Investimento";
+type TxType = "Receita" | "Despesa";
 type Filter = "Todos" | TxType;
-type Tx = { id: string; type: TxType; description: string; category: string; date: string; amount: number };
-
-const SEED: Tx[] = [
-  { id: "1", type: "Receita", description: "Salário junho", category: "Salário", date: "2026-06-05", amount: 520000 },
-  { id: "2", type: "Despesa", description: "Supermercado semanal", category: "Supermercado", date: "2026-06-10", amount: 38400 },
-  { id: "3", type: "Investimento", description: "Aporte CDB", category: "CDB", date: "2026-06-12", amount: 100000 },
-  { id: "4", type: "Despesa", description: "Plano de saúde", category: "Plano de saúde", date: "2026-06-13", amount: 42000 },
-  { id: "5", type: "Receita", description: "Freela design", category: "Renda extra", date: "2026-06-15", amount: 80000 },
-];
-
-const CATEGORIES: Record<TxType, string[]> = {
-  Receita: ["Salário", "Renda extra", "Aluguel", "13º salário", "Férias", "Outros"],
-  Despesa: ["Aluguel", "Supermercado", "Internet", "Plano de saúde", "Restaurantes", "Academia", "Outros"],
-  Investimento: ["Poupança", "CDB", "Tesouro Direto", "Renda fixa", "Ações", "Outros"],
-};
+type Tx = { id: string; type: TxType; description: string; category: string; categoryId: string | null; date: string; amount: number };
+type TxDraft = Omit<Tx, "id" | "date" | "category">;
 
 const WEB_DRAWER_BLUR_STYLE =
   Platform.OS === "web"
@@ -263,7 +253,7 @@ function MountainHero({ progress }: { progress: number }) {
   );
 }
 
-function ProgressCard({ label, value, percent, icon }: { label: string; value: string; percent: number; icon: string }) {
+function ProgressCard({ label, value, icon }: { label: string; value: string; icon: string }) {
   return (
     <View style={styles.goalCard}>
       <View style={styles.goalBadge}>
@@ -272,17 +262,11 @@ function ProgressCard({ label, value, percent, icon }: { label: string; value: s
       <View style={styles.goalInfo}>
         <Text style={styles.goalTitle}>{label}</Text>
         <Text style={styles.goalValue}>Meta: {value}</Text>
-        <View style={styles.smallTrack}>
-          <View style={[styles.smallFill, { width: `${Math.min(100, percent)}%` }]} />
-        </View>
-      </View>
-      <View style={styles.ring}>
-        <Text style={styles.ringText}>{percent}%</Text>
+        <Text style={{ color: OB.support, fontSize: 11, fontWeight: "700", marginTop: 6 }}>Progresso ainda não registrado</Text>
       </View>
     </View>
   );
 }
-
 function SummaryCard({ label, value, icon, color }: { label: string; value: number; icon: string; color: string }) {
   return (
     <View style={styles.summaryCard}>
@@ -297,8 +281,8 @@ function SummaryCard({ label, value, icon, color }: { label: string; value: numb
 }
 
 function TxRow({ tx }: { tx: Tx }) {
-  const color = tx.type === "Receita" ? "#22a96b" : tx.type === "Investimento" ? OB.support : "#e05252";
-  const sign = tx.type === "Receita" ? "+" : tx.type === "Investimento" ? "~" : "-";
+  const color = tx.type === "Receita" ? "#22a96b" : "#e05252";
+  const sign = tx.type === "Receita" ? "+" : "-";
 
   return (
     <View style={styles.txRow}>
@@ -317,7 +301,7 @@ function TxRow({ tx }: { tx: Tx }) {
   );
 }
 
-function AddModal({ visible, onClose, onSave }: { visible: boolean; onClose: () => void; onSave: (tx: Tx) => void }) {
+function AddModal({ visible, categories, saving, onClose, onSave }: { visible: boolean; categories: Category[]; saving: boolean; onClose: () => void; onSave: (tx: TxDraft) => Promise<boolean> }) {
   const insets = useSafeAreaInsets();
   const androidStatusBar = Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0;
   const topInset = Math.max(insets.top, androidStatusBar, 18);
@@ -328,7 +312,14 @@ function AddModal({ visible, onClose, onSave }: { visible: boolean; onClose: () 
   const [type, setType] = useState<TxType>("Receita");
   const [amount, setAmount] = useState("");
   const [desc, setDesc] = useState("");
-  const [category, setCategory] = useState(CATEGORIES.Receita[0]);
+  const [categoryId, setCategoryId] = useState<string | null>(null);
+  const availableCategories = useMemo(() => categories.filter((item) => item.flow === (type === "Receita" ? "income" : "expense")), [categories, type]);
+
+  useEffect(() => {
+    if (!availableCategories.some((item) => item.id === categoryId)) {
+      setCategoryId(availableCategories[0]?.id ?? null);
+    }
+  }, [availableCategories, categoryId]);
 
   const scrollDescriptionIntoView = useCallback((delay = 80) => {
     setTimeout(() => {
@@ -370,25 +361,18 @@ function AddModal({ visible, onClose, onSave }: { visible: boolean; onClose: () 
 
   function changeType(next: TxType) {
     setType(next);
-    setCategory(CATEGORIES[next][0]);
+    setCategoryId(null);
   }
 
-  function save() {
+  async function save() {
     const cents = parseBRLToCents(amount);
-    if (!cents || !desc.trim()) return;
-    onSave({
-      id: Date.now().toString(),
-      type,
-      amount: cents,
-      description: desc.trim(),
-      category,
-      date: new Date().toISOString().slice(0, 10),
-    });
+    if (!cents || !desc.trim() || saving) return;
+    const saved = await onSave({ type, amount: cents, description: desc.trim(), categoryId });
+    if (!saved) return;
     setAmount("");
     setDesc("");
     onClose();
   }
-
   function openImportStatement() {
     onClose();
     router.push("/(onboarding)/import-extract");
@@ -421,7 +405,7 @@ function AddModal({ visible, onClose, onSave }: { visible: boolean; onClose: () 
               </Pressable>
               <Text style={styles.sheetEyebrow}>Controle financeiro</Text>
               <Text style={styles.sheetTitle}>Novo lançamento</Text>
-              <Text style={styles.sheetSubtitle}>Registre entradas, saídas e investimentos com clareza.</Text>
+              <Text style={styles.sheetSubtitle}>Registre entradas e saídas com clareza.</Text>
             </View>
 
             <Pressable onPress={openImportStatement} style={styles.importStatementButton}>
@@ -436,7 +420,7 @@ function AddModal({ visible, onClose, onSave }: { visible: boolean; onClose: () 
             </Pressable>
 
             <View style={styles.typeTabs}>
-              {(["Receita", "Despesa", "Investimento"] as TxType[]).map((item) => {
+              {(["Receita", "Despesa"] as TxType[]).map((item) => {
                 const active = item === type;
                 return (
                   <Pressable key={item} onPress={() => changeType(item)} style={[styles.typeTab, active && styles.typeTabActive]}>
@@ -454,12 +438,12 @@ function AddModal({ visible, onClose, onSave }: { visible: boolean; onClose: () 
 
             <Text style={styles.fieldLabel}>Categoria</Text>
             <View style={styles.categoryPanel}>
-              {CATEGORIES[type].map((item) => {
-                const active = item === category;
+              {availableCategories.map((item) => {
+                const active = item.id === categoryId;
                 return (
-                  <Pressable key={item} onPress={() => setCategory(item)} style={[styles.category, active && styles.categoryActive]}>
+                  <Pressable key={item.id} onPress={() => setCategoryId(item.id)} style={[styles.category, active && styles.categoryActive]}>
                     {active ? <Ionicons name="checkmark-circle" size={15} color="#fff" /> : null}
-                    <Text style={[styles.categoryText, active && styles.categoryTextActive]}>{item}</Text>
+                    <Text style={[styles.categoryText, active && styles.categoryTextActive]}>{item.name}</Text>
                   </Pressable>
                 );
               })}
@@ -484,8 +468,8 @@ function AddModal({ visible, onClose, onSave }: { visible: boolean; onClose: () 
               />
             </View>
 
-            <Pressable onPress={save} disabled={!parseBRLToCents(amount) || !desc.trim()} style={[styles.saveButton, (!parseBRLToCents(amount) || !desc.trim()) && styles.saveButtonDisabled]}>
-              <Text style={[styles.saveButtonText, (!parseBRLToCents(amount) || !desc.trim()) && styles.saveButtonTextDisabled]}>Salvar lançamento</Text>
+            <Pressable onPress={save} disabled={saving || !parseBRLToCents(amount) || !desc.trim()} style={[styles.saveButton, (saving || !parseBRLToCents(amount) || !desc.trim()) && styles.saveButtonDisabled]}>
+              <Text style={[styles.saveButtonText, (saving || !parseBRLToCents(amount) || !desc.trim()) && styles.saveButtonTextDisabled]}>{saving ? "Salvando..." : "Salvar lançamento"}</Text>
             </Pressable>
           </ScrollView>
         </View>
@@ -494,19 +478,75 @@ function AddModal({ visible, onClose, onSave }: { visible: boolean; onClose: () 
   );
 }
 
-function ControlPanel() {
-  const [txs, setTxs] = useState<Tx[]>(SEED);
+function mapDatabaseTx(row: DatabaseTx): Tx {
+  return {
+    id: row.id,
+    type: row.type === "income" ? "Receita" : "Despesa",
+    amount: Number(row.amount_cents || 0),
+    description: row.note?.trim() || row.category?.name || "Lançamento",
+    category: row.category?.name || "Sem categoria",
+    categoryId: row.category_id,
+    date: row.occurred_on,
+  };
+}
+
+function ControlPanel({ userId }: { userId: string | null }) {
+  const { householdId, loading: householdLoading } = useHouseholdId(userId);
+  const [txs, setTxs] = useState<Tx[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [modal, setModal] = useState(false);
   const [filter, setFilter] = useState<Filter>("Todos");
+
+  const load = useCallback(async () => {
+    if (!householdId) {
+      setTxs([]);
+      setCategories([]);
+      setLoading(false);
+      return;
+    }
+    try {
+      setLoading(true);
+      const [rows, categoryRows] = await Promise.all([listTransactionsByMonth(householdId), listCategories(householdId)]);
+      setTxs(rows.map(mapDatabaseTx));
+      setCategories(categoryRows);
+    } catch (error: any) {
+      Alert.alert("Controle financeiro", error?.message ?? "Não foi possível carregar seus lançamentos.");
+    } finally {
+      setLoading(false);
+    }
+  }, [householdId]);
+
+  useEffect(() => { load(); }, [load]);
 
   const totals = useMemo(() => {
     const income = txs.filter((tx) => tx.type === "Receita").reduce((sum, tx) => sum + tx.amount, 0);
     const expense = txs.filter((tx) => tx.type === "Despesa").reduce((sum, tx) => sum + tx.amount, 0);
-    const invest = txs.filter((tx) => tx.type === "Investimento").reduce((sum, tx) => sum + tx.amount, 0);
-    return { income, expense, invest, balance: income - expense - invest };
+    return { income, expense, balance: income - expense };
   }, [txs]);
-
   const filtered = filter === "Todos" ? txs : txs.filter((tx) => tx.type === filter);
+
+  async function saveTransaction(draft: TxDraft) {
+    if (!householdId || !userId) {
+      Alert.alert("Controle financeiro", "Sua estrutura financeira ainda não está disponível.");
+      return false;
+    }
+    try {
+      setSaving(true);
+      await addTransaction({ householdId, userId, type: draft.type === "Receita" ? "income" : "expense", amount_cents: draft.amount, category_id: draft.categoryId, note: draft.description });
+      await load();
+      return true;
+    } catch (error: any) {
+      Alert.alert("Controle financeiro", error?.message ?? "Não foi possível salvar o lançamento.");
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const busy = loading || householdLoading;
+  const emptyStyle = { color: OB.support, fontSize: 14, fontWeight: "700" as const, paddingVertical: 24, textAlign: "center" as const };
 
   return (
     <>
@@ -516,40 +556,29 @@ function ControlPanel() {
           <Text style={styles.controlTitle}>Liberdade financeira</Text>
           <Text style={styles.controlSubtitle}>Organize seus lançamentos e acompanhe seu dinheiro com clareza.</Text>
         </View>
-
         <View style={styles.summaryGrid}>
           <SummaryCard label="Receitas do mês" value={totals.income} color="#22a96b" icon="trending-up-outline" />
           <SummaryCard label="Despesas do mês" value={totals.expense} color="#e05252" icon="trending-down-outline" />
           <SummaryCard label="Saldo atual" value={totals.balance} color={OB.primary} icon="wallet-outline" />
-          <SummaryCard label="Investimentos" value={totals.invest} color={OB.support} icon="briefcase-outline" />
         </View>
-
-        <Pressable onPress={() => setModal(true)} style={styles.newButton}>
+        <Pressable onPress={() => setModal(true)} disabled={busy || !householdId} style={[styles.newButton, (busy || !householdId) && styles.saveButtonDisabled]}>
           <Ionicons name="add" size={19} color="#fff" />
           <Text style={styles.newText}>Novo lançamento</Text>
         </Pressable>
-
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
-          {(["Todos", "Receita", "Despesa", "Investimento"] as Filter[]).map((item) => {
+          {(["Todos", "Receita", "Despesa"] as Filter[]).map((item) => {
             const active = item === filter;
-            return (
-              <Pressable key={item} onPress={() => setFilter(item)} style={[styles.filter, active && styles.filterActive]}>
-                <Text style={[styles.filterText, active && styles.filterTextActive]}>{item}</Text>
-              </Pressable>
-            );
+            return <Pressable key={item} onPress={() => setFilter(item)} style={[styles.filter, active && styles.filterActive]}><Text style={[styles.filterText, active && styles.filterTextActive]}>{item}</Text></Pressable>;
           })}
         </ScrollView>
-
         <View style={styles.txList}>
-          {filtered.map((tx) => <TxRow key={tx.id} tx={tx} />)}
+          {busy ? <ActivityIndicator color={OB.primary} /> : !householdId ? <Text style={emptyStyle}>Conclua o onboarding para criar sua estrutura financeira.</Text> : filtered.length ? filtered.map((tx) => <TxRow key={tx.id} tx={tx} />) : <Text style={emptyStyle}>Nenhum lançamento neste mês.</Text>}
         </View>
       </ScrollView>
-
-      <AddModal visible={modal} onClose={() => setModal(false)} onSave={(tx) => setTxs((prev) => [tx, ...prev])} />
+      <AddModal visible={modal} categories={categories} saving={saving} onClose={() => setModal(false)} onSave={saveTransaction} />
     </>
   );
 }
-
 function DrawerButton({
   icon,
   label,
@@ -661,7 +690,6 @@ export default function JourneyScreen() {
   const { session } = useSession();
   const [tab, setTab] = useState<Tab>("jornada");
   const [menuOpen, setMenuOpen] = useState(false);
-  const [challengeDone, setChallengeDone] = useState(false);
 
   const userMeta = session?.user?.user_metadata as Record<string, any> | undefined;
   const displayName =
@@ -675,7 +703,7 @@ export default function JourneyScreen() {
   const savedValues = userMeta?.finapp_dream_values && typeof userMeta.finapp_dream_values === "object"
     ? JSON.stringify(userMeta.finapp_dream_values)
     : undefined;
-  const dreams = useMemo(() => readJson<string[]>(params.dreams ?? savedDreams, ["Reserva de emergência", "Investir mais", "Liberdade financeira"]), [params.dreams, savedDreams]);
+  const dreams = useMemo(() => readJson<string[]>(params.dreams ?? savedDreams, []), [params.dreams, savedDreams]);
   const values = useMemo(() => readJson<Record<string, string>>(params.values ?? savedValues, {}), [params.values, savedValues]);
 
   const cards = dreams.slice(0, 3).map((dream, index) => {
@@ -683,11 +711,10 @@ export default function JourneyScreen() {
     return {
       label: dream,
       value: cents > 0 ? formatBRLFromCents(cents) : "a definir",
-      percent: [75, 48, 22][index] ?? 15,
       icon: ["home-outline", "trending-up-outline", "flag-outline"][index] ?? "sparkles-outline",
     };
   });
-  const journeyProgress = cards[0]?.percent ?? 0;
+  const journeyProgress = 0;
 
   async function logout() {
     setMenuOpen(false);
@@ -700,7 +727,7 @@ export default function JourneyScreen() {
       <View style={styles.root}>
         <View style={styles.content}>
           {tab === "controle" ? (
-            <ControlPanel />
+            <ControlPanel userId={session?.user?.id ?? null} />
           ) : tab === "jornada" ? (
             <>
               <MountainHero progress={journeyProgress} />
@@ -711,27 +738,6 @@ export default function JourneyScreen() {
                 {cards.map((card) => (
                   <ProgressCard key={card.label} {...card} />
                 ))}
-
-                <View style={styles.monthCard}>
-                  <View style={styles.monthIcon}>
-                    <Ionicons name="stats-chart" size={20} color="#fff" />
-                  </View>
-                  <View>
-                    <Text style={styles.monthEyebrow}>Este mês</Text>
-                    <Text style={styles.monthTitle}>Você avançou R$ 750</Text>
-                  </View>
-                </View>
-
-                <View style={styles.challenge}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.challengeEyebrow}>Desafio do dia</Text>
-                    <Text style={styles.challengeTitle}>{challengeDone ? "Desafio concluído!" : "Registrar um gasto do dia"}</Text>
-                    <Text style={styles.challengeText}>{challengeDone ? "Boa. O controle começa nos pequenos registros." : "Registre pelo menos um gasto hoje para manter o controle."}</Text>
-                  </View>
-                  <Pressable onPress={() => setChallengeDone(true)} style={[styles.checkButton, challengeDone && styles.checkButtonDone]}>
-                    <Ionicons name="checkmark" size={19} color={challengeDone ? "#fff" : OB.support} />
-                  </Pressable>
-                </View>
 
               </ScrollView>
             </>

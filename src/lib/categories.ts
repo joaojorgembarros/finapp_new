@@ -64,7 +64,8 @@ export async function deleteCategory(categoryId: string, householdId: string) {
 }
 
 export async function seedDefaultCategories(householdId: string) {
-  const { data: exists } = await supabase.from("categories").select("id").eq("household_id", householdId).limit(1);
+  const { data: exists, error: lookupError } = await supabase.from("categories").select("id").eq("household_id", householdId).limit(1);
+  if (lookupError) throw lookupError;
   if (exists && exists.length) return;
 
   const defaults: Omit<Category, "id" | "household_id">[] = [
@@ -89,5 +90,6 @@ export async function seedDefaultCategories(householdId: string) {
   ];
 
   const payload = defaults.map((c) => ({ ...c, household_id: householdId }));
-  await supabase.from("categories").insert(payload);
+  const { error } = await supabase.from("categories").insert(payload);
+  if (error) throw error;
 }
