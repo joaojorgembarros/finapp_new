@@ -20,7 +20,9 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.joaojorgembarros.finapp",
-      "infoPlist": { "ITSAppUsesNonExemptEncryption": false }
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "edgeToEdgeEnabled": true,
@@ -46,6 +48,12 @@
       "backgroundColor": "#f8fafc",
       "enforceContrast": false
     },
-    "extra": {}
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "c78617fc-5083-4789-b99c-acd66cafef81"
+      }
+    },
+    "owner": "joaojorge30"
   }
 }
