@@ -871,7 +871,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   hero: {
-    height: 218,
+    height: 236,
     backgroundColor: OB.primary,
     overflow: "hidden",
   },
