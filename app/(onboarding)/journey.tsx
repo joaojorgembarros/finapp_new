@@ -735,9 +735,18 @@ export default function JourneyScreen() {
                 <View style={styles.sectionHeader}>
                   <Text style={styles.sectionTitle}>Seus sonhos</Text>
                 </View>
-                {cards.map((card) => (
-                  <ProgressCard key={card.label} {...card} />
-                ))}
+                {cards.length ? (
+                  cards.map((card) => <ProgressCard key={card.label} {...card} />)
+                ) : (
+                  <Pressable onPress={() => router.push("/(onboarding)/dreams")} style={styles.emptyDreamsCard}>
+                    <Ionicons name="sparkles-outline" size={22} color={OB.primary} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.emptyDreamsTitle}>Configure seus sonhos</Text>
+                      <Text style={styles.emptyDreamsText}>Escolha seus objetivos para começar sua jornada financeira.</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={19} color={OB.support} />
+                  </Pressable>
+                )}
 
               </ScrollView>
             </>
@@ -834,7 +843,28 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "900",
   },
-  goalCard: {
+  emptyDreamsCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginHorizontal: 18,
+    padding: 18,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+    backgroundColor: "#fff",
+  },
+  emptyDreamsTitle: {
+    color: OB.primary,
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  emptyDreamsText: {
+    color: OB.support,
+    fontSize: 12,
+    fontWeight: "700",
+    marginTop: 3,
+  },  goalCard: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,

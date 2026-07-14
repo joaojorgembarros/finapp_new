@@ -25,6 +25,6 @@ export async function markNewOnboardingDone(userId: string, dreams: string[], va
     householdId = await createHousehold({ name: "Minha casa", type: "individual" });
   }
   await seedDefaultCategories(householdId);
-  await AsyncStorage.setItem(keyFor(userId), "done");
   await syncNewOnboardingCompletion(dreams, values);
+  await AsyncStorage.setItem(keyFor(userId), "done");
 }

@@ -2,7 +2,6 @@ import React, { useEffect, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
 import { Href, Redirect } from "expo-router";
 import { useSession } from "../src/providers/SessionProvider";
-import { hasCompletedNewOnboarding, syncNewOnboardingCompletion } from "../src/lib/newOnboarding";
 import { theme } from "../src/ui/theme";
 
 export default function Index() {
@@ -10,30 +9,16 @@ export default function Index() {
   const [destination, setDestination] = useState<Href | null>(null);
 
   useEffect(() => {
-    let alive = true;
     if (loading) return;
     if (!userId || !session) {
       setDestination("/(auth)/login");
       return;
     }
 
-    const remoteDone = session.user.user_metadata?.new_onboarding_done === true;
-    if (remoteDone) {
-      setDestination("/(onboarding)/journey");
-      return;
-    }
-
-    hasCompletedNewOnboarding(userId).then((localDone) => {
-      if (!alive) return;
-      if (localDone) {
-        syncNewOnboardingCompletion().catch(() => {});
-        setDestination("/(onboarding)/journey");
-      } else {
-        setDestination("/(onboarding)/dreams");
-      }
-    });
-
-    return () => { alive = false; };
+    const metadata = session.user.user_metadata;
+    const hasDreams = Array.isArray(metadata?.finapp_dreams) && metadata.finapp_dreams.length > 0;
+    const remoteDone = metadata?.new_onboarding_done === true && hasDreams;
+    setDestination(remoteDone ? "/(onboarding)/journey" : "/(onboarding)/dreams");
   }, [loading, session, userId]);
 
   if (destination) return <Redirect href={destination} />;
