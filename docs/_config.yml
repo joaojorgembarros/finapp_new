@@ -1,6 +1,7 @@
 title: FinApp
 description: Informações legais e suporte do FinApp
 lang: pt-BR
+timezone: America/Sao_Paulo
 url: https://joaojorgembarros.github.io
 baseurl: /finapp_new
 exclude:
