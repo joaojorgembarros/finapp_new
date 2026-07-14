@@ -21,6 +21,7 @@ import { useSession } from "../../src/providers/SessionProvider";
 import { useHouseholdId } from "../../src/hooks/useHousehold";
 import { Category, listCategories } from "../../src/lib/categories";
 import { addTransaction, listTransactionsByMonth, TxRow as DatabaseTx } from "../../src/lib/transactions";
+import { addGoalContribution, GoalContribution, GoalProgress, listGoalContributions, listGoalsWithProgress, syncGoalsFromDreams } from "../../src/lib/goals";
 
 type Tab = "controle" | "jornada" | "desafios";
 type MenuIcon = keyof typeof Ionicons.glyphMap;
@@ -253,18 +254,71 @@ function MountainHero({ progress }: { progress: number }) {
   );
 }
 
-function ProgressCard({ label, value, icon }: { label: string; value: string; icon: string }) {
+function ProgressCard({ goal, icon, onOpen }: { goal: GoalProgress; icon: string; onOpen: () => void }) {
+  const progress = clampProgress((goal.contributed_cents / Math.max(goal.target_cents, 1)) * 100);
   return (
     <View style={styles.goalCard}>
-      <View style={styles.goalBadge}>
-        <Ionicons name={icon as any} size={20} color={OB.primary} />
-      </View>
+      <View style={styles.goalBadge}><Ionicons name={icon as any} size={20} color={OB.primary} /></View>
       <View style={styles.goalInfo}>
-        <Text style={styles.goalTitle}>{label}</Text>
-        <Text style={styles.goalValue}>Meta: {value}</Text>
-        <Text style={{ color: OB.support, fontSize: 11, fontWeight: "700", marginTop: 6 }}>Progresso ainda não registrado</Text>
+        <Text style={styles.goalTitle}>{goal.title}</Text>
+        <Text style={styles.goalValue}>{formatBRLFromCents(goal.contributed_cents)} de {formatBRLFromCents(goal.target_cents)}</Text>
+        <View style={styles.smallTrack}><View style={[styles.smallFill, { width: `${progress}%` }]} /></View>
+        <Pressable onPress={onOpen} hitSlop={8} style={styles.goalAction}>
+          <Text style={styles.goalActionText}>{goal.contribution_count ? `Ver histórico (${goal.contribution_count})` : "Registrar primeiro aporte"}</Text>
+          <Ionicons name="chevron-forward" size={14} color={OB.primary} />
+        </Pressable>
       </View>
+      <View style={styles.ring}><Text style={styles.ringText}>{progress}%</Text></View>
     </View>
+  );
+}
+function GoalContributionModal({ goal, contributions, loading, saving, onClose, onSave }: {
+  goal: GoalProgress | null; contributions: GoalContribution[]; loading: boolean; saving: boolean;
+  onClose: () => void; onSave: (amount: number, note: string) => Promise<boolean>;
+}) {
+  const [amount, setAmount] = useState("");
+  const [note, setNote] = useState("");
+
+  useEffect(() => {
+    if (!goal) { setAmount(""); setNote(""); }
+  }, [goal]);
+
+  async function save() {
+    const cents = parseBRLToCents(amount);
+    if (!cents || saving) return;
+    if (await onSave(cents, note)) { setAmount(""); setNote(""); }
+  }
+
+  return (
+    <Modal visible={Boolean(goal)} animationType="slide" transparent onRequestClose={onClose}>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.goalModalShade}>
+        <View style={styles.goalSheet}>
+          <View style={styles.goalSheetHeader}>
+            <View style={{ flex: 1 }}><Text style={styles.goalSheetEyebrow}>Seu sonho</Text><Text style={styles.goalSheetTitle}>{goal?.title}</Text></View>
+            <Pressable onPress={onClose} hitSlop={10} style={styles.goalSheetClose}><Ionicons name="close" size={20} color={OB.primary} /></Pressable>
+          </View>
+          <Text style={styles.fieldLabel}>Valor do aporte</Text>
+          <View style={styles.inputBox}>
+            <Text style={styles.currency}>R$</Text>
+            <TextInput value={amount.replace("R$", "").trim()} onChangeText={(text) => setAmount(formatBRLInputFromDigits(text))} placeholder="0,00" placeholderTextColor={OB.support} keyboardType="number-pad" style={styles.input} />
+          </View>
+          <Text style={styles.fieldLabel}>Observação (opcional)</Text>
+          <TextInput value={note} onChangeText={setNote} placeholder="Ex.: reserva do salário" placeholderTextColor={OB.support} style={styles.inputBoxText} />
+          <Pressable onPress={save} disabled={!parseBRLToCents(amount) || saving} style={[styles.saveButton, (!parseBRLToCents(amount) || saving) && styles.saveButtonDisabled]}>
+            <Text style={styles.saveButtonText}>{saving ? "Salvando..." : "Registrar aporte"}</Text>
+          </Pressable>
+          <Text style={styles.historyTitle}>Histórico de aportes</Text>
+          <ScrollView style={styles.historyList} contentContainerStyle={{ paddingBottom: 18 }}>
+            {loading ? <ActivityIndicator color={OB.primary} /> : contributions.length ? contributions.map((entry) => (
+              <View key={entry.id} style={styles.historyRow}>
+                <View style={styles.historyIcon}><Ionicons name="arrow-up" size={15} color="#22a96b" /></View>
+                <View style={{ flex: 1 }}><Text style={styles.historyAmount}>{formatBRLFromCents(entry.amount_cents)}</Text><Text style={styles.historyMeta}>{formatDate(entry.contributed_on)}{entry.note ? ` · ${entry.note}` : ""}</Text></View>
+              </View>
+            )) : <Text style={styles.historyEmpty}>Nenhum aporte registrado ainda.</Text>}
+          </ScrollView>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
   );
 }
 function SummaryCard({ label, value, icon, color }: { label: string; value: number; icon: string; color: string }) {
@@ -688,33 +742,70 @@ function JourneyDrawer({
 export default function JourneyScreen() {
   const params = useLocalSearchParams<{ dreams?: string; values?: string }>();
   const { session } = useSession();
+  const userId = session?.user?.id ?? null;
+  const { householdId, loading: householdLoading } = useHouseholdId(userId);
   const [tab, setTab] = useState<Tab>("jornada");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [goals, setGoals] = useState<GoalProgress[]>([]);
+  const [journeyLoading, setJourneyLoading] = useState(true);
+  const [selectedGoal, setSelectedGoal] = useState<GoalProgress | null>(null);
+  const [contributions, setContributions] = useState<GoalContribution[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [contributionSaving, setContributionSaving] = useState(false);
+  const [expenseToday, setExpenseToday] = useState(false);
 
   const userMeta = session?.user?.user_metadata as Record<string, any> | undefined;
-  const displayName =
-    userMeta?.full_name ||
-    userMeta?.name ||
-    session?.user?.email?.split("@")[0] ||
-    "Usuário";
+  const displayName = userMeta?.full_name || userMeta?.name || session?.user?.email?.split("@")[0] || "Usuário";
   const avatarUrl = userMeta?.avatar_url || userMeta?.picture || null;
-
   const savedDreams = Array.isArray(userMeta?.finapp_dreams) ? JSON.stringify(userMeta.finapp_dreams) : undefined;
-  const savedValues = userMeta?.finapp_dream_values && typeof userMeta.finapp_dream_values === "object"
-    ? JSON.stringify(userMeta.finapp_dream_values)
-    : undefined;
+  const savedValues = userMeta?.finapp_dream_values && typeof userMeta.finapp_dream_values === "object" ? JSON.stringify(userMeta.finapp_dream_values) : undefined;
   const dreams = useMemo(() => readJson<string[]>(params.dreams ?? savedDreams, []), [params.dreams, savedDreams]);
   const values = useMemo(() => readJson<Record<string, string>>(params.values ?? savedValues, {}), [params.values, savedValues]);
 
-  const cards = dreams.slice(0, 3).map((dream, index) => {
-    const cents = parseBRLToCents(values[dream] ?? "");
-    return {
-      label: dream,
-      value: cents > 0 ? formatBRLFromCents(cents) : "a definir",
-      icon: ["home-outline", "trending-up-outline", "flag-outline"][index] ?? "sparkles-outline",
-    };
-  });
-  const journeyProgress = 0;
+  const loadJourney = useCallback(async () => {
+    if (!householdId || !userId) { setGoals([]); setJourneyLoading(false); return; }
+    try {
+      setJourneyLoading(true);
+      if (dreams.length) await syncGoalsFromDreams({ householdId, userId, dreams, values });
+      const [goalRows, txRows] = await Promise.all([listGoalsWithProgress(householdId), listTransactionsByMonth(householdId)]);
+      setGoals(goalRows);
+      const now = new Date();
+      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      setExpenseToday(txRows.some((tx) => tx.type === "expense" && tx.occurred_on === today));
+    } catch (error: any) {
+      Alert.alert("Sua jornada", error?.message ?? "Não foi possível carregar seus sonhos.");
+    } finally {
+      setJourneyLoading(false);
+    }
+  }, [dreams, householdId, userId, values]);
+
+  useEffect(() => { if (tab !== "controle") loadJourney(); }, [loadJourney, tab]);
+
+  const targetTotal = goals.reduce((sum, goal) => sum + goal.target_cents, 0);
+  const contributedTotal = goals.reduce((sum, goal) => sum + goal.contributed_cents, 0);
+  const monthTotal = goals.reduce((sum, goal) => sum + goal.month_contributed_cents, 0);
+  const journeyProgress = clampProgress((contributedTotal / Math.max(targetTotal, 1)) * 100);
+
+  async function openGoal(goal: GoalProgress) {
+    setSelectedGoal(goal); setHistoryLoading(true);
+    try { setContributions(await listGoalContributions(goal.id)); }
+    catch (error: any) { Alert.alert("Histórico", error?.message ?? "Não foi possível carregar os aportes."); }
+    finally { setHistoryLoading(false); }
+  }
+
+  async function saveContribution(amount: number, note: string) {
+    if (!selectedGoal || !householdId || !userId) return false;
+    try {
+      setContributionSaving(true);
+      await addGoalContribution({ householdId, goalId: selectedGoal.id, userId, amount_cents: amount, note });
+      const [history] = await Promise.all([listGoalContributions(selectedGoal.id), loadJourney()]);
+      setContributions(history);
+      return true;
+    } catch (error: any) {
+      Alert.alert("Aporte", error?.message ?? "Não foi possível registrar o aporte.");
+      return false;
+    } finally { setContributionSaving(false); }
+  }
 
   async function logout() {
     setMenuOpen(false);
@@ -722,79 +813,50 @@ export default function JourneyScreen() {
     router.replace("/(auth)/login");
   }
 
+  const challengeCard = (
+    <View style={styles.challenge}>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.challengeEyebrow}>Desafio de hoje</Text>
+        <Text style={styles.challengeTitle}>Registre uma despesa do dia</Text>
+        <Text style={styles.challengeText}>{expenseToday ? "Concluído com um lançamento real de hoje." : "Adicione uma despesa na aba Controle para concluir."}</Text>
+      </View>
+      <View style={[styles.checkButton, expenseToday && styles.checkButtonDone]}><Ionicons name={expenseToday ? "checkmark" : "receipt-outline"} size={21} color={expenseToday ? "#fff" : OB.support} /></View>
+    </View>
+  );
+
   return (
     <OnboardingShell light>
       <View style={styles.root}>
         <View style={styles.content}>
-          {tab === "controle" ? (
-            <ControlPanel userId={session?.user?.id ?? null} />
-          ) : tab === "jornada" ? (
+          {tab === "controle" ? <ControlPanel userId={userId} /> : tab === "jornada" ? (
             <>
               <MountainHero progress={journeyProgress} />
               <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-                <View style={styles.sectionHeader}>
-                  <Text style={styles.sectionTitle}>Seus sonhos</Text>
-                </View>
-                {cards.length ? (
-                  cards.map((card) => <ProgressCard key={card.label} {...card} />)
-                ) : (
+                <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>Seus sonhos</Text>{journeyLoading || householdLoading ? <ActivityIndicator size="small" color={OB.primary} /> : null}</View>
+                {goals.length ? goals.map((goal, index) => <ProgressCard key={goal.id} goal={goal} icon={["home-outline", "trending-up-outline", "flag-outline"][index] ?? "sparkles-outline"} onOpen={() => openGoal(goal)} />) : !journeyLoading && !householdLoading ? (
                   <Pressable onPress={() => router.push("/(onboarding)/dreams")} style={styles.emptyDreamsCard}>
-                    <Ionicons name="sparkles-outline" size={22} color={OB.primary} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.emptyDreamsTitle}>Configure seus sonhos</Text>
-                      <Text style={styles.emptyDreamsText}>Escolha seus objetivos para começar sua jornada financeira.</Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={19} color={OB.support} />
+                    <Ionicons name="sparkles-outline" size={22} color={OB.primary} /><View style={{ flex: 1 }}><Text style={styles.emptyDreamsTitle}>Configure seus sonhos</Text><Text style={styles.emptyDreamsText}>Escolha seus objetivos para começar sua jornada financeira.</Text></View><Ionicons name="chevron-forward" size={19} color={OB.support} />
                   </Pressable>
-                )}
-
+                ) : null}
+                <View style={styles.monthCard}><View style={styles.monthIcon}><Ionicons name="calendar-outline" size={21} color="#fff" /></View><View><Text style={styles.monthEyebrow}>Avanço deste mês</Text><Text style={styles.monthTitle}>{formatBRLFromCents(monthTotal)} em aportes reais</Text></View></View>
+                {challengeCard}
               </ScrollView>
             </>
-          ) : (
-            <View style={styles.placeholder}>
-              <Ionicons name="trophy-outline" size={42} color={OB.support} />
-              <Text style={styles.placeholderTitle}>Desafios em breve</Text>
-              <Text style={styles.placeholderText}>Missões financeiras para manter sua jornada viva.</Text>
-            </View>
-          )}
+          ) : <ScrollView contentContainerStyle={styles.challengesPage}><Ionicons name="trophy-outline" size={42} color={OB.primary} /><Text style={styles.placeholderTitle}>Seus desafios</Text><Text style={styles.placeholderText}>As missões são concluídas automaticamente com seus dados reais.</Text>{challengeCard}</ScrollView>}
         </View>
-
         <View style={styles.nav}>
-          <Pressable onPress={() => setMenuOpen(true)} style={styles.navItem}>
-            <Ionicons name="menu-outline" size={23} color={menuOpen ? OB.primary : OB.support} />
-            <Text style={[styles.navText, menuOpen && styles.navTextActive]}>Menu</Text>
-            {menuOpen ? <View style={styles.navIndicator} /> : null}
-          </Pressable>
-
-          {[
-            ["controle", "Controle", "bar-chart-outline"],
-            ["jornada", "Jornada", "compass-outline"],
-            ["desafios", "Desafios", "trophy-outline"],
-          ].map(([id, label, icon]) => {
+          <Pressable onPress={() => setMenuOpen(true)} style={styles.navItem}><Ionicons name="menu-outline" size={23} color={menuOpen ? OB.primary : OB.support} /><Text style={[styles.navText, menuOpen && styles.navTextActive]}>Menu</Text>{menuOpen ? <View style={styles.navIndicator} /> : null}</Pressable>
+          {[["controle", "Controle", "bar-chart-outline"], ["jornada", "Jornada", "compass-outline"], ["desafios", "Desafios", "trophy-outline"]].map(([id, label, icon]) => {
             const active = tab === id;
-            return (
-              <Pressable key={id} onPress={() => setTab(id as Tab)} style={styles.navItem}>
-                <Ionicons name={icon as any} size={21} color={active ? OB.primary : OB.support} />
-                <Text style={[styles.navText, active && styles.navTextActive]}>{label}</Text>
-                {active ? <View style={styles.navIndicator} /> : null}
-              </Pressable>
-            );
+            return <Pressable key={id} onPress={() => setTab(id as Tab)} style={styles.navItem}><Ionicons name={icon as any} size={21} color={active ? OB.primary : OB.support} /><Text style={[styles.navText, active && styles.navTextActive]}>{label}</Text>{active ? <View style={styles.navIndicator} /> : null}</Pressable>;
           })}
         </View>
-        <JourneyDrawer
-          open={menuOpen}
-          activeTab={tab}
-          displayName={displayName}
-          avatarUrl={avatarUrl}
-          onClose={() => setMenuOpen(false)}
-          onTab={setTab}
-          onLogout={logout}
-        />
+        <GoalContributionModal goal={selectedGoal} contributions={contributions} loading={historyLoading} saving={contributionSaving} onClose={() => setSelectedGoal(null)} onSave={saveContribution} />
+        <JourneyDrawer open={menuOpen} activeTab={tab} displayName={displayName} avatarUrl={avatarUrl} onClose={() => setMenuOpen(false)} onTab={setTab} onLogout={logout} />
       </View>
     </OnboardingShell>
   );
 }
-
 const styles = StyleSheet.create({
   root: {
     flex: 1,
@@ -950,6 +1012,7 @@ const styles = StyleSheet.create({
     marginTop: 3,
   },
   challenge: {
+    alignSelf: "stretch",
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
@@ -1374,6 +1437,27 @@ const styles = StyleSheet.create({
   saveButtonTextDisabled: {
     color: OB.support,
   },
+  goalAction: {
+    flexDirection: "row", alignItems: "center", gap: 3, alignSelf: "flex-start", marginTop: 7,
+  },
+  goalActionText: { color: OB.primary, fontSize: 11, fontWeight: "900" },
+  goalModalShade: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(6,21,46,0.42)" },
+  goalSheet: {
+    maxHeight: "88%", minHeight: "66%", padding: 20, paddingBottom: 0,
+    borderTopLeftRadius: 28, borderTopRightRadius: 28, backgroundColor: OB.offWhite, gap: 11,
+  },
+  goalSheetHeader: { flexDirection: "row", alignItems: "center", marginBottom: 4 },
+  goalSheetEyebrow: { color: OB.support, fontSize: 10, fontWeight: "900", textTransform: "uppercase", letterSpacing: 1.2 },
+  goalSheetTitle: { color: OB.primary, fontSize: 22, fontWeight: "900", marginTop: 4 },
+  goalSheetClose: { width: 40, height: 40, borderRadius: 13, alignItems: "center", justifyContent: "center", backgroundColor: "#fff" },
+  historyTitle: { color: OB.primary, fontSize: 14, fontWeight: "900", marginTop: 7 },
+  historyList: { flex: 1, borderRadius: 16, backgroundColor: "#fff", paddingHorizontal: 14, paddingTop: 4 },
+  historyRow: { flexDirection: "row", alignItems: "center", gap: 11, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: OB.supportSoft },
+  historyIcon: { width: 34, height: 34, borderRadius: 11, alignItems: "center", justifyContent: "center", backgroundColor: "#E5F7EE" },
+  historyAmount: { color: OB.primary, fontSize: 14, fontWeight: "900" },
+  historyMeta: { color: OB.support, fontSize: 11, fontWeight: "700", marginTop: 2 },
+  historyEmpty: { color: OB.support, fontSize: 13, fontWeight: "700", textAlign: "center", paddingVertical: 28 },
+  challengesPage: { flexGrow: 1, justifyContent: "center", alignItems: "center", padding: 28, gap: 8 },
   placeholder: {
     flex: 1,
     alignItems: "center",
