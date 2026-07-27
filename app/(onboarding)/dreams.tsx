@@ -2,7 +2,7 @@ import React, { useMemo, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { OB, OnboardingBackground, OnboardingShell, PrimaryButton, ScreenIntro } from "../../src/ui/OnboardingKit";
 
 type Dream = { label: string; size: "sm" | "md" | "lg" };
@@ -41,17 +41,25 @@ function Chip({ dream, active, onPress }: { dream: Dream; active: boolean; onPre
 }
 
 export default function DreamsScreen() {
+  const params = useLocalSearchParams<{ maxDreams?: string; returnToJourney?: string; excludedDreams?: string }>();
+  const maxDreams = Math.max(1, Math.min(MAX_DREAMS, Number(params.maxDreams) || MAX_DREAMS));
+  const excludedDreams = useMemo(() => {
+    try {
+      const parsed = params.excludedDreams ? JSON.parse(params.excludedDreams) : [];
+      return new Set(Array.isArray(parsed) ? parsed.map((item) => String(item).trim().toLocaleLowerCase("pt-BR")) : []);
+    } catch { return new Set<string>(); }
+  }, [params.excludedDreams]);
   const [selected, setSelected] = useState<Set<string>>(() => new Set(PRESELECTED));
   const [extras, setExtras] = useState<Dream[]>([]);
   const [modal, setModal] = useState(false);
   const [custom, setCustom] = useState("");
 
-  const allDreams = useMemo(() => [...DREAMS, ...extras], [extras]);
+  const allDreams = useMemo(() => [...DREAMS, ...extras].filter((dream) => !excludedDreams.has(dream.label.trim().toLocaleLowerCase("pt-BR"))), [excludedDreams, extras]);
   const count = selected.size;
 
   function toggle(label: string) {
-    if (!selected.has(label) && count >= MAX_DREAMS) {
-      Alert.alert("Limite de sonhos", "Escolha até 3 sonhos para montar sua jornada.");
+    if (!selected.has(label) && count >= maxDreams) {
+      Alert.alert("Limite de sonhos", `Escolha até ${maxDreams} ${maxDreams === 1 ? "sonho" : "sonhos"} para completar suas vagas atuais.`);
       return;
     }
 
@@ -66,7 +74,7 @@ export default function DreamsScreen() {
   function addCustom() {
     const label = custom.trim();
     if (!label) return;
-    if (!selected.has(label) && count >= MAX_DREAMS) {
+    if (!selected.has(label) && count >= maxDreams) {
       Alert.alert("Limite de sonhos", "Remova um sonho antes de cadastrar outro.");
       return;
     }
@@ -80,8 +88,8 @@ export default function DreamsScreen() {
   }
 
   function openCustomModal() {
-    if (count >= MAX_DREAMS) {
-      Alert.alert("Limite de sonhos", "Você já escolheu 3 sonhos. Remova um antes de cadastrar outro.");
+    if (count >= maxDreams) {
+      Alert.alert("Limite de sonhos", `Você já preencheu ${maxDreams === 1 ? "a vaga disponível" : "as vagas disponíveis"}.`);
       return;
     }
     setModal(true);
@@ -89,7 +97,7 @@ export default function DreamsScreen() {
 
   function next() {
     if (!count) return Alert.alert("Escolha um sonho", "Selecione pelo menos um objetivo para continuar.");
-    router.push({ pathname: "/(onboarding)/dream-values", params: { dreams: JSON.stringify([...selected]) } });
+    router.push({ pathname: "/(onboarding)/dream-values", params: { dreams: JSON.stringify([...selected]), returnToJourney: params.returnToJourney ?? "0" } });
   }
 
   return (
@@ -100,7 +108,7 @@ export default function DreamsScreen() {
           eyebrow="Seus objetivos"
           title="Quais sonhos você quer conquistar?"
           subtitle="Escolha seus objetivos e organize sua jornada por prazo."
-          onBack={() => router.replace("/(auth)/login")}
+          onBack={() => params.returnToJourney === "1" ? router.back() : router.replace("/(auth)/login")}
         />
 
         <View style={styles.card}>
@@ -115,7 +123,7 @@ export default function DreamsScreen() {
               <Ionicons name="add" size={17} color={OB.support} />
               <Text style={styles.addText}>Cadastrar sonho</Text>
             </Pressable>
-            <Text style={styles.count}>{count === 0 ? "Escolha até 3 sonhos" : `${count} de ${MAX_DREAMS} sonho${count > 1 ? "s" : ""} selecionado${count > 1 ? "s" : ""}`}</Text>
+            <Text style={styles.count}>{count === 0 ? `Escolha até ${maxDreams} ${maxDreams === 1 ? "sonho" : "sonhos"}` : `${count} de ${maxDreams} sonho${maxDreams > 1 ? "s" : ""} selecionado${count > 1 ? "s" : ""}`}</Text>
             <PrimaryButton title="Continuar minha jornada" disabled={!count} onPress={next} />
           </View>
         </View>

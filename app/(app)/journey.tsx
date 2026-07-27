@@ -2,16 +2,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Ionicons } from "@expo/vector-icons";
 import { ActivityIndicator, Alert, Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, View } from "react-native";
 import { BlurView } from "expo-blur";
-import Svg, {
-  Circle,
-  Defs,
-  Ellipse,
-  G,
-  LinearGradient as SvgLinearGradient,
-  Path,
-  Rect,
-  Stop,
-} from "react-native-svg";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
@@ -22,11 +12,10 @@ import { useHouseholdId } from "../../src/hooks/useHousehold";
 import { Category, listCategories } from "../../src/lib/categories";
 import { addTransaction, listTransactionsByMonth, TxRow as DatabaseTx } from "../../src/lib/transactions";
 import { addGoalContribution, GoalContribution, GoalProgress, listGoalContributions, listGoalsWithProgress, syncGoalsFromDreams } from "../../src/lib/goals";
+import { MountainHero } from "../../src/features/journey/MountainHero";
 
 type Tab = "controle" | "jornada" | "desafios";
 type MenuIcon = keyof typeof Ionicons.glyphMap;
-type TrailPoint = { x: number; y: number };
-type TrailSegment = { start: TrailPoint; c1: TrailPoint; c2: TrailPoint; end: TrailPoint };
 type TxType = "Receita" | "Despesa";
 type Filter = "Todos" | TxType;
 type Tx = { id: string; type: TxType; description: string; category: string; categoryId: string | null; date: string; amount: number };
@@ -40,65 +29,6 @@ const WEB_DRAWER_BLUR_STYLE =
       } as any)
     : null;
 
-const TRAIL_SEGMENTS: TrailSegment[] = [
-  {
-    start: { x: 34, y: 274 },
-    c1: { x: 96, y: 264 },
-    c2: { x: 176, y: 260 },
-    end: { x: 250, y: 246 },
-  },
-  {
-    start: { x: 250, y: 246 },
-    c1: { x: 316, y: 232 },
-    c2: { x: 309, y: 214 },
-    end: { x: 254, y: 201 },
-  },
-  {
-    start: { x: 254, y: 201 },
-    c1: { x: 207, y: 191 },
-    c2: { x: 223, y: 169 },
-    end: { x: 282, y: 151 },
-  },
-  {
-    start: { x: 282, y: 151 },
-    c1: { x: 322, y: 138 },
-    c2: { x: 324, y: 121 },
-    end: { x: 306, y: 108 },
-  },
-];
-
-const TRAIL_PATH =
-  `M${TRAIL_SEGMENTS[0].start.x} ${TRAIL_SEGMENTS[0].start.y} ` +
-  TRAIL_SEGMENTS.map((segment) => `C${segment.c1.x} ${segment.c1.y} ${segment.c2.x} ${segment.c2.y} ${segment.end.x} ${segment.end.y}`).join(" ");
-
-function cubicPoint(segment: TrailSegment, t: number) {
-  const mt = 1 - t;
-  return {
-    x:
-      mt * mt * mt * segment.start.x +
-      3 * mt * mt * t * segment.c1.x +
-      3 * mt * t * t * segment.c2.x +
-      t * t * t * segment.end.x,
-    y:
-      mt * mt * mt * segment.start.y +
-      3 * mt * mt * t * segment.c1.y +
-      3 * mt * t * t * segment.c2.y +
-      t * t * t * segment.end.y,
-  };
-}
-
-function buildTrailPoints() {
-  const points: TrailPoint[] = [TRAIL_SEGMENTS[0].start];
-  for (const segment of TRAIL_SEGMENTS) {
-    for (let step = 1; step <= 18; step += 1) {
-      points.push(cubicPoint(segment, step / 18));
-    }
-  }
-  return points;
-}
-
-const TRAIL_POINTS = buildTrailPoints();
-
 function clampProgress(progress: number) {
   if (!Number.isFinite(progress)) return 0;
   return Math.max(0, Math.min(100, progress));
@@ -107,36 +37,6 @@ function clampProgress(progress: number) {
 function progressLabel(progress: number) {
   const pct = clampProgress(progress);
   return pct > 0 && pct < 1 ? "<1%" : `${Math.round(pct)}%`;
-}
-
-function distance(a: TrailPoint, b: TrailPoint) {
-  return Math.hypot(b.x - a.x, b.y - a.y);
-}
-
-function pointAtProgress(progress: number) {
-  const pct = clampProgress(progress) / 100;
-  const total = TRAIL_POINTS.reduce((sum, point, index) => {
-    if (index === 0) return sum;
-    return sum + distance(TRAIL_POINTS[index - 1], point);
-  }, 0);
-  const target = total * pct;
-
-  let walked = 0;
-  for (let i = 1; i < TRAIL_POINTS.length; i += 1) {
-    const start = TRAIL_POINTS[i - 1];
-    const end = TRAIL_POINTS[i];
-    const segment = distance(start, end);
-    if (walked + segment >= target) {
-      const t = segment === 0 ? 0 : (target - walked) / segment;
-      return {
-        x: start.x + (end.x - start.x) * t,
-        y: start.y + (end.y - start.y) * t,
-      };
-    }
-    walked += segment;
-  }
-
-  return TRAIL_POINTS[TRAIL_POINTS.length - 1];
 }
 
 function readJson<T>(raw: string | string[] | undefined, fallback: T): T {
@@ -162,118 +62,24 @@ function initialsFrom(nameOrEmail: string) {
   return `${parts[0]?.[0] ?? "U"}${parts[parts.length - 1]?.[0] ?? ""}`.toUpperCase();
 }
 
-function MountainHero({ progress }: { progress: number }) {
-  const progressPct = clampProgress(progress);
-  const marker = pointAtProgress(progressPct);
-
-  return (
-    <View style={styles.hero}>
-      <Svg pointerEvents="none" viewBox="0 0 390 335" preserveAspectRatio="xMidYMid slice" style={StyleSheet.absoluteFill}>
-        <Defs>
-          <SvgLinearGradient id="journeySky" x1="0" y1="0" x2="0" y2="335" gradientUnits="userSpaceOnUse">
-            <Stop offset="0%" stopColor="#061936" />
-            <Stop offset="46%" stopColor="#0A3674" />
-            <Stop offset="100%" stopColor="#06152E" />
-          </SvgLinearGradient>
-          <SvgLinearGradient id="farMountain" x1="0" y1="118" x2="0" y2="300" gradientUnits="userSpaceOnUse">
-            <Stop offset="0%" stopColor="#2B83E8" />
-            <Stop offset="100%" stopColor="#0B2A5E" />
-          </SvgLinearGradient>
-          <SvgLinearGradient id="mainMountain" x1="250" y1="76" x2="250" y2="300" gradientUnits="userSpaceOnUse">
-            <Stop offset="0%" stopColor="#4EA0FF" />
-            <Stop offset="52%" stopColor="#1D68C7" />
-            <Stop offset="100%" stopColor="#0A2B63" />
-          </SvgLinearGradient>
-          <SvgLinearGradient id="frontRidge" x1="0" y1="230" x2="0" y2="350" gradientUnits="userSpaceOnUse">
-            <Stop offset="0%" stopColor="#164D95" />
-            <Stop offset="100%" stopColor="#061833" />
-          </SvgLinearGradient>
-          <SvgLinearGradient id="pathGlow" x1="40" y1="286" x2="306" y2="108" gradientUnits="userSpaceOnUse">
-            <Stop offset="0%" stopColor="#BBDDFF" />
-            <Stop offset="100%" stopColor="#FFFFFF" />
-          </SvgLinearGradient>
-        </Defs>
-
-        <Rect width="390" height="335" rx="0" fill="url(#journeySky)" />
-        <Circle cx="285" cy="92" r="118" fill="#2D8BFF" opacity="0.18" />
-        <Circle cx="82" cy="270" r="150" fill="#1E72D7" opacity="0.16" />
-
-        {[38, 118, 248, 320].map((x, index) => (
-          <Circle key={x} cx={x} cy={[50, 76, 42, 116][index]} r={index === 1 ? 1.5 : 1.1} fill="#7BA0C8" opacity={0.85} />
-        ))}
-        {[70, 170, 235, 310].map((x, index) => (
-          <Circle key={`small-${x}`} cx={x} cy={[24, 112, 66, 48][index]} r={0.8} fill="#BBDDFF" opacity={0.42} />
-        ))}
-
-        <Path d="M-20 228 L72 176 L122 202 L188 148 L242 178 L302 96 L410 186 L410 335 L-20 335Z" fill="url(#farMountain)" opacity="0.72" />
-        <Path d="M125 212 L174 158 L220 188 L286 88 L372 198 L410 224 L410 335 L125 335Z" fill="url(#mainMountain)" />
-        <Path d="M286 88 L306 168 L260 140Z" fill="#7DBBFF" opacity="0.38" />
-        <Path d="M286 88 L246 184 L220 188Z" fill="#72B7FF" opacity="0.30" />
-        <Path d="M188 148 L208 192 L150 184Z" fill="#7DBBFF" opacity="0.22" />
-
-        <Ellipse cx="235" cy="132" rx="30" ry="5" fill="#69A9ED" opacity="0.24" />
-        <Path d="M48 188 C74 174 86 174 112 189 C132 201 168 194 198 208 C116 208 52 206 -10 218Z" fill="#0C2E64" opacity="0.70" />
-        <Path d="M-20 252 C54 216 120 260 190 232 C252 204 305 236 410 204 L410 335 L-20 335Z" fill="url(#frontRidge)" opacity="0.92" />
-        <Path d="M-20 282 C52 250 112 292 178 266 C242 238 296 270 410 236 L410 335 L-20 335Z" fill="#061D40" opacity="0.84" />
-
-        <G opacity="0.82">
-          {[8, 29, 58, 353, 368, 382].map((x, index) => (
-            <Path
-              key={`tree-${x}`}
-              d={`M${x} ${index < 3 ? 248 + index * 10 : 206 + (index - 3) * 15} l10 30 h-20 z M${x} ${index < 3 ? 232 + index * 10 : 190 + (index - 3) * 15} l8 24 h-16 z M${x} ${index < 3 ? 218 + index * 10 : 176 + (index - 3) * 15} l7 20 h-14 z`}
-              fill="#03152E"
-            />
-          ))}
-        </G>
-
-        <Path
-          d={TRAIL_PATH}
-          stroke="rgba(255,255,255,0.26)"
-          strokeWidth="8"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          fill="none"
-        />
-        <Path
-          d={TRAIL_PATH}
-          stroke="url(#pathGlow)"
-          strokeWidth="4"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          fill="none"
-        />
-        <Circle cx={marker.x} cy={marker.y} r="12" fill="#FFFFFF" />
-        <Circle cx={marker.x} cy={marker.y} r="6.5" fill="#2F73E0" />
-
-        <Path d="M306 76 L306 108" stroke="#DCEBFF" strokeWidth="2" strokeLinecap="round" />
-        <Path d="M306 76 L326 83 L306 91Z" fill="#DCEBFF" />
-
-      </Svg>
-
-      <View style={styles.heroTextBlock}>
-        <Text style={styles.heroTitle}>Sua jornada</Text>
-        <Text style={styles.heroSubtitle}>Acompanhe o progresso dos seus sonhos.</Text>
-      </View>
-
-    </View>
-  );
-}
-
 function ProgressCard({ goal, icon, onOpen }: { goal: GoalProgress; icon: string; onOpen: () => void }) {
   const progress = clampProgress((goal.contributed_cents / Math.max(goal.target_cents, 1)) * 100);
+  const completed = progress >= 100;
   return (
-    <View style={styles.goalCard}>
-      <View style={styles.goalBadge}><Ionicons name={icon as any} size={20} color={OB.primary} /></View>
+    <View style={[styles.goalCard, completed && styles.goalCardCompleted]}>
+      <View style={[styles.goalBadge, completed && styles.goalBadgeCompleted]}>
+        <Ionicons name={(completed ? "checkmark" : icon) as any} size={20} color={completed ? "#169B62" : OB.primary} />
+      </View>
       <View style={styles.goalInfo}>
         <Text style={styles.goalTitle}>{goal.title}</Text>
-        <Text style={styles.goalValue}>{formatBRLFromCents(goal.contributed_cents)} de {formatBRLFromCents(goal.target_cents)}</Text>
-        <View style={styles.smallTrack}><View style={[styles.smallFill, { width: `${progress}%` }]} /></View>
+        <Text style={[styles.goalValue, completed && styles.goalValueCompleted]}>{completed && goal.completed_on ? `Concluído em ${formatDate(goal.completed_on)}` : `${formatBRLFromCents(goal.contributed_cents)} de ${formatBRLFromCents(goal.target_cents)}`}</Text>
+        <View style={[styles.smallTrack, completed && styles.smallTrackCompleted]}><View style={[styles.smallFill, completed && styles.smallFillCompleted, { width: `${progress}%` }]} /></View>
         <Pressable onPress={onOpen} hitSlop={8} style={styles.goalAction}>
-          <Text style={styles.goalActionText}>{goal.contribution_count ? `Ver histórico (${goal.contribution_count})` : "Registrar primeiro aporte"}</Text>
-          <Ionicons name="chevron-forward" size={14} color={OB.primary} />
+          <Text style={[styles.goalActionText, completed && styles.goalActionTextCompleted]}>{completed ? "Ver conquista" : goal.contribution_count ? `Ver histórico (${goal.contribution_count})` : "Registrar primeiro aporte"}</Text>
+          <Ionicons name="chevron-forward" size={14} color={completed ? "#169B62" : OB.primary} />
         </Pressable>
       </View>
-      <View style={styles.ring}><Text style={styles.ringText}>{progressLabel(progress)}</Text></View>
+      <View style={[styles.ring, completed && styles.ringCompleted]}>{completed ? <Ionicons name="checkmark" size={21} color="#169B62" /> : <Text style={styles.ringText}>{progressLabel(progress)}</Text>}</View>
     </View>
   );
 }
@@ -281,8 +87,14 @@ function GoalContributionModal({ goal, contributions, loading, saving, onClose, 
   goal: GoalProgress | null; contributions: GoalContribution[]; loading: boolean; saving: boolean;
   onClose: () => void; onSave: (amount: number, note: string) => Promise<boolean>;
 }) {
+  const insets = useSafeAreaInsets();
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
+  const progress = goal ? clampProgress((goal.contributed_cents / Math.max(goal.target_cents, 1)) * 100) : 0;
+  const completed = progress >= 100;
+  const remainingCents = Math.max((goal?.target_cents ?? 0) - (goal?.contributed_cents ?? 0), 0);
+  const amountCents = parseBRLToCents(amount);
+  const bottomSystemInset = Math.max(insets.bottom, Platform.OS === "android" ? 48 : 0);
 
   useEffect(() => {
     if (!goal) { setAmount(""); setNote(""); }
@@ -291,37 +103,116 @@ function GoalContributionModal({ goal, contributions, loading, saving, onClose, 
   async function save() {
     const cents = parseBRLToCents(amount);
     if (!cents || saving) return;
+    if (cents > remainingCents) {
+      Alert.alert("Valor do aporte", `O máximo para concluir este sonho é ${formatBRLFromCents(remainingCents)}.`);
+      return;
+    }
     if (await onSave(cents, note)) { setAmount(""); setNote(""); }
   }
 
   return (
-    <Modal visible={Boolean(goal)} animationType="slide" transparent onRequestClose={onClose}>
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.goalModalShade}>
-        <View style={styles.goalSheet}>
-          <View style={styles.goalSheetHeader}>
-            <View style={{ flex: 1 }}><Text style={styles.goalSheetEyebrow}>Seu sonho</Text><Text style={styles.goalSheetTitle}>{goal?.title}</Text></View>
-            <Pressable onPress={onClose} hitSlop={10} style={styles.goalSheetClose}><Ionicons name="close" size={20} color={OB.primary} /></Pressable>
-          </View>
-          <Text style={styles.fieldLabel}>Valor do aporte</Text>
-          <View style={styles.inputBox}>
-            <Text style={styles.currency}>R$</Text>
-            <TextInput value={amount.replace("R$", "").trim()} onChangeText={(text) => setAmount(formatBRLInputFromDigits(text))} placeholder="0,00" placeholderTextColor={OB.support} keyboardType="number-pad" style={styles.input} />
-          </View>
-          <Text style={styles.fieldLabel}>Observação (opcional)</Text>
-          <TextInput value={note} onChangeText={setNote} placeholder="Ex.: reserva do salário" placeholderTextColor={OB.support} style={styles.inputBoxText} />
-          <Pressable onPress={save} disabled={!parseBRLToCents(amount) || saving} style={[styles.saveButton, (!parseBRLToCents(amount) || saving) && styles.saveButtonDisabled]}>
-            <Text style={styles.saveButtonText}>{saving ? "Salvando..." : "Registrar aporte"}</Text>
+    <Modal visible={Boolean(goal)} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.goalScreen}>
+        <View style={[styles.goalScreenHeader, { paddingTop: Math.max(insets.top, 16) }]}>
+          <Pressable onPress={onClose} hitSlop={10} style={styles.goalBackButton} accessibilityRole="button" accessibilityLabel="Voltar">
+            <Ionicons name="chevron-back" size={22} color={OB.primary} />
           </Pressable>
-          <Text style={styles.historyTitle}>Histórico de aportes</Text>
-          <ScrollView style={styles.historyList} contentContainerStyle={{ paddingBottom: 18 }}>
-            {loading ? <ActivityIndicator color={OB.primary} /> : contributions.length ? contributions.map((entry) => (
-              <View key={entry.id} style={styles.historyRow}>
-                <View style={styles.historyIcon}><Ionicons name="arrow-up" size={15} color="#22a96b" /></View>
-                <View style={{ flex: 1 }}><Text style={styles.historyAmount}>{formatBRLFromCents(entry.amount_cents)}</Text><Text style={styles.historyMeta}>{formatDate(entry.contributed_on)}{entry.note ? ` · ${entry.note}` : ""}</Text></View>
-              </View>
-            )) : <Text style={styles.historyEmpty}>Nenhum aporte registrado ainda.</Text>}
-          </ScrollView>
+          <View style={styles.goalHeaderText}>
+            <Text style={styles.goalScreenEyebrow}>Detalhes do sonho</Text>
+            <Text style={styles.goalScreenTitle} numberOfLines={1}>{goal?.title}</Text>
+          </View>
+          <View style={styles.goalHeaderSpacer} />
         </View>
+
+        <ScrollView
+          style={styles.goalScreenScroll}
+          contentContainerStyle={styles.goalScreenContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={[styles.goalSummaryCard, completed && styles.goalSummaryCardCompleted]}>
+            <View style={styles.goalSummaryTop}>
+              <View>
+                <Text style={styles.goalSummaryLabel}>Valor acumulado</Text>
+                <Text style={styles.goalSummaryValue}>{formatBRLFromCents(goal?.contributed_cents ?? 0)}</Text>
+              </View>
+              <View style={styles.goalProgressBadge}>{completed ? <Ionicons name="checkmark" size={19} color="#fff" /> : <Text style={styles.goalProgressBadgeText}>{progressLabel(progress)}</Text>}</View>
+            </View>
+            <View style={styles.goalProgressTrack}><View style={[styles.goalProgressFill, completed && styles.goalProgressFillCompleted, { width: `${progress}%` }]} /></View>
+            <View style={styles.goalSummaryFooter}>
+              <Text style={styles.goalSummaryMeta}>Meta</Text>
+              <Text style={styles.goalSummaryTarget}>{formatBRLFromCents(goal?.target_cents ?? 0)}</Text>
+            </View>
+          </View>
+
+          {completed ? (
+            <View style={styles.goalCompletedCard}>
+              <View style={styles.goalCompletedIcon}><Ionicons name="trophy" size={27} color="#169B62" /></View>
+              <Text style={styles.goalCompletedTitle}>Sonho concluído!</Text>
+              <Text style={styles.goalCompletedText}>Você alcançou essa meta{goal?.completed_on ? ` em ${formatDate(goal.completed_on)}` : ""}. Todo o histórico continua disponível abaixo.</Text>
+              <View style={styles.goalCompletedPill}><Ionicons name="checkmark-circle" size={17} color="#169B62" /><Text style={styles.goalCompletedPillText}>Conquista realizada</Text></View>
+            </View>
+          ) : <View style={styles.goalFormCard}>
+            <View style={styles.goalSectionHeading}>
+              <View style={styles.goalSectionIcon}><Ionicons name="add" size={20} color={OB.primary} /></View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.goalSectionTitle}>Novo aporte</Text>
+                <Text style={styles.goalSectionSubtitle}>Faltam {formatBRLFromCents(remainingCents)} para concluir.</Text>
+              </View>
+            </View>
+            <Text style={styles.goalFieldLabel}>Valor do aporte</Text>
+            <View style={styles.goalInputBox}>
+              <Text style={styles.goalCurrency}>R$</Text>
+              <TextInput
+                value={amount.replace("R$", "").trim()}
+                onChangeText={(text) => setAmount(formatBRLInputFromDigits(text))}
+                placeholder="0,00"
+                placeholderTextColor={OB.support}
+                keyboardType="number-pad"
+                style={styles.goalInput}
+              />
+            </View>
+            <Text style={styles.goalFieldLabel}>Observação <Text style={styles.goalOptionalLabel}>(opcional)</Text></Text>
+            <TextInput
+              value={note}
+              onChangeText={setNote}
+              placeholder="Ex.: reserva do salário"
+              placeholderTextColor={OB.support}
+              returnKeyType="done"
+              onSubmitEditing={Keyboard.dismiss}
+              style={styles.goalNoteInput}
+            />
+            {amountCents > remainingCents ? <Text style={styles.goalAmountError}>O aporte não pode ultrapassar o valor restante.</Text> : null}
+            <Pressable onPress={save} disabled={!amountCents || amountCents > remainingCents || saving} style={[styles.goalSaveButton, (!amountCents || amountCents > remainingCents || saving) && styles.goalSaveButtonDisabled]}>
+              {saving ? <ActivityIndicator color="#fff" /> : <><Text style={styles.goalSaveButtonText}>Registrar aporte</Text><Ionicons name="arrow-forward" size={18} color="#fff" /></>}
+            </Pressable>
+          </View>}
+
+          <View style={styles.goalHistoryHeader}>
+            <View>
+              <Text style={styles.goalHistoryTitle}>Histórico</Text>
+              <Text style={styles.goalHistorySubtitle}>{contributions.length === 1 ? "1 aporte registrado" : `${contributions.length} aportes registrados`}</Text>
+            </View>
+          </View>
+          <View style={styles.goalHistoryCard}>
+            {loading ? <View style={styles.goalHistoryLoading}><ActivityIndicator color={OB.primary} /></View> : contributions.length ? contributions.map((entry, index) => (
+              <View key={entry.id} style={[styles.goalHistoryRow, index === contributions.length - 1 && styles.goalHistoryRowLast]}>
+                <View style={styles.goalHistoryIcon}><Ionicons name="arrow-up" size={17} color="#169B62" /></View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.goalHistoryAmount}>{formatBRLFromCents(entry.amount_cents)}</Text>
+                  <Text style={styles.goalHistoryMeta}>{formatDate(entry.contributed_on)}{entry.note ? ` · ${entry.note}` : ""}</Text>
+                </View>
+              </View>
+            )) : (
+              <View style={styles.goalHistoryEmpty}>
+                <View style={styles.goalHistoryEmptyIcon}><Ionicons name="receipt-outline" size={23} color={OB.support} /></View>
+                <Text style={styles.goalHistoryEmptyTitle}>Nenhum aporte ainda</Text>
+                <Text style={styles.goalHistoryEmptyText}>Seu primeiro registro aparecerá aqui.</Text>
+              </View>
+            )}
+          </View>
+        </ScrollView>
+        <View pointerEvents="none" style={[styles.goalSystemBarGuard, { height: bottomSystemInset }]} />
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -434,7 +325,7 @@ function AddModal({ visible, categories, saving, onClose, onSave }: { visible: b
   }
   function openImportStatement() {
     onClose();
-    router.push("/(onboarding)/import-extract");
+    router.push("/(app)/import-extract");
   }
 
   return (
@@ -684,12 +575,12 @@ function JourneyDrawer({
 
   function goProfile() {
     onClose();
-    router.push("/(onboarding)/profile");
+    router.push("/(app)/profile");
   }
 
   function goCategories() {
     onClose();
-    router.push("/(onboarding)/categories");
+    router.push("/(app)/categories");
   }
 
   return (
@@ -758,6 +649,7 @@ export default function JourneyScreen() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [contributionSaving, setContributionSaving] = useState(false);
   const [expenseToday, setExpenseToday] = useState(false);
+  const [achievementsOpen, setAchievementsOpen] = useState(true);
 
   const userMeta = session?.user?.user_metadata as Record<string, any> | undefined;
   const displayName = userMeta?.full_name || userMeta?.name || session?.user?.email?.split("@")[0] || "Usuário";
@@ -774,6 +666,7 @@ export default function JourneyScreen() {
       if (dreams.length) await syncGoalsFromDreams({ householdId, userId, dreams, values });
       const [goalRows, txRows] = await Promise.all([listGoalsWithProgress(householdId), listTransactionsByMonth(householdId)]);
       setGoals(goalRows);
+      setSelectedGoal((current) => current ? goalRows.find((goal) => goal.id === current.id) ?? current : null);
       const now = new Date();
       const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
       setExpenseToday(txRows.some((tx) => tx.type === "expense" && tx.occurred_on === today));
@@ -786,8 +679,11 @@ export default function JourneyScreen() {
 
   useEffect(() => { if (tab !== "controle") loadJourney(); }, [loadJourney, tab]);
 
-  const targetTotal = goals.reduce((sum, goal) => sum + goal.target_cents, 0);
-  const contributedTotal = goals.reduce((sum, goal) => sum + goal.contributed_cents, 0);
+  const activeGoals = useMemo(() => goals.filter((goal) => goal.contributed_cents < goal.target_cents), [goals]);
+  const completedGoals = useMemo(() => goals.filter((goal) => goal.contributed_cents >= goal.target_cents), [goals]);
+  const progressGoals = activeGoals.length ? activeGoals : completedGoals;
+  const targetTotal = progressGoals.reduce((sum, goal) => sum + goal.target_cents, 0);
+  const contributedTotal = progressGoals.reduce((sum, goal) => sum + Math.min(goal.contributed_cents, goal.target_cents), 0);
   const monthTotal = goals.reduce((sum, goal) => sum + goal.month_contributed_cents, 0);
   const journeyProgress = clampProgress((contributedTotal / Math.max(targetTotal, 1)) * 100);
 
@@ -800,11 +696,21 @@ export default function JourneyScreen() {
 
   async function saveContribution(amount: number, note: string) {
     if (!selectedGoal || !householdId || !userId) return false;
+    const remaining = Math.max(selectedGoal.target_cents - selectedGoal.contributed_cents, 0);
+    if (!remaining || amount > remaining) {
+      Alert.alert("Valor do aporte", `O máximo para concluir este sonho é ${formatBRLFromCents(remaining)}.`);
+      return false;
+    }
+    const completedNow = amount === remaining;
     try {
       setContributionSaving(true);
       await addGoalContribution({ householdId, goalId: selectedGoal.id, userId, amount_cents: amount, note });
       const [history] = await Promise.all([listGoalContributions(selectedGoal.id), loadJourney()]);
       setContributions(history);
+      if (completedNow) {
+        setAchievementsOpen(true);
+        Alert.alert("Sonho concluído! 🎉", `Parabéns! Você realizou “${selectedGoal.title}”.`);
+      }
       return true;
     } catch (error: any) {
       Alert.alert("Aporte", error?.message ?? "Não foi possível registrar o aporte.");
@@ -837,14 +743,36 @@ export default function JourneyScreen() {
             <>
               <MountainHero progress={journeyProgress} />
               <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-                <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>Seus sonhos</Text>{journeyLoading || householdLoading ? <ActivityIndicator size="small" color={OB.primary} /> : null}</View>
-                {goals.length ? goals.map((goal, index) => <ProgressCard key={goal.id} goal={goal} icon={["home-outline", "trending-up-outline", "flag-outline"][index] ?? "sparkles-outline"} onOpen={() => openGoal(goal)} />) : !journeyLoading && !householdLoading ? (
+                <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>Sonhos em andamento</Text>{journeyLoading || householdLoading ? <ActivityIndicator size="small" color={OB.primary} /> : null}</View>
+                {activeGoals.length ? activeGoals.map((goal, index) => <ProgressCard key={goal.id} goal={goal} icon={["home-outline", "trending-up-outline", "flag-outline"][index] ?? "sparkles-outline"} onOpen={() => openGoal(goal)} />) : !journeyLoading && !householdLoading && !goals.length ? (
                   <Pressable onPress={() => router.push("/(onboarding)/dreams")} style={styles.emptyDreamsCard}>
                     <Ionicons name="sparkles-outline" size={22} color={OB.primary} /><View style={{ flex: 1 }}><Text style={styles.emptyDreamsTitle}>Configure seus sonhos</Text><Text style={styles.emptyDreamsText}>Escolha seus objetivos para começar sua jornada financeira.</Text></View><Ionicons name="chevron-forward" size={19} color={OB.support} />
+                  </Pressable>
+                ) : !journeyLoading && !householdLoading ? <Text style={styles.allDreamsCompleted}>Você concluiu todos os sonhos atuais. Que tal começar um novo?</Text> : null}
+                {!journeyLoading && activeGoals.length < 3 ? (
+                  <Pressable
+                    onPress={() => router.push({ pathname: "/(onboarding)/dreams", params: { maxDreams: String(3 - activeGoals.length), returnToJourney: "1", excludedDreams: JSON.stringify(goals.map((goal) => goal.title)) } })}
+                    style={styles.addGoalCard}
+                  >
+                    <View style={styles.addGoalIcon}><Ionicons name="add" size={19} color={OB.primary} /></View>
+                    <Text style={styles.addGoalText}>Cadastrar novo sonho</Text>
+                    <Ionicons name="chevron-forward" size={17} color={OB.support} />
                   </Pressable>
                 ) : null}
                 <View style={styles.monthCard}><View style={styles.monthIcon}><Ionicons name="calendar-outline" size={21} color="#fff" /></View><View><Text style={styles.monthEyebrow}>Avanço deste mês</Text><Text style={styles.monthTitle}>{formatBRLFromCents(monthTotal)} em aportes reais</Text></View></View>
                 {challengeCard}
+                {completedGoals.length ? (
+                  <View style={styles.achievementsSection}>
+                    <Pressable onPress={() => setAchievementsOpen((open) => !open)} style={styles.achievementsHeader}>
+                      <View style={styles.achievementsTitleRow}>
+                        <View style={styles.achievementsIcon}><Ionicons name="trophy" size={17} color="#169B62" /></View>
+                        <View><Text style={styles.achievementsTitle}>Conquistas</Text><Text style={styles.achievementsCount}>{completedGoals.length} {completedGoals.length === 1 ? "sonho concluído" : "sonhos concluídos"}</Text></View>
+                      </View>
+                      <Ionicons name={achievementsOpen ? "chevron-up" : "chevron-down"} size={19} color={OB.support} />
+                    </Pressable>
+                    {achievementsOpen ? <View style={styles.achievementsList}>{completedGoals.map((goal) => <ProgressCard key={goal.id} goal={goal} icon="checkmark" onOpen={() => openGoal(goal)} />)}</View> : null}
+                  </View>
+                ) : null}
               </ScrollView>
             </>
           ) : <ScrollView contentContainerStyle={styles.challengesPage}><Ionicons name="trophy-outline" size={42} color={OB.primary} /><Text style={styles.placeholderTitle}>Seus desafios</Text><Text style={styles.placeholderText}>As missões são concluídas automaticamente com seus dados reais.</Text>{challengeCard}</ScrollView>}
@@ -869,31 +797,6 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-  },
-  hero: {
-    height: 236,
-    backgroundColor: OB.primary,
-    overflow: "hidden",
-  },
-  heroTextBlock: {
-    position: "absolute",
-    left: 24,
-    top: 22,
-    maxWidth: 210,
-  },
-  heroTitle: {
-    color: OB.offWhite,
-    fontSize: 27,
-    fontWeight: "900",
-    marginTop: 14,
-    letterSpacing: 0,
-  },
-  heroSubtitle: {
-    color: "rgba(220,235,255,0.86)",
-    fontSize: 14,
-    fontWeight: "700",
-    lineHeight: 20,
-    marginTop: 7,
   },
   scroll: {
     padding: 16,
@@ -931,7 +834,8 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
     marginTop: 3,
-  },  goalCard: {
+  },
+  goalCard: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
@@ -941,6 +845,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: OB.supportSoft,
   },
+  goalCardCompleted: { borderColor: "rgba(22,155,98,0.26)", backgroundColor: "#FBFFFD" },
   goalBadge: {
     width: 44,
     height: 44,
@@ -949,6 +854,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: OB.offWhite,
   },
+  goalBadgeCompleted: { backgroundColor: "#E5F7EE" },
   goalInfo: {
     flex: 1,
   },
@@ -963,6 +869,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginTop: 2,
   },
+  goalValueCompleted: { color: "#169B62" },
   smallTrack: {
     height: 5,
     borderRadius: 99,
@@ -970,10 +877,12 @@ const styles = StyleSheet.create({
     marginTop: 8,
     overflow: "hidden",
   },
+  smallTrackCompleted: { backgroundColor: "rgba(22,155,98,0.14)" },
   smallFill: {
     height: "100%",
     backgroundColor: OB.primary,
   },
+  smallFillCompleted: { backgroundColor: "#22A96B" },
   ring: {
     width: 50,
     height: 50,
@@ -983,11 +892,23 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  ringCompleted: { borderColor: "#22A96B", backgroundColor: "#E5F7EE" },
   ringText: {
     color: OB.primary,
     fontSize: 11,
     fontWeight: "900",
   },
+  allDreamsCompleted: { color: OB.support, fontSize: 12, fontWeight: "700", lineHeight: 18, paddingHorizontal: 2 },
+  addGoalCard: { minHeight: 52, borderRadius: 17, borderWidth: 1, borderStyle: "dashed", borderColor: OB.support, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 13, backgroundColor: "rgba(255,255,255,0.55)" },
+  addGoalIcon: { width: 32, height: 32, borderRadius: 11, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(123,160,200,0.14)" },
+  addGoalText: { flex: 1, color: OB.primary, fontSize: 12, fontWeight: "900" },
+  achievementsSection: { gap: 10, marginTop: 4 },
+  achievementsHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 4, paddingHorizontal: 2 },
+  achievementsTitleRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  achievementsIcon: { width: 36, height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "#E5F7EE" },
+  achievementsTitle: { color: OB.primary, fontSize: 15, fontWeight: "900" },
+  achievementsCount: { color: OB.support, fontSize: 10, fontWeight: "700", marginTop: 2 },
+  achievementsList: { gap: 10 },
   monthCard: {
     flexDirection: "row",
     alignItems: "center",
@@ -1446,22 +1367,68 @@ const styles = StyleSheet.create({
     flexDirection: "row", alignItems: "center", gap: 3, alignSelf: "flex-start", marginTop: 7,
   },
   goalActionText: { color: OB.primary, fontSize: 11, fontWeight: "900" },
-  goalModalShade: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(6,21,46,0.42)" },
-  goalSheet: {
-    maxHeight: "88%", minHeight: "66%", padding: 20, paddingBottom: 0,
-    borderTopLeftRadius: 28, borderTopRightRadius: 28, backgroundColor: OB.offWhite, gap: 11,
+  goalActionTextCompleted: { color: "#169B62" },
+  goalScreen: { flex: 1, backgroundColor: OB.offWhite },
+  goalScreenHeader: {
+    minHeight: 82, paddingHorizontal: 18, paddingBottom: 14, flexDirection: "row", alignItems: "flex-end",
+    borderBottomWidth: 1, borderBottomColor: OB.supportSoft, backgroundColor: "#fff",
   },
-  goalSheetHeader: { flexDirection: "row", alignItems: "center", marginBottom: 4 },
-  goalSheetEyebrow: { color: OB.support, fontSize: 10, fontWeight: "900", textTransform: "uppercase", letterSpacing: 1.2 },
-  goalSheetTitle: { color: OB.primary, fontSize: 22, fontWeight: "900", marginTop: 4 },
-  goalSheetClose: { width: 40, height: 40, borderRadius: 13, alignItems: "center", justifyContent: "center", backgroundColor: "#fff" },
-  historyTitle: { color: OB.primary, fontSize: 14, fontWeight: "900", marginTop: 7 },
-  historyList: { flex: 1, borderRadius: 16, backgroundColor: "#fff", paddingHorizontal: 14, paddingTop: 4 },
-  historyRow: { flexDirection: "row", alignItems: "center", gap: 11, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: OB.supportSoft },
-  historyIcon: { width: 34, height: 34, borderRadius: 11, alignItems: "center", justifyContent: "center", backgroundColor: "#E5F7EE" },
-  historyAmount: { color: OB.primary, fontSize: 14, fontWeight: "900" },
-  historyMeta: { color: OB.support, fontSize: 11, fontWeight: "700", marginTop: 2 },
-  historyEmpty: { color: OB.support, fontSize: 13, fontWeight: "700", textAlign: "center", paddingVertical: 28 },
+  goalBackButton: { width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: OB.offWhite },
+  goalHeaderText: { flex: 1, alignItems: "center", paddingHorizontal: 8, paddingBottom: 1 },
+  goalHeaderSpacer: { width: 42 },
+  goalScreenEyebrow: { color: OB.support, fontSize: 10, fontWeight: "800", letterSpacing: 0.5 },
+  goalScreenTitle: { color: OB.primary, fontSize: 18, fontWeight: "900", marginTop: 2, maxWidth: "100%" },
+  goalScreenScroll: { flex: 1 },
+  goalScreenContent: { padding: 18, paddingBottom: 28, gap: 18 },
+  goalSystemBarGuard: { flexShrink: 0, backgroundColor: OB.offWhite },
+  goalSummaryCard: { borderRadius: 22, backgroundColor: OB.primary, padding: 20 },
+  goalSummaryCardCompleted: { backgroundColor: "#126B4A" },
+  goalSummaryTop: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" },
+  goalSummaryLabel: { color: "rgba(255,255,255,0.62)", fontSize: 12, fontWeight: "700" },
+  goalSummaryValue: { color: "#fff", fontSize: 25, fontWeight: "900", marginTop: 4 },
+  goalProgressBadge: { minWidth: 50, height: 34, borderRadius: 12, alignItems: "center", justifyContent: "center", paddingHorizontal: 10, backgroundColor: "rgba(255,255,255,0.13)" },
+  goalProgressBadgeText: { color: "#fff", fontSize: 13, fontWeight: "900" },
+  goalProgressTrack: { height: 8, borderRadius: 999, overflow: "hidden", backgroundColor: "rgba(255,255,255,0.16)", marginTop: 20 },
+  goalProgressFill: { height: "100%", borderRadius: 999, backgroundColor: "#7DBBFF" },
+  goalProgressFillCompleted: { backgroundColor: "#8EE0B7" },
+  goalSummaryFooter: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 9 },
+  goalSummaryMeta: { color: "rgba(255,255,255,0.58)", fontSize: 11, fontWeight: "700" },
+  goalSummaryTarget: { color: "rgba(255,255,255,0.82)", fontSize: 12, fontWeight: "800" },
+  goalFormCard: { borderRadius: 22, backgroundColor: "#fff", padding: 18, gap: 10, borderWidth: 1, borderColor: "rgba(123,160,200,0.15)" },
+  goalCompletedCard: { borderRadius: 22, alignItems: "center", backgroundColor: "#FBFFFD", padding: 22, borderWidth: 1, borderColor: "rgba(22,155,98,0.24)" },
+  goalCompletedIcon: { width: 58, height: 58, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: "#E5F7EE", marginBottom: 12 },
+  goalCompletedTitle: { color: "#126B4A", fontSize: 19, fontWeight: "900" },
+  goalCompletedText: { color: OB.support, fontSize: 12, fontWeight: "700", lineHeight: 18, textAlign: "center", marginTop: 7 },
+  goalCompletedPill: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 999, paddingVertical: 8, paddingHorizontal: 12, backgroundColor: "#E5F7EE", marginTop: 15 },
+  goalCompletedPillText: { color: "#126B4A", fontSize: 11, fontWeight: "900" },
+  goalSectionHeading: { flexDirection: "row", alignItems: "center", gap: 11, marginBottom: 6 },
+  goalSectionIcon: { width: 40, height: 40, borderRadius: 13, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(123,160,200,0.14)" },
+  goalSectionTitle: { color: OB.primary, fontSize: 16, fontWeight: "900" },
+  goalSectionSubtitle: { color: OB.support, fontSize: 11, fontWeight: "700", marginTop: 2 },
+  goalFieldLabel: { color: OB.primary, fontSize: 12, fontWeight: "800", marginTop: 4 },
+  goalOptionalLabel: { color: OB.support, fontWeight: "700" },
+  goalInputBox: { minHeight: 54, borderRadius: 15, borderWidth: 1.5, borderColor: OB.supportSoft, backgroundColor: OB.offWhite, flexDirection: "row", alignItems: "center", paddingHorizontal: 14 },
+  goalCurrency: { color: OB.primary, fontSize: 15, fontWeight: "900", marginRight: 7 },
+  goalInput: { flex: 1, color: OB.primary, fontSize: 17, fontWeight: "900" },
+  goalNoteInput: { minHeight: 54, borderRadius: 15, borderWidth: 1.5, borderColor: OB.supportSoft, backgroundColor: OB.offWhite, paddingHorizontal: 14, color: OB.primary, fontSize: 14, fontWeight: "700" },
+  goalSaveButton: { minHeight: 54, borderRadius: 16, backgroundColor: OB.primary, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 9, marginTop: 6 },
+  goalSaveButtonDisabled: { backgroundColor: "rgba(123,160,200,0.34)" },
+  goalSaveButtonText: { color: "#fff", fontSize: 14, fontWeight: "900" },
+  goalAmountError: { color: "#B94A4A", fontSize: 10, fontWeight: "700", marginTop: -2 },
+  goalHistoryHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", paddingHorizontal: 2, marginTop: 2 },
+  goalHistoryTitle: { color: OB.primary, fontSize: 17, fontWeight: "900" },
+  goalHistorySubtitle: { color: OB.support, fontSize: 11, fontWeight: "700", marginTop: 2 },
+  goalHistoryCard: { borderRadius: 20, backgroundColor: "#fff", overflow: "hidden", borderWidth: 1, borderColor: "rgba(123,160,200,0.15)" },
+  goalHistoryLoading: { minHeight: 100, alignItems: "center", justifyContent: "center" },
+  goalHistoryRow: { flexDirection: "row", alignItems: "center", gap: 12, padding: 15, borderBottomWidth: 1, borderBottomColor: OB.supportSoft },
+  goalHistoryRowLast: { borderBottomWidth: 0 },
+  goalHistoryIcon: { width: 38, height: 38, borderRadius: 13, alignItems: "center", justifyContent: "center", backgroundColor: "#E5F7EE" },
+  goalHistoryAmount: { color: OB.primary, fontSize: 15, fontWeight: "900" },
+  goalHistoryMeta: { color: OB.support, fontSize: 11, fontWeight: "700", marginTop: 3 },
+  goalHistoryEmpty: { alignItems: "center", paddingVertical: 27, paddingHorizontal: 20 },
+  goalHistoryEmptyIcon: { width: 46, height: 46, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: OB.offWhite, marginBottom: 10 },
+  goalHistoryEmptyTitle: { color: OB.primary, fontSize: 14, fontWeight: "900" },
+  goalHistoryEmptyText: { color: OB.support, fontSize: 11, fontWeight: "700", marginTop: 4 },
   challengesPage: { flexGrow: 1, justifyContent: "center", alignItems: "center", padding: 28, gap: 8 },
   placeholder: {
     flex: 1,

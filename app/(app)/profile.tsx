@@ -250,7 +250,7 @@ export default function OnboardingProfileScreen() {
     <OnboardingShell light>
       <View style={styles.root}>
         <View style={styles.header}>
-          <Pressable onPress={() => router.replace("/(onboarding)/journey")} style={styles.backButton} hitSlop={12}>
+          <Pressable onPress={() => router.replace("/(app)/journey")} style={styles.backButton} hitSlop={12}>
             <Ionicons name="arrow-back" size={18} color="#fff" />
           </Pressable>
           <View style={styles.headerContent}>

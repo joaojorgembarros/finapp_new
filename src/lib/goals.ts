@@ -13,6 +13,7 @@ export type GoalProgress = {
   contributed_cents: number;
   month_contributed_cents: number;
   contribution_count: number;
+  completed_on: string | null;
 };
 
 export type GoalContribution = {
@@ -91,14 +92,22 @@ export async function listGoalsWithProgress(householdId: string): Promise<GoalPr
   const currentMonth = monthStart();
   return (goals ?? []).map((goal: any) => {
     const goalEntries = (entries ?? []).filter((entry: any) => entry.goal_id === goal.id);
+    const targetCents = Number(goal.target_cents || 0);
+    let accumulated = 0;
+    let completedOn: string | null = null;
+    for (const entry of [...goalEntries].sort((a: any, b: any) => a.contributed_on.localeCompare(b.contributed_on))) {
+      accumulated += Number(entry.amount_cents || 0);
+      if (!completedOn && accumulated >= targetCents) completedOn = entry.contributed_on;
+    }
     return {
       ...goal,
-      target_cents: Number(goal.target_cents || 0),
+      target_cents: targetCents,
       contributed_cents: goalEntries.reduce((sum: number, entry: any) => sum + Number(entry.amount_cents || 0), 0),
       month_contributed_cents: goalEntries
         .filter((entry: any) => entry.contributed_on >= currentMonth)
         .reduce((sum: number, entry: any) => sum + Number(entry.amount_cents || 0), 0),
       contribution_count: goalEntries.length,
+      completed_on: completedOn,
     };
   });
 }

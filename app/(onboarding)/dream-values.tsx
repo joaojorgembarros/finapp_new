@@ -75,8 +75,8 @@ export default function DreamValuesScreen() {
     try {
       setSaving(true);
       await markNewOnboardingDone(userId, dreams, values);
-      router.push({
-        pathname: "/(onboarding)/journey",
+      router.replace({
+        pathname: "/(app)/journey",
         params: {
           dreams: JSON.stringify(dreams),
           values: JSON.stringify(values),

@@ -33,7 +33,7 @@ const formats: FormatOption[] = [
 function FormatCard({ option }: { option: FormatOption }) {
   function onPress() {
     if (option.active) {
-      router.push("/(onboarding)/import-csv");
+      router.push("/(app)/import-csv");
       return;
     }
 

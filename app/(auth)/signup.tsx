@@ -163,7 +163,10 @@ export default function SignupScreen() {
         return;
       }
 
-      Alert.alert("Conta criada", "Agora entre com seu e-mail e senha para começar.");
+      Alert.alert(
+        "Confirme seu e-mail",
+        "Enviamos um link de confirmação para seu e-mail. Depois de confirmar, volte ao app para entrar."
+      );
       router.replace("/(auth)/login");
     } catch (error: any) {
       Alert.alert("Erro ao criar conta", error?.message ?? "Não foi possível criar sua conta agora.");

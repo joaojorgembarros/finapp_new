@@ -230,7 +230,10 @@ export default function LoginScreen() {
   const [showPass, setShowPass] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const passwordInputRef = useRef<TextInput>(null);
-  const inputKeyboardActive = focused !== null && keyboardVisible;
+  // Password AutoFill can briefly blur the input on iOS while the keyboard
+  // remains open. The compact layout must follow the keyboard itself so the
+  // header never gets pushed behind the status bar.
+  const inputKeyboardActive = keyboardVisible;
 
   useEffect(() => {
     if (Platform.OS === "android") {
@@ -238,8 +241,10 @@ export default function LoginScreen() {
       NavigationBar.setButtonStyleAsync("light").catch(() => {});
     }
 
-    const showSub = Keyboard.addListener("keyboardDidShow", () => setKeyboardVisible(true));
-    const hideSub = Keyboard.addListener("keyboardDidHide", () => {
+    const keyboardShowEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const keyboardHideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const showSub = Keyboard.addListener(keyboardShowEvent, () => setKeyboardVisible(true));
+    const hideSub = Keyboard.addListener(keyboardHideEvent, () => {
       setKeyboardVisible(false);
       setFocused(null);
     });
@@ -387,6 +392,7 @@ const styles = StyleSheet.create({
   },
   safeArea: {
     flex: 1,
+    overflow: "hidden",
   },
   keyboard: {
     flex: 1,

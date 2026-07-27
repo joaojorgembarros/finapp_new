@@ -182,7 +182,7 @@ export default function OnboardingCategories() {
       <View style={styles.root}>
         <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
           <View style={styles.headerCard}>
-            <Pressable onPress={() => router.replace("/(onboarding)/journey")} style={styles.backButton} hitSlop={12}>
+            <Pressable onPress={() => router.replace("/(app)/journey")} style={styles.backButton} hitSlop={12}>
               <Ionicons name="arrow-back" size={18} color="#fff" />
             </Pressable>
             <Text style={styles.headerEyebrow}>Controle financeiro</Text>
