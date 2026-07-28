@@ -18,7 +18,14 @@ export default function Index() {
     const metadata = session.user.user_metadata;
     const hasDreams = Array.isArray(metadata?.finapp_dreams) && metadata.finapp_dreams.length > 0;
     const remoteDone = metadata?.new_onboarding_done === true && hasDreams;
-    setDestination(remoteDone ? "/(app)/journey" : "/(onboarding)/dreams");
+    const pendingFinancialSituation = metadata?.new_onboarding_step === "financial-situation" && hasDreams;
+    setDestination(
+      remoteDone
+        ? "/(app)/journey"
+        : pendingFinancialSituation
+          ? "/(onboarding)/financial-situation"
+          : "/(onboarding)/dreams"
+    );
   }, [loading, session, userId]);
 
   if (destination) return <Redirect href={destination} />;

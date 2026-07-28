@@ -27,9 +27,26 @@ const DREAMS: Dream[] = [
 const PRESELECTED: string[] = [];
 const MAX_DREAMS = 3;
 
+function readSelectedDreams(raw: string | string[] | undefined) {
+  try {
+    const value = Array.isArray(raw) ? raw[0] : raw;
+    const parsed = value ? JSON.parse(value) : PRESELECTED;
+    return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : PRESELECTED;
+  } catch {
+    return PRESELECTED;
+  }
+}
+
 function Chip({ dream, active, onPress }: { dream: Dream; active: boolean; onPress: () => void }) {
   return (
-    <Pressable onPress={onPress} style={[styles.chip, styles[`chip${dream.size.toUpperCase()}` as "chipSM" | "chipMD" | "chipLG"], active && styles.chipActive]}>
+    <Pressable
+      onPress={onPress}
+      style={[
+        styles.chip,
+        styles[`chip${dream.size.toUpperCase()}` as "chipSM" | "chipMD" | "chipLG"],
+        active && styles.chipActive,
+      ]}
+    >
       <Text style={[styles.chipText, active && styles.chipTextActive]}>{dream.label}</Text>
       {active ? (
         <View style={styles.check}>
@@ -41,30 +58,65 @@ function Chip({ dream, active, onPress }: { dream: Dream; active: boolean; onPre
 }
 
 export default function DreamsScreen() {
-  const params = useLocalSearchParams<{ maxDreams?: string; returnToJourney?: string; excludedDreams?: string }>();
+  const params = useLocalSearchParams<{
+    maxDreams?: string;
+    returnToJourney?: string;
+    excludedDreams?: string;
+    selectedDreams?: string;
+  }>();
   const maxDreams = Math.max(1, Math.min(MAX_DREAMS, Number(params.maxDreams) || MAX_DREAMS));
+  const initialDreams = useMemo(
+    () => readSelectedDreams(params.selectedDreams).slice(0, maxDreams),
+    [maxDreams, params.selectedDreams]
+  );
   const excludedDreams = useMemo(() => {
     try {
       const parsed = params.excludedDreams ? JSON.parse(params.excludedDreams) : [];
-      return new Set(Array.isArray(parsed) ? parsed.map((item) => String(item).trim().toLocaleLowerCase("pt-BR")) : []);
-    } catch { return new Set<string>(); }
+      return new Set(
+        Array.isArray(parsed)
+          ? parsed.map((item) => String(item).trim().toLocaleLowerCase("pt-BR"))
+          : []
+      );
+    } catch {
+      return new Set<string>();
+    }
   }, [params.excludedDreams]);
-  const [selected, setSelected] = useState<Set<string>>(() => new Set(PRESELECTED));
-  const [extras, setExtras] = useState<Dream[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(initialDreams));
+  const [extras, setExtras] = useState<Dream[]>(() =>
+    initialDreams
+      .filter(
+        (label) =>
+          !DREAMS.some(
+            (dream) =>
+              dream.label.trim().toLocaleLowerCase("pt-BR") ===
+              label.trim().toLocaleLowerCase("pt-BR")
+          )
+      )
+      .map((label) => ({ label, size: "md" }))
+  );
   const [modal, setModal] = useState(false);
   const [custom, setCustom] = useState("");
 
-  const allDreams = useMemo(() => [...DREAMS, ...extras].filter((dream) => !excludedDreams.has(dream.label.trim().toLocaleLowerCase("pt-BR"))), [excludedDreams, extras]);
+  const allDreams = useMemo(
+    () =>
+      [...DREAMS, ...extras].filter(
+        (dream) => !excludedDreams.has(dream.label.trim().toLocaleLowerCase("pt-BR"))
+      ),
+    [excludedDreams, extras]
+  );
   const count = selected.size;
 
   function toggle(label: string) {
     if (!selected.has(label) && count >= maxDreams) {
-      Alert.alert("Limite de sonhos", `Escolha até ${maxDreams} ${maxDreams === 1 ? "sonho" : "sonhos"} para completar suas vagas atuais.`);
+      Alert.alert(
+        "Limite de sonhos",
+        `Escolha até ${maxDreams} ${maxDreams === 1 ? "sonho" : "sonhos"} para completar suas vagas atuais.`
+      );
       return;
     }
 
-    setSelected((prev) => {
-      const next = new Set(prev);
+    setSelected((previous) => {
+      const next = new Set(previous);
       if (next.has(label)) next.delete(label);
       else next.add(label);
       return next;
@@ -80,24 +132,39 @@ export default function DreamsScreen() {
     }
 
     if (!allDreams.some((dream) => dream.label.toLowerCase() === label.toLowerCase())) {
-      setExtras((prev) => [...prev, { label, size: "md" }]);
+      setExtras((previous) => [...previous, { label, size: "md" }]);
     }
-    setSelected((prev) => new Set([...prev, label]));
+    setSelected((previous) => new Set([...previous, label]));
     setCustom("");
     setModal(false);
   }
 
   function openCustomModal() {
     if (count >= maxDreams) {
-      Alert.alert("Limite de sonhos", `Você já preencheu ${maxDreams === 1 ? "a vaga disponível" : "as vagas disponíveis"}.`);
+      Alert.alert(
+        "Limite de sonhos",
+        `Você já preencheu ${maxDreams === 1 ? "a vaga disponível" : "as vagas disponíveis"}.`
+      );
       return;
     }
     setModal(true);
   }
 
   function next() {
-    if (!count) return Alert.alert("Escolha um sonho", "Selecione pelo menos um objetivo para continuar.");
-    router.push({ pathname: "/(onboarding)/dream-values", params: { dreams: JSON.stringify([...selected]), returnToJourney: params.returnToJourney ?? "0" } });
+    if (!count) {
+      Alert.alert("Escolha um sonho", "Selecione pelo menos um objetivo para continuar.");
+      return;
+    }
+
+    router.push({
+      pathname: "/(onboarding)/dream-values",
+      params: {
+        dreams: JSON.stringify([...selected]),
+        returnToJourney: params.returnToJourney ?? "0",
+        maxDreams: params.maxDreams,
+        excludedDreams: params.excludedDreams,
+      },
+    });
   }
 
   return (
@@ -108,13 +175,20 @@ export default function DreamsScreen() {
           eyebrow="Seus objetivos"
           title="Quais sonhos você quer conquistar?"
           subtitle="Escolha seus objetivos e organize sua jornada por prazo."
-          onBack={() => params.returnToJourney === "1" ? router.back() : router.replace("/(auth)/login")}
+          onBack={params.returnToJourney === "1" ? () => router.back() : undefined}
+          currentStep={1}
+          totalSteps={params.returnToJourney === "1" ? 2 : 3}
         />
 
         <View style={styles.card}>
           <ScrollView contentContainerStyle={styles.chips} showsVerticalScrollIndicator={false}>
             {allDreams.map((dream) => (
-              <Chip key={dream.label} dream={dream} active={selected.has(dream.label)} onPress={() => toggle(dream.label)} />
+              <Chip
+                key={dream.label}
+                dream={dream}
+                active={selected.has(dream.label)}
+                onPress={() => toggle(dream.label)}
+              />
             ))}
           </ScrollView>
 
@@ -123,15 +197,28 @@ export default function DreamsScreen() {
               <Ionicons name="add" size={17} color={OB.support} />
               <Text style={styles.addText}>Cadastrar sonho</Text>
             </Pressable>
-            <Text style={styles.count}>{count === 0 ? `Escolha até ${maxDreams} ${maxDreams === 1 ? "sonho" : "sonhos"}` : `${count} de ${maxDreams} sonho${maxDreams > 1 ? "s" : ""} selecionado${count > 1 ? "s" : ""}`}</Text>
-            <PrimaryButton title="Continuar minha jornada" disabled={!count} onPress={next} />
+            <Text style={styles.count}>
+              {count === 0
+                ? `Escolha até ${maxDreams} ${maxDreams === 1 ? "sonho" : "sonhos"}`
+                : `${count} de ${maxDreams} sonho${maxDreams > 1 ? "s" : ""} selecionado${count > 1 ? "s" : ""}`}
+            </Text>
+            <PrimaryButton
+              title="Continuar minha jornada"
+              disabled={!count}
+              onPress={next}
+            />
           </View>
         </View>
       </View>
 
       <Modal visible={modal} transparent animationType="fade" onRequestClose={() => setModal(false)}>
         <View style={styles.modalOverlay}>
-          <BlurView intensity={34} tint="dark" experimentalBlurMethod="dimezisBlurView" style={StyleSheet.absoluteFill} />
+          <BlurView
+            intensity={34}
+            tint="dark"
+            experimentalBlurMethod="dimezisBlurView"
+            style={StyleSheet.absoluteFill}
+          />
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Cadastrar sonho</Text>
@@ -151,7 +238,12 @@ export default function DreamsScreen() {
               <Pressable onPress={() => setModal(false)} style={styles.cancelButton}>
                 <Text style={styles.cancelText}>Cancelar</Text>
               </Pressable>
-              <PrimaryButton title="Concluir" disabled={!custom.trim()} onPress={addCustom} style={styles.modalPrimary} />
+              <PrimaryButton
+                title="Concluir"
+                disabled={!custom.trim()}
+                onPress={addCustom}
+                style={styles.modalPrimary}
+              />
             </View>
           </View>
         </View>

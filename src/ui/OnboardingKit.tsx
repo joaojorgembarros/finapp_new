@@ -79,23 +79,61 @@ export function BackButton({ onPress }: { onPress: () => void }) {
   );
 }
 
+export function OnboardingStepBadge({
+  current,
+  total,
+}: {
+  current: number;
+  total: number;
+}) {
+  const safeTotal = Math.max(1, total);
+  const safeCurrent = Math.max(1, Math.min(current, safeTotal));
+
+  return (
+    <View
+      accessibilityRole="text"
+      accessibilityLabel={`Etapa ${safeCurrent} de ${safeTotal}`}
+      style={styles.stepBadge}
+    >
+      {Array.from({ length: safeTotal }, (_, index) => {
+        const active = index < safeCurrent;
+        return <View key={index} style={active ? styles.stepDotActive : styles.stepDot} />;
+      })}
+      <Text style={styles.stepText}>ETAPA {safeCurrent} DE {safeTotal}</Text>
+    </View>
+  );
+}
+
 export function ScreenIntro({
   eyebrow,
   title,
   subtitle,
   onBack,
+  currentStep,
+  totalSteps,
+  compact = false,
 }: {
   eyebrow: string;
   title: string;
   subtitle: string;
   onBack?: () => void;
+  currentStep?: number;
+  totalSteps?: number;
+  compact?: boolean;
 }) {
+  const showStep = typeof currentStep === "number" && typeof totalSteps === "number";
+
   return (
-    <View style={styles.intro}>
-      {onBack ? <BackButton onPress={onBack} /> : null}
-      <Text style={styles.eyebrow}>{eyebrow}</Text>
-      <Text style={styles.title}>{title}</Text>
-      <Text style={styles.subtitle}>{subtitle}</Text>
+    <View style={[styles.intro, compact && styles.introCompact]}>
+      {onBack || showStep ? (
+        <View style={[styles.introTopRow, compact && styles.introTopRowCompact]}>
+          {onBack ? <BackButton onPress={onBack} /> : <View />}
+          {showStep ? <OnboardingStepBadge current={currentStep} total={totalSteps} /> : null}
+        </View>
+      ) : null}
+      <Text style={[styles.eyebrow, compact && styles.eyebrowCompact]}>{eyebrow}</Text>
+      <Text style={[styles.title, compact && styles.titleCompact]}>{title}</Text>
+      <Text style={[styles.subtitle, compact && styles.subtitleCompact]}>{subtitle}</Text>
     </View>
   );
 }
@@ -141,16 +179,59 @@ const styles = StyleSheet.create({
     paddingTop: 14,
     paddingBottom: 20,
   },
+  introCompact: {
+    paddingTop: 8,
+    paddingBottom: 14,
+  },
+  introTopRow: {
+    minHeight: 38,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 18,
+  },
+  introTopRowCompact: {
+    marginBottom: 12,
+  },
   backButton: {
     width: 38,
     height: 38,
     borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 18,
     backgroundColor: "rgba(255,255,255,0.10)",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.15)",
+  },
+  stepBadge: {
+    minHeight: 34,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "rgba(255,255,255,0.10)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+  },
+  stepDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: "rgba(255,255,255,0.28)",
+  },
+  stepDotActive: {
+    width: 13,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: "#fff",
+  },
+  stepText: {
+    color: OB.textOnDarkMid,
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+    marginLeft: 3,
   },
   eyebrow: {
     color: OB.textOnDarkMid,
@@ -160,6 +241,10 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     marginBottom: 10,
   },
+  eyebrowCompact: {
+    fontSize: 10,
+    marginBottom: 6,
+  },
   title: {
     color: OB.textOnDark,
     fontSize: 26,
@@ -167,11 +252,20 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     marginBottom: 8,
   },
+  titleCompact: {
+    fontSize: 23,
+    lineHeight: 28,
+    marginBottom: 6,
+  },
   subtitle: {
     color: OB.textOnDarkMid,
     fontSize: 14,
     lineHeight: 21,
     fontWeight: "700",
+  },
+  subtitleCompact: {
+    fontSize: 12,
+    lineHeight: 18,
   },
   primaryTouch: {
     borderRadius: 16,

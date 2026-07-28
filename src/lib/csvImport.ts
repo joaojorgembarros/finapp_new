@@ -1,6 +1,7 @@
-import * as FileSystem from "expo-file-system/legacy";
 import { parseBRLToCents } from "./format";
-import { TxType } from "./transactions";
+import type { TxType } from "./transactions";
+import { detectStatementBank } from "./banks";
+import type { BankId } from "./banks";
 
 export type ParsedCsvTx = {
   key: string;
@@ -17,6 +18,7 @@ export type CsvParseResult = {
   ignoredRows: number;
   initialBalanceCents: number | null;
   finalBalanceCents: number | null;
+  detectedBankId: BankId | null;
 };
 
 export type PickedCsvFile = {
@@ -123,6 +125,7 @@ function decodeWindows1252(bytes: number[]) {
 }
 
 export async function readCsvText(uri: string) {
+  const FileSystem = await import("expo-file-system/legacy");
   const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
   const bytes = base64ToBytes(base64);
   return decodeUtf8(bytes) ?? decodeWindows1252(bytes);
@@ -180,10 +183,10 @@ function findColumns(headers: string[], names: string[]) {
 
 function parseDate(value: string) {
   const raw = value.trim();
-  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (iso) return raw;
+  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|[ T])/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
 
-  const br = raw.match(/^(\d{1,2})[/. -](\d{1,2})[/. -](\d{2,4})$/);
+  const br = raw.match(/^(\d{1,2})[/. -](\d{1,2})[/. -](\d{2,4})(?:$|[ T])/);
   if (!br) return null;
 
   const day = Number(br[1]);
@@ -235,7 +238,8 @@ function parseSignedCents(cells: string[], amountIdx: number, creditIdx: number,
   return 0;
 }
 
-export function parseCsv(content: string): CsvParseResult {
+export function parseCsv(content: string, options: { fileName?: string } = {}): CsvParseResult {
+  const detectedBankId = detectStatementBank(content, options.fileName);
   const lines = content
     .replace(/^\uFEFF/, "")
     .split(/\r?\n/)
@@ -243,7 +247,7 @@ export function parseCsv(content: string): CsvParseResult {
     .filter(Boolean);
 
   if (lines.length < 2) {
-    return { rows: [], errors: ["O arquivo precisa ter cabeçalho e pelo menos uma transação."], ignoredRows: 0, initialBalanceCents: null, finalBalanceCents: null };
+    return { rows: [], errors: ["O arquivo precisa ter cabeçalho e pelo menos uma transação."], ignoredRows: 0, initialBalanceCents: null, finalBalanceCents: null, detectedBankId };
   }
 
   const errors: string[] = [];
@@ -359,6 +363,7 @@ export function parseCsv(content: string): CsvParseResult {
       ignoredRows,
       initialBalanceCents: null,
       finalBalanceCents: null,
+      detectedBankId,
     };
   }
 
@@ -373,7 +378,7 @@ export function parseCsv(content: string): CsvParseResult {
     : null);
   const finalBalanceCents = explicitFinalBalanceCents;
 
-  return { rows, errors, ignoredRows, initialBalanceCents, finalBalanceCents };
+  return { rows, errors, ignoredRows, initialBalanceCents, finalBalanceCents, detectedBankId };
 }
 
 export function formatFileSize(size?: number | null) {

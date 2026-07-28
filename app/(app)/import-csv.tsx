@@ -9,6 +9,7 @@ import { useHouseholdId } from "../../src/hooks/useHousehold";
 import { addTransaction } from "../../src/lib/transactions";
 import { formatBRLFromCents, formatDateBRFromYMD } from "../../src/lib/format";
 import { CsvParseResult, formatFileSize, ParsedCsvTx, PickedCsvFile, parseCsv, readCsvText } from "../../src/lib/csvImport";
+import { findBankById } from "../../src/lib/banks";
 
 const emptyResult: CsvParseResult = {
   rows: [],
@@ -16,6 +17,7 @@ const emptyResult: CsvParseResult = {
   ignoredRows: 0,
   initialBalanceCents: null,
   finalBalanceCents: null,
+  detectedBankId: null,
 };
 
 function SummaryPill({ label, value, tone }: { label: string; value: string; tone: "primary" | "good" | "bad" }) {
@@ -58,7 +60,8 @@ export default function ImportCsvOnboarding() {
   const [busy, setBusy] = useState(false);
   const [showAllPreview, setShowAllPreview] = useState(false);
 
-  const result = useMemo(() => (csv ? parseCsv(csv) : emptyResult), [csv]);
+  const result = useMemo(() => (csv ? parseCsv(csv, { fileName: file?.name }) : emptyResult), [csv, file?.name]);
+  const detectedBank = findBankById(result.detectedBankId);
   const income = result.rows.filter((row) => row.type === "income").reduce((sum, row) => sum + row.amount_cents, 0);
   const expense = result.rows.filter((row) => row.type === "expense").reduce((sum, row) => sum + row.amount_cents, 0);
   const partial = income - expense;
@@ -177,6 +180,12 @@ export default function ImportCsvOnboarding() {
           <>
             <View style={styles.card}>
               <Text style={styles.sectionTitle}>Resumo da leitura</Text>
+              {detectedBank ? (
+                <View style={styles.detectedBank}>
+                  <Ionicons name="business-outline" size={17} color={OB.primary} />
+                  <Text style={styles.detectedBankText}>Banco identificado: {detectedBank.name}</Text>
+                </View>
+              ) : null}
               <View style={styles.summaryGrid}>
                 <SummaryPill label="Válidas" value={String(result.rows.length)} tone="primary" />
                 <SummaryPill label="Entradas" value={formatBRLFromCents(income)} tone="good" />
@@ -395,6 +404,22 @@ const styles = StyleSheet.create({
   sectionTitle: {
     color: OB.primary,
     fontSize: 16,
+    fontWeight: "900",
+  },
+  detectedBank: {
+    minHeight: 42,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "rgba(123,160,200,0.14)",
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  detectedBankText: {
+    color: OB.primary,
+    fontSize: 12,
     fontWeight: "900",
   },
   summaryGrid: {

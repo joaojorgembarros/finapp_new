@@ -1,0 +1,6 @@
+Banco do Brasil
+Data;Dependência Origem;Histórico;Data do Balancete;Número do documento;Valor;Saldo
+01/07/2026;;Saldo anterior;01/07/2026;0;2.000,00;2.000,00
+01/07/2026;;BB Rende Fácil;01/07/2026;1;-1.000,00;1.000,00
+02/07/2026;;Pix enviado Exemplo;02/07/2026;2;-120,00;880,00
+03/07/2026;;Pix recebido Exemplo;03/07/2026;3;300,00;1.180,00
