@@ -17,6 +17,7 @@ const fixtures = [
   { fileName: "banco-do-brasil-conta.csv", bankId: "banco-do-brasil", rows: 2, ignoredRows: 1, initialBalanceCents: 200000 },
   { fileName: "c6-bank-conta.csv", bankId: "c6-bank", rows: 2 },
   { fileName: "mercado-pago-conta.csv", bankId: "mercado-pago", rows: 2 },
+  { fileName: "mp-wallet.csv", bankId: "mercado-pago", rows: 2, initialBalanceCents: 10 },
   { fileName: "picpay-conta.csv", bankId: "picpay", rows: 2 },
 ] satisfies {
   fileName: string;
@@ -52,5 +53,14 @@ describe("bank CSV fixtures", () => {
     });
 
     expect(result.detectedBankId).toBe("nubank");
+  });
+
+  it("uses Mercado Pago TRANSACTION_TYPE as the transaction description", () => {
+    const result = parseCsv(loadFixture("mp-wallet.csv"), { fileName: "mp-wallet.csv" });
+
+    expect(result.rows.map((row) => row.note)).toEqual([
+      "Pix recebido CLIENTE EXEMPLO",
+      "Pix enviado LOJA EXEMPLO",
+    ]);
   });
 });

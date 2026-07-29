@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
@@ -6,10 +6,16 @@ import { router } from "expo-router";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
 import { useSession } from "../../src/providers/SessionProvider";
 import { useHouseholdId } from "../../src/hooks/useHousehold";
-import { addTransaction } from "../../src/lib/transactions";
 import { formatBRLFromCents, formatDateBRFromYMD } from "../../src/lib/format";
 import { CsvParseResult, formatFileSize, ParsedCsvTx, PickedCsvFile, parseCsv, readCsvText } from "../../src/lib/csvImport";
 import { findBankById } from "../../src/lib/banks";
+import {
+  findStatementImportByHash,
+  hashStatementContent,
+  importStatement,
+  isDuplicateStatementError,
+  StatementImport,
+} from "../../src/lib/statementImports";
 
 const emptyResult: CsvParseResult = {
   rows: [],
@@ -59,6 +65,10 @@ export default function ImportCsvOnboarding() {
   const [reading, setReading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [showAllPreview, setShowAllPreview] = useState(false);
+  const [fileHash, setFileHash] = useState<string | null>(null);
+  const [duplicateImport, setDuplicateImport] = useState<StatementImport | null>(null);
+  const [checkingDuplicate, setCheckingDuplicate] = useState(false);
+  const [duplicateCheckError, setDuplicateCheckError] = useState("");
 
   const result = useMemo(() => (csv ? parseCsv(csv, { fileName: file?.name }) : emptyResult), [csv, file?.name]);
   const detectedBank = findBankById(result.detectedBankId);
@@ -68,6 +78,37 @@ export default function ImportCsvOnboarding() {
   const accountBalance = result.initialBalanceCents === null ? partial : result.initialBalanceCents + partial;
   const hasFile = Boolean(file);
   const previewRows = showAllPreview ? result.rows : result.rows.slice(0, 8);
+  const importDisabled = busy || checkingDuplicate || Boolean(duplicateImport) || !result.rows.length || !fileHash;
+
+  useEffect(() => {
+    let active = true;
+
+    setDuplicateImport(null);
+    setDuplicateCheckError("");
+
+    if (!householdId || !fileHash) {
+      setCheckingDuplicate(false);
+      return () => {
+        active = false;
+      };
+    }
+
+    setCheckingDuplicate(true);
+    findStatementImportByHash(householdId, fileHash)
+      .then((existingImport) => {
+        if (active) setDuplicateImport(existingImport);
+      })
+      .catch((error: any) => {
+        if (active) setDuplicateCheckError(error?.message ?? "Não foi possível verificar o histórico de importações.");
+      })
+      .finally(() => {
+        if (active) setCheckingDuplicate(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [fileHash, householdId]);
 
   async function pickCsv() {
     if (reading || busy) return;
@@ -86,8 +127,10 @@ export default function ImportCsvOnboarding() {
       if (!asset) return;
 
       const content = await readCsvText(asset.uri);
+      const hash = await hashStatementContent(content);
       setCsv(content);
       setFile({ name: asset.name || "extrato.csv", size: asset.size });
+      setFileHash(hash);
       setShowAllPreview(false);
     } catch (error: any) {
       Alert.alert("Erro", error?.message ?? "Não foi possível ler o arquivo CSV.");
@@ -97,34 +140,43 @@ export default function ImportCsvOnboarding() {
   }
 
   function clearFile() {
-    if (busy) return;
     setCsv("");
     setFile(null);
+    setFileHash(null);
+    setDuplicateImport(null);
+    setDuplicateCheckError("");
     setShowAllPreview(false);
   }
 
   async function importRows() {
     if (!userId || !householdId) return Alert.alert("Atenção", "Entre em uma casa antes de importar.");
     if (!result.rows.length) return Alert.alert("Atenção", "Não há transações válidas para importar.");
+    if (!file || !fileHash) return Alert.alert("Atenção", "A identificação do arquivo ainda não está disponível.");
+    if (checkingDuplicate) return Alert.alert("Atenção", "Aguarde a verificação do arquivo.");
+    if (duplicateImport) return Alert.alert("Arquivo já importado", "Escolha outro extrato para continuar.");
     if (busy) return;
 
     try {
       setBusy(true);
-      for (const row of result.rows) {
-        await addTransaction({
-          householdId,
-          userId,
-          type: row.type,
-          amount_cents: row.amount_cents,
-          note: row.note,
-          occurred_on: row.occurred_on,
-          category_id: null,
-        });
-      }
+      await importStatement({
+        householdId,
+        fileHash,
+        fileName: file.name,
+        bankId: result.detectedBankId,
+        initialBalanceCents: result.initialBalanceCents,
+        finalBalanceCents: result.finalBalanceCents ?? accountBalance,
+        rows: result.rows,
+      });
 
-      Alert.alert("Importação concluída", `${result.rows.length} transações foram salvas.`);
       clearFile();
+      Alert.alert("Importação concluída", `${result.rows.length} transações foram salvas.`);
     } catch (error: any) {
+      if (isDuplicateStatementError(error)) {
+        const existingImport = await findStatementImportByHash(householdId, fileHash).catch(() => null);
+        setDuplicateImport(existingImport);
+        Alert.alert("Arquivo já importado", "Este mesmo arquivo já consta no histórico desta conta.");
+        return;
+      }
       Alert.alert("Erro", error?.message ?? "Falha ao importar CSV.");
     } finally {
       setBusy(false);
@@ -178,6 +230,30 @@ export default function ImportCsvOnboarding() {
           </View>
         ) : (
           <>
+            {checkingDuplicate ? (
+              <View style={styles.infoCard}>
+                <ActivityIndicator size="small" color={OB.primary} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.infoTitle}>Verificando o arquivo</Text>
+                  <Text style={styles.infoText}>Consultando o histórico para evitar transações duplicadas.</Text>
+                </View>
+              </View>
+            ) : duplicateImport ? (
+              <View style={styles.duplicateBox}>
+                <Ionicons name="copy-outline" size={21} color="#9A3412" />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.duplicateTitle}>Este arquivo já foi importado</Text>
+                  <Text style={styles.duplicateText}>
+                    {duplicateImport.transaction_count} transações de {formatDateBRFromYMD(duplicateImport.period_start)} a {formatDateBRFromYMD(duplicateImport.period_end)} já constam no app.
+                  </Text>
+                </View>
+              </View>
+            ) : duplicateCheckError ? (
+              <View style={styles.errorBox}>
+                <Text style={styles.errorText}>• {duplicateCheckError}</Text>
+              </View>
+            ) : null}
+
             <View style={styles.card}>
               <Text style={styles.sectionTitle}>Resumo da leitura</Text>
               {detectedBank ? (
@@ -204,6 +280,8 @@ export default function ImportCsvOnboarding() {
                   ))}
                   {result.errors.length > 5 ? <Text style={styles.mutedText}>Mais {result.errors.length - 5} avisos encontrados.</Text> : null}
                 </View>
+              ) : duplicateImport ? (
+                <Text style={styles.mutedText}>A importação foi bloqueada para não duplicar suas movimentações.</Text>
               ) : (
                 <Text style={styles.mutedText}>Tudo certo para importar.</Text>
               )}
@@ -231,9 +309,9 @@ export default function ImportCsvOnboarding() {
               {!result.rows.length ? <Text style={styles.mutedText}>Nenhuma linha válida encontrada neste arquivo.</Text> : null}
             </View>
 
-            <Pressable onPress={importRows} disabled={busy || !result.rows.length} style={[styles.importButton, (busy || !result.rows.length) && styles.importButtonDisabled]}>
-              <Text style={[styles.importText, (busy || !result.rows.length) && styles.importTextDisabled]}>
-                {busy ? "Importando..." : "Importar transações"}
+            <Pressable onPress={importRows} disabled={importDisabled} style={[styles.importButton, importDisabled && styles.importButtonDisabled]}>
+              <Text style={[styles.importText, importDisabled && styles.importTextDisabled]}>
+                {busy ? "Importando..." : checkingDuplicate ? "Verificando arquivo..." : duplicateImport ? "Arquivo já importado" : "Importar transações"}
               </Text>
             </Pressable>
           </>
@@ -462,6 +540,28 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "800",
     lineHeight: 17,
+  },
+  duplicateBox: {
+    borderRadius: 18,
+    padding: 14,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    backgroundColor: "#FFF7ED",
+    borderWidth: 1,
+    borderColor: "#FDBA74",
+  },
+  duplicateTitle: {
+    color: "#9A3412",
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  duplicateText: {
+    color: "#C2410C",
+    fontSize: 12,
+    fontWeight: "800",
+    lineHeight: 17,
+    marginTop: 4,
   },
   previewHeader: {
     flexDirection: "row",

@@ -60,7 +60,7 @@ export const BANK_CATALOG = [
     name: "Mercado Pago",
     shortName: "mp",
     color: "#159BD7",
-    statementAliases: ["mercado pago", "mercadopago"],
+    statementAliases: ["mercado pago", "mercadopago", "mp-wallet"],
   },
   {
     id: "picpay",

@@ -283,6 +283,7 @@ export function parseCsv(content: string, options: { fileName?: string } = {}): 
           "memo",
           "note",
           "titulo",
+          "transactiontype",
         ]),
         typeIdx: findColumn(headerInfo.headers, ["tipo", "tipolancamento", "tipolanamento", "type", "natureza"]),
       };
