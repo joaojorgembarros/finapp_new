@@ -1,31 +1,15 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { hashStatementContent, isDuplicateStatementError } from "./statementImports";
-
-const { digestStringAsync } = vi.hoisted(() => ({
-  digestStringAsync: vi.fn(),
-}));
-
-vi.mock("expo-crypto", () => ({
-  CryptoDigestAlgorithm: { SHA256: "SHA-256" },
-  CryptoEncoding: { HEX: "hex" },
-  digestStringAsync,
-}));
 
 vi.mock("./supabase", () => ({
   supabase: {},
 }));
 
 describe("statement import identity", () => {
-  beforeEach(() => {
-    digestStringAsync.mockReset();
-  });
-
   it("creates a SHA-256 hexadecimal identity from the exact file content", async () => {
-    const hash = "a".repeat(64);
-    digestStringAsync.mockResolvedValue(hash);
-
-    await expect(hashStatementContent("conteúdo do extrato")).resolves.toBe(hash);
-    expect(digestStringAsync).toHaveBeenCalledWith("SHA-256", "conteúdo do extrato", { encoding: "hex" });
+    await expect(hashStatementContent("conteúdo do extrato")).resolves.toBe(
+      "9b1c9973f49edfbd9ee017d70923a053235d44cd728fc0d6f359e8d8f8bbab13"
+    );
   });
 
   it.each([

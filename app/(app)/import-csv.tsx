@@ -9,8 +9,20 @@ import { useHouseholdId } from "../../src/hooks/useHousehold";
 import { formatBRLFromCents, formatDateBRFromYMD } from "../../src/lib/format";
 import { CsvParseResult, formatFileSize, ParsedCsvTx, PickedCsvFile, parseCsv, readCsvText } from "../../src/lib/csvImport";
 import { findBankById } from "../../src/lib/banks";
+import { Category, listCategories } from "../../src/lib/categories";
+import {
+  StatementCategorySuggestion,
+  statementSimilarityKey,
+  suggestStatementCategory,
+} from "../../src/lib/statementCategorization";
+import {
+  listStatementCategoryRules,
+  StatementCategoryRule,
+  StatementCategoryRuleInput,
+} from "../../src/lib/statementCategoryRules";
 import {
   findStatementImportByHash,
+  findStatementImportConflicts,
   hashStatementContent,
   importStatement,
   isDuplicateStatementError,
@@ -21,6 +33,7 @@ const emptyResult: CsvParseResult = {
   rows: [],
   errors: [],
   ignoredRows: 0,
+  rejectedRows: 0,
   initialBalanceCents: null,
   finalBalanceCents: null,
   detectedBankId: null,
@@ -40,19 +53,109 @@ function SummaryPill({ label, value, tone }: { label: string; value: string; ton
   );
 }
 
-function PreviewRow({ row }: { row: ParsedCsvTx }) {
+function PreviewRow({
+  row,
+  conflict,
+  categories,
+  categoryId,
+  suggestion,
+  autoSuggested,
+  similarCount,
+  onCategoryChange,
+  onApplySimilar,
+}: {
+  row: ParsedCsvTx;
+  conflict: boolean;
+  categories: Category[];
+  categoryId: string | null;
+  suggestion: StatementCategorySuggestion | null;
+  autoSuggested: boolean;
+  similarCount: number;
+  onCategoryChange: (categoryId: string | null) => void;
+  onApplySimilar: () => void;
+}) {
   const isIncome = row.type === "income";
   const color = isIncome ? "#178A55" : "#B94A4A";
+  const availableCategories = categories.filter((category) => category.flow === row.type);
 
   return (
-    <View style={styles.previewRow}>
-      <View style={{ flex: 1 }}>
-        <Text style={styles.previewTitle} numberOfLines={2}>{row.note}</Text>
-        <Text style={styles.previewMeta}>Linha {row.rawLine} - {formatDateBRFromYMD(row.occurred_on)}</Text>
+    <View style={[styles.previewRow, conflict && styles.previewRowConflict]}>
+      <View style={styles.previewMain}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.previewTitle} numberOfLines={2}>{row.note}</Text>
+          <Text style={styles.previewMeta}>Linha {row.rawLine} - {formatDateBRFromYMD(row.occurred_on)}</Text>
+          {conflict ? <Text style={styles.conflictBadge}>Já existe · não será importada</Text> : null}
+        </View>
+        <Text style={[styles.previewAmount, { color }]}>
+          {isIncome ? "+" : "-"}{formatBRLFromCents(row.amount_cents)}
+        </Text>
       </View>
-      <Text style={[styles.previewAmount, { color }]}>
-        {isIncome ? "+" : "-"}{formatBRLFromCents(row.amount_cents)}
-      </Text>
+
+      {!conflict && availableCategories.length ? (
+        <View style={styles.categoryReview}>
+          <View style={styles.categoryReviewHeader}>
+            <Text style={styles.categoryReviewLabel}>Categoria</Text>
+            {autoSuggested ? (
+              <Text style={styles.autoSuggestionLabel}>Sugerida automaticamente</Text>
+            ) : null}
+            {!categoryId && suggestion ? (
+              <Pressable
+                onPress={() => onCategoryChange(suggestion.categoryId)}
+                style={styles.suggestionButton}
+              >
+                <Ionicons name="sparkles-outline" size={12} color="#175CD3" />
+                <Text style={styles.suggestionText}>Usar {suggestion.categoryName}</Text>
+              </Pressable>
+            ) : null}
+          </View>
+
+          <ScrollView
+            horizontal
+            nestedScrollEnabled
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.categoryChips}
+          >
+            <Pressable
+              onPress={() => onCategoryChange(null)}
+              style={[styles.categoryChip, !categoryId && styles.categoryChipActive]}
+            >
+              <Text style={[styles.categoryChipText, !categoryId && styles.categoryChipTextActive]}>
+                Sem categoria
+              </Text>
+            </Pressable>
+            {availableCategories.map((category) => {
+              const active = category.id === categoryId;
+              return (
+                <Pressable
+                  key={category.id}
+                  onPress={() => onCategoryChange(category.id)}
+                  style={[styles.categoryChip, active && styles.categoryChipActive]}
+                >
+                  <Ionicons
+                    name={(category.icon || "pricetag-outline") as any}
+                    size={12}
+                    color={active ? "#fff" : OB.primary}
+                  />
+                  <Text style={[styles.categoryChipText, active && styles.categoryChipTextActive]}>
+                    {category.name}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+
+          {categoryId ? (
+            <Pressable onPress={onApplySimilar} style={styles.applySimilarButton}>
+              <Ionicons name="bookmark-outline" size={13} color={OB.primary} />
+              <Text style={styles.applySimilarText}>
+                {similarCount > 1
+                  ? `Aplicar a ${similarCount} semelhantes e lembrar`
+                  : "Lembrar para próximas importações"}
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -67,8 +170,16 @@ export default function ImportCsvOnboarding() {
   const [showAllPreview, setShowAllPreview] = useState(false);
   const [fileHash, setFileHash] = useState<string | null>(null);
   const [duplicateImport, setDuplicateImport] = useState<StatementImport | null>(null);
+  const [conflictLines, setConflictLines] = useState<number[]>([]);
   const [checkingDuplicate, setCheckingDuplicate] = useState(false);
   const [duplicateCheckError, setDuplicateCheckError] = useState("");
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(false);
+  const [categoriesError, setCategoriesError] = useState("");
+  const [categoryAssignments, setCategoryAssignments] = useState<Record<string, string | null>>({});
+  const [categoryRules, setCategoryRules] = useState<StatementCategoryRule[]>([]);
+  const [pendingCategoryRules, setPendingCategoryRules] = useState<Record<string, StatementCategoryRuleInput>>({});
+  const [autoSuggestedRows, setAutoSuggestedRows] = useState<Set<string>>(new Set());
 
   const result = useMemo(() => (csv ? parseCsv(csv, { fileName: file?.name }) : emptyResult), [csv, file?.name]);
   const detectedBank = findBankById(result.detectedBankId);
@@ -77,16 +188,52 @@ export default function ImportCsvOnboarding() {
   const partial = income - expense;
   const accountBalance = result.initialBalanceCents === null ? partial : result.initialBalanceCents + partial;
   const hasFile = Boolean(file);
+  const conflictLineSet = useMemo(() => new Set(conflictLines), [conflictLines]);
+  const categorySuggestions = useMemo(() => {
+    const suggestions = new Map<string, StatementCategorySuggestion>();
+    for (const row of result.rows) {
+      const suggestion = suggestStatementCategory(row, categories, categoryRules);
+      if (suggestion) suggestions.set(row.key, suggestion);
+    }
+    return suggestions;
+  }, [categories, categoryRules, result.rows]);
+  const similarityCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const row of result.rows) {
+      if (conflictLineSet.has(row.rawLine)) continue;
+      const key = `${row.type}:${statementSimilarityKey(row.note)}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return counts;
+  }, [conflictLineSet, result.rows]);
+  const importableCount = result.rows.filter((row) => !conflictLineSet.has(row.rawLine)).length;
+  const categorizedCount = result.rows.filter(
+    (row) => !conflictLineSet.has(row.rawLine) && Boolean(categoryAssignments[row.key])
+  ).length;
+  const availableSuggestionCount = result.rows.filter(
+    (row) =>
+      !conflictLineSet.has(row.rawLine) &&
+      !Object.prototype.hasOwnProperty.call(categoryAssignments, row.key) &&
+      categorySuggestions.has(row.key)
+  ).length;
+  const partialConflict = conflictLines.length > 0 && !duplicateImport;
   const previewRows = showAllPreview ? result.rows : result.rows.slice(0, 8);
-  const importDisabled = busy || checkingDuplicate || Boolean(duplicateImport) || !result.rows.length || !fileHash;
+  const importDisabled =
+    busy ||
+    checkingDuplicate ||
+    Boolean(duplicateImport) ||
+    Boolean(duplicateCheckError) ||
+    importableCount < 1 ||
+    !fileHash;
 
   useEffect(() => {
     let active = true;
 
     setDuplicateImport(null);
+    setConflictLines([]);
     setDuplicateCheckError("");
 
-    if (!householdId || !fileHash) {
+    if (!householdId || !fileHash || !result.rows.length) {
       setCheckingDuplicate(false);
       return () => {
         active = false;
@@ -94,9 +241,14 @@ export default function ImportCsvOnboarding() {
     }
 
     setCheckingDuplicate(true);
-    findStatementImportByHash(householdId, fileHash)
-      .then((existingImport) => {
-        if (active) setDuplicateImport(existingImport);
+    Promise.all([
+      findStatementImportByHash(householdId, fileHash),
+      findStatementImportConflicts(householdId, result.rows),
+    ])
+      .then(([existingImport, conflictingLines]) => {
+        if (!active) return;
+        setDuplicateImport(existingImport);
+        setConflictLines(conflictingLines);
       })
       .catch((error: any) => {
         if (active) setDuplicateCheckError(error?.message ?? "Não foi possível verificar o histórico de importações.");
@@ -108,7 +260,80 @@ export default function ImportCsvOnboarding() {
     return () => {
       active = false;
     };
-  }, [fileHash, householdId]);
+  }, [fileHash, householdId, result.rows]);
+
+  useEffect(() => {
+    let active = true;
+
+    if (!householdId) {
+      setCategories([]);
+      setCategoryRules([]);
+      setCategoriesLoading(false);
+      return () => {
+        active = false;
+      };
+    }
+
+    setCategoriesLoading(true);
+    setCategoriesError("");
+    Promise.all([
+      listCategories(householdId),
+      listStatementCategoryRules(householdId),
+    ])
+      .then(([items, learnedRules]) => {
+        if (!active) return;
+        setCategories(items);
+        setCategoryRules(learnedRules);
+      })
+      .catch((error: any) => {
+        if (active) setCategoriesError(error?.message ?? "Não foi possível carregar suas categorias.");
+      })
+      .finally(() => {
+        if (active) setCategoriesLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [householdId]);
+
+  useEffect(() => {
+    if (!categorySuggestions.size) return;
+
+    const automaticCandidates = result.rows.filter(
+      (row) =>
+        !conflictLineSet.has(row.rawLine) &&
+        categorySuggestions.get(row.key)?.confidence === "high"
+    );
+    if (!automaticCandidates.length) return;
+
+    setCategoryAssignments((current) => {
+      const next = { ...current };
+      let changed = false;
+
+      for (const row of automaticCandidates) {
+        if (Object.prototype.hasOwnProperty.call(next, row.key)) continue;
+        next[row.key] = categorySuggestions.get(row.key)?.categoryId ?? null;
+        changed = true;
+      }
+
+      return changed ? next : current;
+    });
+
+    setAutoSuggestedRows((current) => {
+      const next = new Set(current);
+      let changed = false;
+      for (const row of automaticCandidates) {
+        if (
+          Object.prototype.hasOwnProperty.call(categoryAssignments, row.key) ||
+          next.has(row.key)
+        ) continue;
+        next.add(row.key);
+        changed = true;
+      }
+      return changed ? next : current;
+    });
+  }, [categoryAssignments, categorySuggestions, conflictLineSet, result.rows]);
 
   async function pickCsv() {
     if (reading || busy) return;
@@ -131,6 +356,9 @@ export default function ImportCsvOnboarding() {
       setCsv(content);
       setFile({ name: asset.name || "extrato.csv", size: asset.size });
       setFileHash(hash);
+      setCategoryAssignments({});
+      setPendingCategoryRules({});
+      setAutoSuggestedRows(new Set());
       setShowAllPreview(false);
     } catch (error: any) {
       Alert.alert("Erro", error?.message ?? "Não foi possível ler o arquivo CSV.");
@@ -144,8 +372,85 @@ export default function ImportCsvOnboarding() {
     setFile(null);
     setFileHash(null);
     setDuplicateImport(null);
+    setConflictLines([]);
+    setCategoryAssignments({});
+    setPendingCategoryRules({});
+    setAutoSuggestedRows(new Set());
     setDuplicateCheckError("");
     setShowAllPreview(false);
+  }
+
+  function setRowCategory(row: ParsedCsvTx, categoryId: string | null) {
+    setCategoryAssignments((current) => ({ ...current, [row.key]: categoryId }));
+    setAutoSuggestedRows((current) => {
+      const next = new Set(current);
+      next.delete(row.key);
+      return next;
+    });
+
+    const ruleKey = `${row.type}:${statementSimilarityKey(row.note)}`;
+    setPendingCategoryRules((current) => {
+      if (!current[ruleKey]) return current;
+      const next = { ...current };
+      if (categoryId) next[ruleKey] = {
+        flow: row.type,
+        match_key: statementSimilarityKey(row.note),
+        category_id: categoryId,
+      };
+      else delete next[ruleKey];
+      return next;
+    });
+  }
+
+  function applyCategoryToSimilar(row: ParsedCsvTx) {
+    const categoryId = categoryAssignments[row.key];
+    if (!categoryId) return;
+    const similarityKey = statementSimilarityKey(row.note);
+    const ruleKey = `${row.type}:${similarityKey}`;
+
+    setCategoryAssignments((current) => {
+      const next = { ...current };
+      for (const candidate of result.rows) {
+        if (candidate.type !== row.type || conflictLineSet.has(candidate.rawLine)) continue;
+        if (statementSimilarityKey(candidate.note) === similarityKey) {
+          next[candidate.key] = categoryId;
+        }
+      }
+      return next;
+    });
+    setAutoSuggestedRows((current) => {
+      const next = new Set(current);
+      for (const candidate of result.rows) {
+        if (
+          candidate.type === row.type &&
+          statementSimilarityKey(candidate.note) === similarityKey
+        ) next.delete(candidate.key);
+      }
+      return next;
+    });
+    setPendingCategoryRules((current) => ({
+      ...current,
+      [ruleKey]: {
+        flow: row.type,
+        match_key: similarityKey,
+        category_id: categoryId,
+      },
+    }));
+  }
+
+  function acceptAllSuggestions() {
+    setCategoryAssignments((current) => {
+      const next = { ...current };
+      for (const row of result.rows) {
+        if (
+          conflictLineSet.has(row.rawLine) ||
+          Object.prototype.hasOwnProperty.call(next, row.key)
+        ) continue;
+        const suggestion = categorySuggestions.get(row.key);
+        if (suggestion) next[row.key] = suggestion.categoryId;
+      }
+      return next;
+    });
   }
 
   async function importRows() {
@@ -158,23 +463,59 @@ export default function ImportCsvOnboarding() {
 
     try {
       setBusy(true);
-      await importStatement({
+      const importResult = await importStatement({
         householdId,
         fileHash,
         fileName: file.name,
         bankId: result.detectedBankId,
         initialBalanceCents: result.initialBalanceCents,
         finalBalanceCents: result.finalBalanceCents ?? accountBalance,
-        rows: result.rows,
+        rejectedCount: result.rejectedRows,
+        rows: result.rows.map((row) => ({
+          ...row,
+          categoryId: categoryAssignments[row.key] ?? null,
+        })),
+        categoryRules: Object.values(pendingCategoryRules),
       });
 
+      const completionParts = [
+        `${importResult.imported_count} movimentação(ões) foram salvas`,
+      ];
+      if (importResult.skipped_count) {
+        completionParts.push(`${importResult.skipped_count} repetida(s) foram ignoradas`);
+      }
+      if (importResult.rejected_count) {
+        completionParts.push(`${importResult.rejected_count} linha(s) inválida(s) foram rejeitadas`);
+      }
+      if (importResult.categorized_count) {
+        completionParts.push(`${importResult.categorized_count} movimentação(ões) foram categorizadas`);
+      }
+      if (importResult.learned_rules_count) {
+        completionParts.push(`${importResult.learned_rules_count} regra(s) foram lembradas`);
+      }
+
       clearFile();
-      Alert.alert("Importação concluída", `${result.rows.length} transações foram salvas.`);
+      Alert.alert(
+        "Importação concluída",
+        `${completionParts.join("; ")}.`,
+        [
+          { text: "Concluir" },
+          {
+            text: "Ver histórico",
+            onPress: () => router.replace("/(app)/import-history"),
+          },
+        ]
+      );
     } catch (error: any) {
       if (isDuplicateStatementError(error)) {
         const existingImport = await findStatementImportByHash(householdId, fileHash).catch(() => null);
         setDuplicateImport(existingImport);
-        Alert.alert("Arquivo já importado", "Este mesmo arquivo já consta no histórico desta conta.");
+        Alert.alert(
+          "Nada novo para importar",
+          existingImport
+            ? "Este mesmo arquivo já consta no histórico desta conta."
+            : "Todas as movimentações deste arquivo já existem no app."
+        );
         return;
       }
       Alert.alert("Erro", error?.message ?? "Falha ao importar CSV.");
@@ -248,6 +589,22 @@ export default function ImportCsvOnboarding() {
                   </Text>
                 </View>
               </View>
+            ) : partialConflict ? (
+              <View style={styles.conflictBox}>
+                <Ionicons name="git-compare-outline" size={21} color="#175CD3" />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.conflictTitle}>
+                    {importableCount
+                      ? "Encontramos movimentações já existentes"
+                      : "Todas as movimentações já existem"}
+                  </Text>
+                  <Text style={styles.conflictText}>
+                    {importableCount
+                      ? `${importableCount} nova(s) serão importadas e ${conflictLines.length} repetida(s) serão ignoradas.`
+                      : `${conflictLines.length} movimentação(ões) já constam no app. Nada será duplicado.`}
+                  </Text>
+                </View>
+              </View>
             ) : duplicateCheckError ? (
               <View style={styles.errorBox}>
                 <Text style={styles.errorText}>• {duplicateCheckError}</Text>
@@ -275,6 +632,11 @@ export default function ImportCsvOnboarding() {
 
               {result.errors.length ? (
                 <View style={styles.errorBox}>
+                  <Text style={styles.errorTitle}>
+                    {result.rejectedRows
+                      ? `${result.rejectedRows} linha(s) inválida(s) não serão importadas`
+                      : "O arquivo precisa de atenção"}
+                  </Text>
                   {result.errors.slice(0, 5).map((error) => (
                     <Text key={error} style={styles.errorText}>• {error}</Text>
                   ))}
@@ -282,9 +644,60 @@ export default function ImportCsvOnboarding() {
                 </View>
               ) : duplicateImport ? (
                 <Text style={styles.mutedText}>A importação foi bloqueada para não duplicar suas movimentações.</Text>
+              ) : partialConflict ? (
+                <Text style={styles.mutedText}>Somente as {importableCount} movimentações novas serão salvas.</Text>
               ) : (
                 <Text style={styles.mutedText}>Tudo certo para importar.</Text>
               )}
+            </View>
+
+            <View style={styles.card}>
+              <View style={styles.categorySummaryHeader}>
+                <View style={styles.categorySummaryIcon}>
+                  <Ionicons name="pricetags-outline" size={19} color={OB.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.sectionTitle}>Revisar categorias</Text>
+                  <Text style={styles.categorySummaryText}>
+                    {categoriesLoading
+                      ? "Carregando suas categorias..."
+                      : categoriesError
+                        ? "As categorias não puderam ser carregadas."
+                        : categories.length
+                          ? `${categorizedCount} de ${importableCount} movimentação(ões) confirmada(s)`
+                          : "Você ainda não possui categorias cadastradas."}
+                  </Text>
+                </View>
+                {categoriesLoading ? <ActivityIndicator size="small" color={OB.primary} /> : null}
+              </View>
+
+              {categoriesError ? <Text style={styles.categoryErrorText}>{categoriesError}</Text> : null}
+
+              {!categoriesLoading && !categoriesError && categories.length ? (
+                <>
+                  <Text style={styles.mutedText}>
+                    Sugestões de alta confiança já vêm selecionadas, mas você pode alterar todas antes de importar.
+                  </Text>
+                  {Object.keys(pendingCategoryRules).length ? (
+                    <Text style={styles.learnedRulesPendingText}>
+                      {Object.keys(pendingCategoryRules).length} regra(s) serão lembradas nesta casa.
+                    </Text>
+                  ) : null}
+                  {availableSuggestionCount ? (
+                    <Pressable onPress={acceptAllSuggestions} style={styles.acceptSuggestionsButton}>
+                      <Ionicons name="sparkles-outline" size={15} color="#175CD3" />
+                      <Text style={styles.acceptSuggestionsText}>
+                        Aceitar {availableSuggestionCount} sugestão(ões)
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                </>
+              ) : !categoriesLoading && !categoriesError ? (
+                <Pressable onPress={() => router.push("/(app)/categories")} style={styles.manageCategoriesButton}>
+                  <Text style={styles.manageCategoriesText}>Criar categorias</Text>
+                  <Ionicons name="chevron-forward" size={15} color={OB.primary} />
+                </Pressable>
+              ) : null}
             </View>
 
             <View style={styles.card}>
@@ -298,7 +711,24 @@ export default function ImportCsvOnboarding() {
               </View>
 
               {previewRows.map((row) => (
-                <PreviewRow key={row.key} row={row} />
+                <PreviewRow
+                  key={row.key}
+                  row={row}
+                  conflict={conflictLineSet.has(row.rawLine)}
+                  categories={categories}
+                  categoryId={categoryAssignments[row.key] ?? null}
+                  autoSuggested={autoSuggestedRows.has(row.key)}
+                  suggestion={
+                    Object.prototype.hasOwnProperty.call(categoryAssignments, row.key)
+                      ? null
+                      : categorySuggestions.get(row.key) ?? null
+                  }
+                  similarCount={
+                    similarityCounts.get(`${row.type}:${statementSimilarityKey(row.note)}`) ?? 1
+                  }
+                  onCategoryChange={(categoryId) => setRowCategory(row, categoryId)}
+                  onApplySimilar={() => applyCategoryToSimilar(row)}
+                />
               ))}
 
               {result.rows.length > 8 && !showAllPreview ? (
@@ -311,7 +741,19 @@ export default function ImportCsvOnboarding() {
 
             <Pressable onPress={importRows} disabled={importDisabled} style={[styles.importButton, importDisabled && styles.importButtonDisabled]}>
               <Text style={[styles.importText, importDisabled && styles.importTextDisabled]}>
-                {busy ? "Importando..." : checkingDuplicate ? "Verificando arquivo..." : duplicateImport ? "Arquivo já importado" : "Importar transações"}
+                {busy
+                  ? "Importando..."
+                  : checkingDuplicate
+                    ? "Verificando arquivo..."
+                    : duplicateImport
+                      ? "Arquivo já importado"
+                      : partialConflict
+                        ? importableCount
+                          ? `Importar ${importableCount} nova(s)`
+                          : "Nada novo para importar"
+                        : result.rejectedRows
+                          ? `Importar ${importableCount} válida(s)`
+                          : "Importar transações"}
               </Text>
             </Pressable>
           </>
@@ -541,6 +983,12 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     lineHeight: 17,
   },
+  errorTitle: {
+    color: "#92400E",
+    fontSize: 12,
+    fontWeight: "900",
+    lineHeight: 17,
+  },
   duplicateBox: {
     borderRadius: 18,
     padding: 14,
@@ -562,6 +1010,90 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     lineHeight: 17,
     marginTop: 4,
+  },
+  conflictBox: {
+    borderRadius: 18,
+    padding: 14,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    backgroundColor: "#EFF8FF",
+    borderWidth: 1,
+    borderColor: "#84CAFF",
+  },
+  conflictTitle: {
+    color: "#175CD3",
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  conflictText: {
+    color: "#1849A9",
+    fontSize: 12,
+    fontWeight: "800",
+    lineHeight: 17,
+    marginTop: 4,
+  },
+  categorySummaryHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  categorySummaryIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(123,160,200,0.14)",
+  },
+  categorySummaryText: {
+    color: OB.support,
+    fontSize: 11,
+    fontWeight: "800",
+    lineHeight: 16,
+    marginTop: 3,
+  },
+  categoryErrorText: {
+    color: "#B42318",
+    fontSize: 11,
+    fontWeight: "800",
+    lineHeight: 16,
+  },
+  acceptSuggestionsButton: {
+    minHeight: 43,
+    borderRadius: 13,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    backgroundColor: "#EFF8FF",
+    borderWidth: 1,
+    borderColor: "#84CAFF",
+  },
+  acceptSuggestionsText: {
+    color: "#175CD3",
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  manageCategoriesButton: {
+    minHeight: 43,
+    borderRadius: 13,
+    paddingHorizontal: 13,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "rgba(123,160,200,0.14)",
+  },
+  manageCategoriesText: {
+    color: OB.primary,
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  learnedRulesPendingText: {
+    color: "#175CD3",
+    fontSize: 10,
+    fontWeight: "900",
+    lineHeight: 15,
   },
   previewHeader: {
     flexDirection: "row",
@@ -586,6 +1118,12 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderTopWidth: 1,
     borderTopColor: OB.supportSoft,
+    gap: 10,
+  },
+  previewRowConflict: {
+    opacity: 0.62,
+  },
+  previewMain: {
     flexDirection: "row",
     gap: 10,
     alignItems: "flex-start",
@@ -601,8 +1139,100 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     marginTop: 3,
   },
+  conflictBadge: {
+    alignSelf: "flex-start",
+    color: "#175CD3",
+    fontSize: 9,
+    fontWeight: "900",
+    marginTop: 5,
+  },
   previewAmount: {
     fontSize: 13,
+    fontWeight: "900",
+  },
+  categoryReview: {
+    gap: 8,
+    borderRadius: 13,
+    padding: 10,
+    backgroundColor: OB.offWhite,
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  categoryReviewHeader: {
+    minHeight: 25,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  categoryReviewLabel: {
+    color: OB.primary,
+    fontSize: 10,
+    fontWeight: "900",
+  },
+  autoSuggestionLabel: {
+    color: "#178A55",
+    fontSize: 8,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  suggestionButton: {
+    maxWidth: "76%",
+    borderRadius: 999,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "#EFF8FF",
+    borderWidth: 1,
+    borderColor: "#84CAFF",
+  },
+  suggestionText: {
+    color: "#175CD3",
+    fontSize: 9,
+    fontWeight: "900",
+  },
+  categoryChips: {
+    gap: 7,
+    paddingRight: 4,
+  },
+  categoryChip: {
+    minHeight: 32,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  categoryChipActive: {
+    backgroundColor: OB.primary,
+    borderColor: OB.primary,
+  },
+  categoryChipText: {
+    color: OB.primary,
+    fontSize: 9,
+    fontWeight: "900",
+  },
+  categoryChipTextActive: {
+    color: "#fff",
+  },
+  applySimilarButton: {
+    alignSelf: "flex-start",
+    minHeight: 30,
+    borderRadius: 10,
+    paddingHorizontal: 9,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "rgba(123,160,200,0.16)",
+  },
+  applySimilarText: {
+    color: OB.primary,
+    fontSize: 9,
     fontWeight: "900",
   },
   moreButton: {

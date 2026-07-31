@@ -41,6 +41,7 @@ describe("bank CSV fixtures", () => {
     expect(result.rows.some((row) => row.type === "income")).toBe(true);
     expect(result.rows.some((row) => row.type === "expense")).toBe(true);
     expect(result.ignoredRows).toBe(fixture.ignoredRows ?? 0);
+    expect(result.rejectedRows).toBe(0);
 
     if (fixture.initialBalanceCents !== undefined) {
       expect(result.initialBalanceCents).toBe(fixture.initialBalanceCents);
@@ -61,6 +62,27 @@ describe("bank CSV fixtures", () => {
     expect(result.rows.map((row) => row.note)).toEqual([
       "Pix recebido CLIENTE EXEMPLO",
       "Pix enviado LOJA EXEMPLO",
+    ]);
+  });
+
+  it("reports invalid transaction lines without mixing them with valid rows", () => {
+    const result = parseCsv([
+      "Data,Descrição,Valor",
+      "2026-07-01,Compra válida,-10.50",
+      "31/02/2026,Data impossível,-20.00",
+      "2026-07-03,Valor ausente,",
+      "2026-07-04,Valor zero,0",
+      "2026-02-31,Data ISO impossível,-30.00",
+    ].join("\n"));
+
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]?.note).toBe("Compra válida");
+    expect(result.rejectedRows).toBe(4);
+    expect(result.errors).toEqual([
+      "Linha 3: data ausente, inválida ou não reconhecida.",
+      "Linha 4: valor ausente, zero ou inválido.",
+      "Linha 5: valor ausente, zero ou inválido.",
+      "Linha 6: data ausente, inválida ou não reconhecida.",
     ]);
   });
 });

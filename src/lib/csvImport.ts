@@ -16,6 +16,7 @@ export type CsvParseResult = {
   rows: ParsedCsvTx[];
   errors: string[];
   ignoredRows: number;
+  rejectedRows: number;
   initialBalanceCents: number | null;
   finalBalanceCents: number | null;
   detectedBankId: BankId | null;
@@ -184,7 +185,15 @@ function findColumns(headers: string[], names: string[]) {
 function parseDate(value: string) {
   const raw = value.trim();
   const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|[ T])/);
-  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  if (iso) {
+    const year = Number(iso[1]);
+    const month = Number(iso[2]);
+    const day = Number(iso[3]);
+    const date = new Date(year, month - 1, day);
+
+    if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null;
+    return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  }
 
   const br = raw.match(/^(\d{1,2})[/. -](\d{1,2})[/. -](\d{2,4})(?:$|[ T])/);
   if (!br) return null;
@@ -247,13 +256,14 @@ export function parseCsv(content: string, options: { fileName?: string } = {}): 
     .filter(Boolean);
 
   if (lines.length < 2) {
-    return { rows: [], errors: ["O arquivo precisa ter cabeçalho e pelo menos uma transação."], ignoredRows: 0, initialBalanceCents: null, finalBalanceCents: null, detectedBankId };
+    return { rows: [], errors: ["O arquivo precisa ter cabeçalho e pelo menos uma transação."], ignoredRows: 0, rejectedRows: 0, initialBalanceCents: null, finalBalanceCents: null, detectedBankId };
   }
 
   const errors: string[] = [];
   const rows: ParsedCsvTx[] = [];
   const balanceRows: { occurred_on: string; rawLine: number; signedCents: number; balanceCents: number }[] = [];
   let ignoredRows = 0;
+  let rejectedRows = 0;
   let baselineBalanceCents: number | null = null;
   let explicitFinalBalanceCents: number | null = null;
   let current:
@@ -328,7 +338,11 @@ export function parseCsv(content: string, options: { fileName?: string } = {}): 
       return;
     }
 
-    if (!occurred_on) return;
+    if (!occurred_on) {
+      rejectedRows += 1;
+      errors.push(`Linha ${lineNumber}: data ausente, inválida ou não reconhecida.`);
+      return;
+    }
 
     if (current.balanceIdx >= 0) {
       balanceRows.push({
@@ -345,7 +359,11 @@ export function parseCsv(content: string, options: { fileName?: string } = {}): 
       return;
     }
 
-    if (amount_cents <= 0) return;
+    if (amount_cents <= 0) {
+      rejectedRows += 1;
+      errors.push(`Linha ${lineNumber}: valor ausente, zero ou inválido.`);
+      return;
+    }
 
     rows.push({
       key: `${lineNumber}-${occurred_on}-${amount_cents}-${note}`,
@@ -362,6 +380,7 @@ export function parseCsv(content: string, options: { fileName?: string } = {}): 
       rows: [],
       errors: ["Não encontrei o cabeçalho do extrato. Procure colunas como data e valor, ou crédito e débito."],
       ignoredRows,
+      rejectedRows,
       initialBalanceCents: null,
       finalBalanceCents: null,
       detectedBankId,
@@ -379,7 +398,7 @@ export function parseCsv(content: string, options: { fileName?: string } = {}): 
     : null);
   const finalBalanceCents = explicitFinalBalanceCents;
 
-  return { rows, errors, ignoredRows, initialBalanceCents, finalBalanceCents, detectedBankId };
+  return { rows, errors, ignoredRows, rejectedRows, initialBalanceCents, finalBalanceCents, detectedBankId };
 }
 
 export function formatFileSize(size?: number | null) {

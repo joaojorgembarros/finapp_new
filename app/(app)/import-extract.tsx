@@ -74,6 +74,20 @@ export default function ImportExtractOnboarding() {
           <Text style={styles.headerSubtitle}>Escolha o formato do arquivo e revise tudo antes de salvar.</Text>
         </View>
 
+        <Pressable
+          onPress={() => router.push("/(app)/import-history")}
+          style={({ pressed }) => [styles.historyCard, pressed && styles.pressed]}
+        >
+          <View style={styles.historyIcon}>
+            <Ionicons name="time-outline" size={21} color={OB.primary} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.historyTitle}>Histórico de importações</Text>
+            <Text style={styles.historyText}>Consulte arquivos importados ou desfaça uma importação</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={OB.support} />
+        </Pressable>
+
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>Formato do arquivo</Text>
           {formats.map((option) => (
@@ -147,6 +161,39 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderWidth: 1,
     borderColor: OB.supportSoft,
+  },
+  historyCard: {
+    minHeight: 76,
+    borderRadius: 18,
+    padding: 13,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: "rgba(123,160,200,0.14)",
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  historyIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  historyTitle: {
+    color: OB.primary,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  historyText: {
+    color: OB.support,
+    fontSize: 11,
+    fontWeight: "800",
+    lineHeight: 16,
+    marginTop: 4,
   },
   sectionTitle: {
     color: OB.primary,
