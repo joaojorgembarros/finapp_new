@@ -7,6 +7,9 @@
 - [x] Substituir todos os marcadores `[PREENCHER ...]` em `docs/`.
 - [x] Executar `npm run verify`.
 - [x] Preparar textos, Segurança dos dados e roteiro do teste fechado em `docs/PLAY_STORE_RELEASE.md`.
+- [x] Preparar ícone 512 × 512 e gráfico de destaque 1024 × 500 em `store-assets/`.
+- [x] Preparar a matriz de validação Android em `docs/ANDROID_TEST_PLAN.md`.
+- [ ] Concluir o build Android `preview` em formato APK e executar a matriz de testes.
 - [ ] Concluir o build Android `production` em formato AAB.
 - [ ] Gerar e testar build `preview` em Android e iPhone reais.
 - [ ] Validar cadastro, confirmação de e-mail, recuperação, exclusão e isolamento entre duas contas.

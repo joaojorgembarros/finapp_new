@@ -73,8 +73,8 @@ Não declarar, salvo mudança futura no aplicativo:
 
 ## Materiais gráficos pendentes
 
-- ícone da loja em PNG, 512 × 512 px;
-- gráfico de destaque, 1024 × 500 px;
+- [x] ícone da loja em PNG, 512 × 512 px (`store-assets/play-store-icon-512.png`);
+- [x] gráfico de destaque, 1024 × 500 px (`store-assets/play-store-feature-graphic-1024x500.png`);
 - pelo menos duas capturas de tela de celular; recomendado produzir de quatro a oito;
 - capturas sem dados pessoais reais, e-mails, saldos bancários identificáveis ou notificações privadas.
 
