@@ -71,7 +71,27 @@ export const BANK_CATALOG = [
   },
 ] as const;
 
-export type BankId = (typeof BANK_CATALOG)[number]["id"];
+export const OTHER_BANK = {
+  id: "outro-banco",
+  name: "Outro banco",
+  shortName: "+",
+  color: "#64748B",
+} as const;
+
+export const CASH_ACCOUNT = {
+  id: "dinheiro",
+  name: "Dinheiro / Carteira",
+  shortName: "R$",
+  color: "#169B62",
+} as const;
+
+export const BANK_OPTIONS = [...BANK_CATALOG, OTHER_BANK] as const;
+export const TRANSACTION_ACCOUNT_OPTIONS = [...BANK_OPTIONS, CASH_ACCOUNT] as const;
+
+export type BankId = (typeof BANK_OPTIONS)[number]["id"];
+export type BankOption = (typeof BANK_OPTIONS)[number];
+export type TransactionAccountId = (typeof TRANSACTION_ACCOUNT_OPTIONS)[number]["id"];
+export type TransactionAccountOption = (typeof TRANSACTION_ACCOUNT_OPTIONS)[number];
 
 function normalizeBankText(value: string) {
   return value
@@ -82,7 +102,11 @@ function normalizeBankText(value: string) {
 }
 
 export function findBankById(id: BankId | null | undefined) {
-  return id ? BANK_CATALOG.find((bank) => bank.id === id) ?? null : null;
+  return id ? BANK_OPTIONS.find((bank) => bank.id === id) ?? null : null;
+}
+
+export function findTransactionAccountById(id: string | null | undefined) {
+  return id ? TRANSACTION_ACCOUNT_OPTIONS.find((account) => account.id === id) ?? null : null;
 }
 
 export function detectStatementBank(content: string, fileName = ""): BankId | null {

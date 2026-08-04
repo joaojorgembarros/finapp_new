@@ -1,6 +1,7 @@
 // src/lib/transactions.ts
 import { supabase } from "./supabase";
 import { addMonths, ymd } from "./date";
+import type { TransactionAccountId } from "./banks";
 
 export type TxType = "income" | "expense";
 
@@ -12,6 +13,8 @@ export type TxRow = {
   amount_cents: number;
   note: string | null;
   category_id: string | null;
+  account_id: TransactionAccountId | null;
+  statement_import_id: string | null;
   occurred_on: string; // YYYY-MM-DD
   created_at: string;
   category?: { name: string } | null;
@@ -69,6 +72,7 @@ export async function addTransaction(opts: {
   type: TxType;
   amount_cents: number;
   category_id?: string | null;
+  account_id: TransactionAccountId;
   note?: string;
   occurred_on?: string; // YYYY-MM-DD
 }) {
@@ -78,6 +82,7 @@ export async function addTransaction(opts: {
     type: opts.type,
     amount_cents: opts.amount_cents,
     category_id: opts.category_id ?? null,
+    account_id: opts.account_id,
     note: opts.note?.trim() ? opts.note.trim() : null,
     occurred_on: opts.occurred_on ?? ymd(new Date()),
   };
@@ -88,6 +93,9 @@ export async function addTransaction(opts: {
     .select("*")
     .single();
 
+  if (error?.code === "42703") {
+    throw new Error("A atualização de contas ainda não foi aplicada no banco de dados.");
+  }
   if (error) throw error;
   return data as TxRow;
 }
@@ -98,11 +106,11 @@ export async function listTransactionsByMonth(
 ) {
   const { start, end } = monthRange(monthKey);
 
-  const { data, error } = await sb
+  let { data, error } = await sb
     .from("transactions")
     .select(
       `
-      id, household_id, created_by, type, amount_cents, note, category_id, occurred_on, created_at,
+      id, household_id, created_by, type, amount_cents, note, category_id, account_id, statement_import_id, occurred_on, created_at,
       category:categories(name)
     `
     )
@@ -111,6 +119,24 @@ export async function listTransactionsByMonth(
     .lt("occurred_on", end)
     .order("occurred_on", { ascending: false })
     .order("created_at", { ascending: false });
+
+  if (error?.code === "42703") {
+    const fallback = await sb
+      .from("transactions")
+      .select(
+        `
+        id, household_id, created_by, type, amount_cents, note, category_id, statement_import_id, occurred_on, created_at,
+        category:categories(name)
+      `
+      )
+      .eq("household_id", householdId)
+      .gte("occurred_on", start)
+      .lt("occurred_on", end)
+      .order("occurred_on", { ascending: false })
+      .order("created_at", { ascending: false });
+    data = (fallback.data ?? []).map((row: any) => ({ ...row, account_id: null }));
+    error = fallback.error;
+  }
 
   if (error) throw error;
   return (data ?? []) as TxRow[];
@@ -120,11 +146,11 @@ export async function listTransactionsRecent(householdId: string, days = 90) {
   const end = ymd(addDays(new Date(), 1)); // até amanhã (exclusivo)
   const start = ymd(addDays(new Date(), -Math.max(1, Number(days || 90))));
 
-  const { data, error } = await sb
+  let { data, error } = await sb
     .from("transactions")
     .select(
       `
-      id, household_id, created_by, type, amount_cents, note, category_id, occurred_on, created_at,
+      id, household_id, created_by, type, amount_cents, note, category_id, account_id, statement_import_id, occurred_on, created_at,
       category:categories(name)
     `
     )
@@ -134,8 +160,53 @@ export async function listTransactionsRecent(householdId: string, days = 90) {
     .order("occurred_on", { ascending: false })
     .order("created_at", { ascending: false });
 
+  if (error?.code === "42703") {
+    const fallback = await sb
+      .from("transactions")
+      .select(
+        `
+        id, household_id, created_by, type, amount_cents, note, category_id, statement_import_id, occurred_on, created_at,
+        category:categories(name)
+      `
+      )
+      .eq("household_id", householdId)
+      .gte("occurred_on", start)
+      .lt("occurred_on", end)
+      .order("occurred_on", { ascending: false })
+      .order("created_at", { ascending: false });
+    data = (fallback.data ?? []).map((row: any) => ({ ...row, account_id: null }));
+    error = fallback.error;
+  }
+
   if (error) throw error;
   return (data ?? []) as TxRow[];
+}
+
+export async function listTransactionHistory(householdId: string) {
+  const pageSize = 500;
+  const transactions: TxRow[] = [];
+
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await sb
+      .from("transactions")
+      .select(
+        `
+        id, household_id, created_by, type, amount_cents, note, category_id, account_id, statement_import_id, occurred_on, created_at,
+        category:categories(name)
+      `
+      )
+      .eq("household_id", householdId)
+      .order("occurred_on", { ascending: false })
+      .order("created_at", { ascending: false })
+      .range(from, from + pageSize - 1);
+
+    if (error) throw error;
+    const page = (data ?? []) as TxRow[];
+    transactions.push(...page);
+    if (page.length < pageSize) break;
+  }
+
+  return transactions;
 }
 
 /**

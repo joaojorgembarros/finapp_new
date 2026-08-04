@@ -19,7 +19,7 @@ import {
 } from "../../src/ui/OnboardingKit";
 import { markNewOnboardingDone } from "../../src/lib/newOnboarding";
 import { useSession } from "../../src/providers/SessionProvider";
-import { BANK_CATALOG } from "../../src/lib/banks";
+import { BANK_OPTIONS } from "../../src/lib/banks";
 
 type Bank = {
   name: string;
@@ -40,8 +40,7 @@ const NO_DEBTS = "Não tenho dívidas";
 const NO_BANK = "Não uso banco";
 
 const BANKS: Bank[] = [
-  ...BANK_CATALOG.map(({ name, shortName, color }) => ({ name, shortName, color })),
-  { name: "Outro banco", shortName: "+", color: OB.support },
+  ...BANK_OPTIONS.map(({ name, shortName, color }) => ({ name, shortName, color })),
   { name: NO_BANK, shortName: "—", color: "#64748B" },
 ];
 

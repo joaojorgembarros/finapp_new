@@ -19,7 +19,7 @@ const TRAIL_SEGMENTS: TrailSegment[] = [
   { start: { x: 34, y: 274 }, c1: { x: 96, y: 264 }, c2: { x: 176, y: 260 }, end: { x: 250, y: 246 } },
   { start: { x: 250, y: 246 }, c1: { x: 316, y: 232 }, c2: { x: 309, y: 214 }, end: { x: 254, y: 201 } },
   { start: { x: 254, y: 201 }, c1: { x: 207, y: 191 }, c2: { x: 223, y: 169 }, end: { x: 282, y: 151 } },
-  { start: { x: 282, y: 151 }, c1: { x: 322, y: 138 }, c2: { x: 324, y: 121 }, end: { x: 306, y: 108 } },
+  { start: { x: 282, y: 151 }, c1: { x: 320, y: 136 }, c2: { x: 306, y: 106 }, end: { x: 286, y: 88 } },
 ];
 
 const TRAIL_PATH =
@@ -101,7 +101,7 @@ export function MountainHero({ progress }: { progress: number }) {
             <Stop offset="0%" stopColor="#164D95" />
             <Stop offset="100%" stopColor="#061833" />
           </SvgLinearGradient>
-          <SvgLinearGradient id="pathGlow" x1="40" y1="286" x2="306" y2="108" gradientUnits="userSpaceOnUse">
+          <SvgLinearGradient id="pathGlow" x1="40" y1="286" x2="286" y2="88" gradientUnits="userSpaceOnUse">
             <Stop offset="0%" stopColor="#BBDDFF" />
             <Stop offset="100%" stopColor="#FFFFFF" />
           </SvgLinearGradient>
@@ -141,12 +141,12 @@ export function MountainHero({ progress }: { progress: number }) {
         <Path d={TRAIL_PATH} stroke="url(#pathGlow)" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" fill="none" />
         <Circle cx={marker.x} cy={marker.y} r="12" fill="#FFFFFF" />
         <Circle cx={marker.x} cy={marker.y} r="6.5" fill="#2F73E0" />
-        <Path d="M306 76 L306 108" stroke="#DCEBFF" strokeWidth="2" strokeLinecap="round" />
-        <Path d="M306 76 L326 83 L306 91Z" fill="#DCEBFF" />
+        <Path d="M286 56 L286 88" stroke="#DCEBFF" strokeWidth="2" strokeLinecap="round" />
+        <Path d="M286 56 L308 64 L286 73Z" fill="#DCEBFF" />
       </Svg>
 
       <View style={styles.heroTextBlock}>
-        <Text style={styles.heroTitle}>Sua jornada</Text>
+        <Text style={styles.heroTitle}>Seus sonhos</Text>
         <Text style={styles.heroSubtitle}>Acompanhe o progresso dos seus sonhos.</Text>
       </View>
     </View>

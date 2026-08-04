@@ -53,6 +53,23 @@ export async function createCategory(params: {
   return data as Category;
 }
 
+export async function updateCategoryName(params: {
+  categoryId: string;
+  householdId: string;
+  name: string;
+}) {
+  const { data, error } = await supabase
+    .from("categories")
+    .update({ name: params.name })
+    .eq("id", params.categoryId)
+    .eq("household_id", params.householdId)
+    .select("id,household_id,flow,kind,name,icon,sort")
+    .single();
+
+  if (error) throw error;
+  return data as Category;
+}
+
 export async function deleteCategory(categoryId: string, householdId: string) {
   const { error } = await supabase
     .from("categories")

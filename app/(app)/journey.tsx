@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
-import { ActivityIndicator, Alert, Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, BackHandler, Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, ToastAndroid, View } from "react-native";
 import { BlurView } from "expo-blur";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -11,15 +11,23 @@ import { useSession } from "../../src/providers/SessionProvider";
 import { useHouseholdId } from "../../src/hooks/useHousehold";
 import { Category, listCategories } from "../../src/lib/categories";
 import { addTransaction, listTransactionsByMonth, TxRow as DatabaseTx } from "../../src/lib/transactions";
-import { addGoalContribution, GoalContribution, GoalProgress, listGoalContributions, listGoalsWithProgress, syncGoalsFromDreams } from "../../src/lib/goals";
+import {
+  BANK_OPTIONS,
+  CASH_ACCOUNT,
+  OTHER_BANK,
+  findTransactionAccountById,
+  TransactionAccountId,
+  TransactionAccountOption,
+} from "../../src/lib/banks";
+import { GoalProgress, listGoalsWithProgress, syncGoalsFromDreams } from "../../src/lib/goals";
 import { MountainHero } from "../../src/features/journey/MountainHero";
 
 type Tab = "controle" | "jornada" | "desafios";
 type MenuIcon = keyof typeof Ionicons.glyphMap;
 type TxType = "Receita" | "Despesa";
 type Filter = "Todos" | TxType;
-type Tx = { id: string; type: TxType; description: string; category: string; categoryId: string | null; date: string; amount: number };
-type TxDraft = Omit<Tx, "id" | "date" | "category">;
+type Tx = { id: string; type: TxType; description: string; category: string; categoryId: string | null; account: string; accountId: TransactionAccountId | null; date: string; amount: number };
+type TxDraft = { type: TxType; description: string; categoryId: string | null; accountId: TransactionAccountId; amount: number };
 
 const WEB_DRAWER_BLUR_STYLE =
   Platform.OS === "web"
@@ -28,6 +36,7 @@ const WEB_DRAWER_BLUR_STYLE =
         WebkitBackdropFilter: "blur(6px)",
       } as any)
     : null;
+const ANDROID_BACK_PRESS_WINDOW_MS = 2500;
 
 function clampProgress(progress: number) {
   if (!Number.isFinite(progress)) return 0;
@@ -66,155 +75,29 @@ function ProgressCard({ goal, icon, onOpen }: { goal: GoalProgress; icon: string
   const progress = clampProgress((goal.contributed_cents / Math.max(goal.target_cents, 1)) * 100);
   const completed = progress >= 100;
   return (
-    <View style={[styles.goalCard, completed && styles.goalCardCompleted]}>
-      <View style={[styles.goalBadge, completed && styles.goalBadgeCompleted]}>
-        <Ionicons name={(completed ? "checkmark" : icon) as any} size={20} color={completed ? "#169B62" : OB.primary} />
-      </View>
+    <Pressable
+      onPress={onOpen}
+      accessibilityRole="button"
+      accessibilityLabel={`Abrir sonho ${goal.title}`}
+      style={({ pressed }) => [styles.goalCard, completed && styles.goalCardCompleted, pressed && styles.goalCardPressed]}
+    >
+      {goal.cover_photo_url ? (
+        <View style={[styles.goalPolaroid, completed && styles.goalPolaroidCompleted]}>
+          <Image source={{ uri: goal.cover_photo_url }} style={styles.goalPolaroidImage} resizeMode="contain" />
+          <View style={[styles.goalPolaroidCaption, completed && styles.goalPolaroidCaptionCompleted]} />
+        </View>
+      ) : (
+        <View style={[styles.goalBadge, completed && styles.goalBadgeCompleted]}>
+          <Ionicons name={(completed ? "checkmark" : icon) as any} size={20} color={completed ? "#169B62" : OB.primary} />
+        </View>
+      )}
       <View style={styles.goalInfo}>
         <Text style={styles.goalTitle}>{goal.title}</Text>
         <Text style={[styles.goalValue, completed && styles.goalValueCompleted]}>{completed && goal.completed_on ? `Concluído em ${formatDate(goal.completed_on)}` : `${formatBRLFromCents(goal.contributed_cents)} de ${formatBRLFromCents(goal.target_cents)}`}</Text>
         <View style={[styles.smallTrack, completed && styles.smallTrackCompleted]}><View style={[styles.smallFill, completed && styles.smallFillCompleted, { width: `${progress}%` }]} /></View>
-        <Pressable onPress={onOpen} hitSlop={8} style={styles.goalAction}>
-          <Text style={[styles.goalActionText, completed && styles.goalActionTextCompleted]}>{completed ? "Ver conquista" : goal.contribution_count ? `Ver histórico (${goal.contribution_count})` : "Registrar primeiro aporte"}</Text>
-          <Ionicons name="chevron-forward" size={14} color={completed ? "#169B62" : OB.primary} />
-        </Pressable>
       </View>
       <View style={[styles.ring, completed && styles.ringCompleted]}>{completed ? <Ionicons name="checkmark" size={21} color="#169B62" /> : <Text style={styles.ringText}>{progressLabel(progress)}</Text>}</View>
-    </View>
-  );
-}
-function GoalContributionModal({ goal, contributions, loading, saving, onClose, onSave }: {
-  goal: GoalProgress | null; contributions: GoalContribution[]; loading: boolean; saving: boolean;
-  onClose: () => void; onSave: (amount: number, note: string) => Promise<boolean>;
-}) {
-  const insets = useSafeAreaInsets();
-  const [amount, setAmount] = useState("");
-  const [note, setNote] = useState("");
-  const progress = goal ? clampProgress((goal.contributed_cents / Math.max(goal.target_cents, 1)) * 100) : 0;
-  const completed = progress >= 100;
-  const remainingCents = Math.max((goal?.target_cents ?? 0) - (goal?.contributed_cents ?? 0), 0);
-  const amountCents = parseBRLToCents(amount);
-  const bottomSystemInset = Math.max(insets.bottom, Platform.OS === "android" ? 48 : 0);
-
-  useEffect(() => {
-    if (!goal) { setAmount(""); setNote(""); }
-  }, [goal]);
-
-  async function save() {
-    const cents = parseBRLToCents(amount);
-    if (!cents || saving) return;
-    if (cents > remainingCents) {
-      Alert.alert("Valor do aporte", `O máximo para concluir este sonho é ${formatBRLFromCents(remainingCents)}.`);
-      return;
-    }
-    if (await onSave(cents, note)) { setAmount(""); setNote(""); }
-  }
-
-  return (
-    <Modal visible={Boolean(goal)} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.goalScreen}>
-        <View style={[styles.goalScreenHeader, { paddingTop: Math.max(insets.top, 16) }]}>
-          <Pressable onPress={onClose} hitSlop={10} style={styles.goalBackButton} accessibilityRole="button" accessibilityLabel="Voltar">
-            <Ionicons name="chevron-back" size={22} color={OB.primary} />
-          </Pressable>
-          <View style={styles.goalHeaderText}>
-            <Text style={styles.goalScreenEyebrow}>Detalhes do sonho</Text>
-            <Text style={styles.goalScreenTitle} numberOfLines={1}>{goal?.title}</Text>
-          </View>
-          <View style={styles.goalHeaderSpacer} />
-        </View>
-
-        <ScrollView
-          style={styles.goalScreenScroll}
-          contentContainerStyle={styles.goalScreenContent}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          <View style={[styles.goalSummaryCard, completed && styles.goalSummaryCardCompleted]}>
-            <View style={styles.goalSummaryTop}>
-              <View>
-                <Text style={styles.goalSummaryLabel}>Valor acumulado</Text>
-                <Text style={styles.goalSummaryValue}>{formatBRLFromCents(goal?.contributed_cents ?? 0)}</Text>
-              </View>
-              <View style={styles.goalProgressBadge}>{completed ? <Ionicons name="checkmark" size={19} color="#fff" /> : <Text style={styles.goalProgressBadgeText}>{progressLabel(progress)}</Text>}</View>
-            </View>
-            <View style={styles.goalProgressTrack}><View style={[styles.goalProgressFill, completed && styles.goalProgressFillCompleted, { width: `${progress}%` }]} /></View>
-            <View style={styles.goalSummaryFooter}>
-              <Text style={styles.goalSummaryMeta}>Meta</Text>
-              <Text style={styles.goalSummaryTarget}>{formatBRLFromCents(goal?.target_cents ?? 0)}</Text>
-            </View>
-          </View>
-
-          {completed ? (
-            <View style={styles.goalCompletedCard}>
-              <View style={styles.goalCompletedIcon}><Ionicons name="trophy" size={27} color="#169B62" /></View>
-              <Text style={styles.goalCompletedTitle}>Sonho concluído!</Text>
-              <Text style={styles.goalCompletedText}>Você alcançou essa meta{goal?.completed_on ? ` em ${formatDate(goal.completed_on)}` : ""}. Todo o histórico continua disponível abaixo.</Text>
-              <View style={styles.goalCompletedPill}><Ionicons name="checkmark-circle" size={17} color="#169B62" /><Text style={styles.goalCompletedPillText}>Conquista realizada</Text></View>
-            </View>
-          ) : <View style={styles.goalFormCard}>
-            <View style={styles.goalSectionHeading}>
-              <View style={styles.goalSectionIcon}><Ionicons name="add" size={20} color={OB.primary} /></View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.goalSectionTitle}>Novo aporte</Text>
-                <Text style={styles.goalSectionSubtitle}>Faltam {formatBRLFromCents(remainingCents)} para concluir.</Text>
-              </View>
-            </View>
-            <Text style={styles.goalFieldLabel}>Valor do aporte</Text>
-            <View style={styles.goalInputBox}>
-              <Text style={styles.goalCurrency}>R$</Text>
-              <TextInput
-                value={amount.replace("R$", "").trim()}
-                onChangeText={(text) => setAmount(formatBRLInputFromDigits(text))}
-                placeholder="0,00"
-                placeholderTextColor={OB.support}
-                keyboardType="number-pad"
-                style={styles.goalInput}
-              />
-            </View>
-            <Text style={styles.goalFieldLabel}>Observação <Text style={styles.goalOptionalLabel}>(opcional)</Text></Text>
-            <TextInput
-              value={note}
-              onChangeText={setNote}
-              placeholder="Ex.: reserva do salário"
-              placeholderTextColor={OB.support}
-              returnKeyType="done"
-              onSubmitEditing={Keyboard.dismiss}
-              style={styles.goalNoteInput}
-            />
-            {amountCents > remainingCents ? <Text style={styles.goalAmountError}>O aporte não pode ultrapassar o valor restante.</Text> : null}
-            <Pressable onPress={save} disabled={!amountCents || amountCents > remainingCents || saving} style={[styles.goalSaveButton, (!amountCents || amountCents > remainingCents || saving) && styles.goalSaveButtonDisabled]}>
-              {saving ? <ActivityIndicator color="#fff" /> : <><Text style={styles.goalSaveButtonText}>Registrar aporte</Text><Ionicons name="arrow-forward" size={18} color="#fff" /></>}
-            </Pressable>
-          </View>}
-
-          <View style={styles.goalHistoryHeader}>
-            <View>
-              <Text style={styles.goalHistoryTitle}>Histórico</Text>
-              <Text style={styles.goalHistorySubtitle}>{contributions.length === 1 ? "1 aporte registrado" : `${contributions.length} aportes registrados`}</Text>
-            </View>
-          </View>
-          <View style={styles.goalHistoryCard}>
-            {loading ? <View style={styles.goalHistoryLoading}><ActivityIndicator color={OB.primary} /></View> : contributions.length ? contributions.map((entry, index) => (
-              <View key={entry.id} style={[styles.goalHistoryRow, index === contributions.length - 1 && styles.goalHistoryRowLast]}>
-                <View style={styles.goalHistoryIcon}><Ionicons name="arrow-up" size={17} color="#169B62" /></View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.goalHistoryAmount}>{formatBRLFromCents(entry.amount_cents)}</Text>
-                  <Text style={styles.goalHistoryMeta}>{formatDate(entry.contributed_on)}{entry.note ? ` · ${entry.note}` : ""}</Text>
-                </View>
-              </View>
-            )) : (
-              <View style={styles.goalHistoryEmpty}>
-                <View style={styles.goalHistoryEmptyIcon}><Ionicons name="receipt-outline" size={23} color={OB.support} /></View>
-                <Text style={styles.goalHistoryEmptyTitle}>Nenhum aporte ainda</Text>
-                <Text style={styles.goalHistoryEmptyText}>Seu primeiro registro aparecerá aqui.</Text>
-              </View>
-            )}
-          </View>
-        </ScrollView>
-        <View pointerEvents="none" style={[styles.goalSystemBarGuard, { height: bottomSystemInset }]} />
-      </KeyboardAvoidingView>
-    </Modal>
+    </Pressable>
   );
 }
 function SummaryCard({ label, value, icon, color }: { label: string; value: number; icon: string; color: string }) {
@@ -241,7 +124,7 @@ function TxRow({ tx }: { tx: Tx }) {
       </View>
       <View style={styles.txInfo}>
         <Text style={styles.txDesc} numberOfLines={1}>{tx.description}</Text>
-        <Text style={styles.txMeta}>{tx.category} - {formatDate(tx.date)}</Text>
+        <Text style={styles.txMeta}>{tx.category} · {tx.account} · {formatDate(tx.date)}</Text>
       </View>
       <View style={styles.txAmountWrap}>
         <Text style={[styles.txAmount, { color }]}>{sign}{formatBRLFromCents(tx.amount)}</Text>
@@ -251,7 +134,23 @@ function TxRow({ tx }: { tx: Tx }) {
   );
 }
 
-function AddModal({ visible, categories, saving, onClose, onSave }: { visible: boolean; categories: Category[]; saving: boolean; onClose: () => void; onSave: (tx: TxDraft) => Promise<boolean> }) {
+function AddModal({
+  visible,
+  categories,
+  accountOptions,
+  defaultAccountId,
+  saving,
+  onClose,
+  onSave,
+}: {
+  visible: boolean;
+  categories: Category[];
+  accountOptions: TransactionAccountOption[];
+  defaultAccountId: TransactionAccountId | null;
+  saving: boolean;
+  onClose: () => void;
+  onSave: (tx: TxDraft) => Promise<boolean>;
+}) {
   const insets = useSafeAreaInsets();
   const androidStatusBar = Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0;
   const topInset = Math.max(insets.top, androidStatusBar, 18);
@@ -263,6 +162,7 @@ function AddModal({ visible, categories, saving, onClose, onSave }: { visible: b
   const [amount, setAmount] = useState("");
   const [desc, setDesc] = useState("");
   const [categoryId, setCategoryId] = useState<string | null>(null);
+  const [accountId, setAccountId] = useState<TransactionAccountId | null>(defaultAccountId);
   const availableCategories = useMemo(() => categories.filter((item) => item.flow === (type === "Receita" ? "income" : "expense")), [categories, type]);
 
   useEffect(() => {
@@ -270,6 +170,11 @@ function AddModal({ visible, categories, saving, onClose, onSave }: { visible: b
       setCategoryId(availableCategories[0]?.id ?? null);
     }
   }, [availableCategories, categoryId]);
+
+  useEffect(() => {
+    if (accountId && accountOptions.some((account) => account.id === accountId)) return;
+    setAccountId(defaultAccountId && accountOptions.some((account) => account.id === defaultAccountId) ? defaultAccountId : null);
+  }, [accountId, accountOptions, defaultAccountId]);
 
   const scrollDescriptionIntoView = useCallback((delay = 80) => {
     setTimeout(() => {
@@ -316,8 +221,8 @@ function AddModal({ visible, categories, saving, onClose, onSave }: { visible: b
 
   async function save() {
     const cents = parseBRLToCents(amount);
-    if (!cents || !desc.trim() || saving) return;
-    const saved = await onSave({ type, amount: cents, description: desc.trim(), categoryId });
+    if (!cents || !desc.trim() || !accountId || saving) return;
+    const saved = await onSave({ type, amount: cents, description: desc.trim(), categoryId, accountId });
     if (!saved) return;
     setAmount("");
     setDesc("");
@@ -380,6 +285,29 @@ function AddModal({ visible, categories, saving, onClose, onSave }: { visible: b
               })}
             </View>
 
+            <Text style={styles.fieldLabel}>{type === "Receita" ? "Onde o dinheiro entrou?" : "De onde o dinheiro saiu?"}</Text>
+            <View style={styles.accountPanel}>
+              {accountOptions.map((account) => {
+                const active = account.id === accountId;
+                return (
+                  <Pressable
+                    key={account.id}
+                    onPress={() => setAccountId(account.id)}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: active }}
+                    style={[styles.accountOption, active && styles.accountOptionActive]}
+                  >
+                    <View style={[styles.accountMark, { backgroundColor: active ? "rgba(255,255,255,0.18)" : `${account.color}18` }]}>
+                      <Text style={[styles.accountMarkText, { color: active ? "#fff" : account.color }]}>{account.shortName}</Text>
+                    </View>
+                    <Text numberOfLines={1} style={[styles.accountOptionText, active && styles.accountOptionTextActive]}>{account.name}</Text>
+                    {active ? <Ionicons name="checkmark-circle" size={17} color="#fff" /> : null}
+                  </Pressable>
+                );
+              })}
+            </View>
+            {!accountId ? <Text style={styles.accountRequiredText}>Escolha uma conta para continuar.</Text> : null}
+
             <Text style={styles.fieldLabel}>Valor</Text>
             <View style={styles.inputBox}>
               <Text style={styles.currency}>R$</Text>
@@ -418,8 +346,8 @@ function AddModal({ visible, categories, saving, onClose, onSave }: { visible: b
               />
             </View>
 
-            <Pressable onPress={save} disabled={saving || !parseBRLToCents(amount) || !desc.trim()} style={[styles.saveButton, (saving || !parseBRLToCents(amount) || !desc.trim()) && styles.saveButtonDisabled]}>
-              <Text style={[styles.saveButtonText, (saving || !parseBRLToCents(amount) || !desc.trim()) && styles.saveButtonTextDisabled]}>{saving ? "Salvando..." : "Salvar lançamento"}</Text>
+            <Pressable onPress={save} disabled={saving || !parseBRLToCents(amount) || !desc.trim() || !accountId} style={[styles.saveButton, (saving || !parseBRLToCents(amount) || !desc.trim() || !accountId) && styles.saveButtonDisabled]}>
+              <Text style={[styles.saveButtonText, (saving || !parseBRLToCents(amount) || !desc.trim() || !accountId) && styles.saveButtonTextDisabled]}>{saving ? "Salvando..." : "Salvar lançamento"}</Text>
             </Pressable>
           </ScrollView>
         </View>
@@ -436,18 +364,42 @@ function mapDatabaseTx(row: DatabaseTx): Tx {
     description: row.note?.trim() || row.category?.name || "Lançamento",
     category: row.category?.name || "Sem categoria",
     categoryId: row.category_id,
+    account: findTransactionAccountById(row.account_id)?.name ?? "Conta não informada",
+    accountId: row.account_id,
     date: row.occurred_on,
   };
 }
 
-function ControlPanel({ userId }: { userId: string | null }) {
-  const { householdId, loading: householdLoading } = useHouseholdId(userId);
+function ControlPanel({
+  userId,
+  householdId,
+  householdLoading,
+  registeredBankNames,
+}: {
+  userId: string | null;
+  householdId: string | null;
+  householdLoading: boolean;
+  registeredBankNames: string[];
+}) {
   const [txs, setTxs] = useState<Tx[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [modal, setModal] = useState(false);
   const [filter, setFilter] = useState<Filter>("Todos");
+  const registeredAccounts = useMemo(
+    () => BANK_OPTIONS.filter((account) => registeredBankNames.includes(account.name)),
+    [registeredBankNames]
+  );
+  const accountOptions = useMemo<TransactionAccountOption[]>(() => {
+    const options = [...registeredAccounts, CASH_ACCOUNT];
+    if (!options.some((account) => account.id === OTHER_BANK.id)) options.push(OTHER_BANK);
+    return options;
+  }, [registeredAccounts]);
+  const defaultAccountId = useMemo<TransactionAccountId | null>(() => {
+    if (registeredAccounts.length === 1) return registeredAccounts[0].id;
+    return registeredBankNames.includes("Não uso banco") ? CASH_ACCOUNT.id : null;
+  }, [registeredAccounts, registeredBankNames]);
 
   const load = useCallback(async () => {
     if (!householdId) {
@@ -488,7 +440,7 @@ function ControlPanel({ userId }: { userId: string | null }) {
     }
     try {
       setSaving(true);
-      await addTransaction({ householdId, userId, type: draft.type === "Receita" ? "income" : "expense", amount_cents: draft.amount, category_id: draft.categoryId, note: draft.description });
+      await addTransaction({ householdId, userId, type: draft.type === "Receita" ? "income" : "expense", amount_cents: draft.amount, category_id: draft.categoryId, account_id: draft.accountId, note: draft.description });
       await load();
       return true;
     } catch (error: any) {
@@ -515,7 +467,13 @@ function ControlPanel({ userId }: { userId: string | null }) {
           <SummaryCard label="Despesas do mês" value={totals.expense} color="#e05252" icon="trending-down-outline" />
           <SummaryCard label="Saldo atual" value={totals.balance} color={OB.primary} icon="wallet-outline" />
         </View>
-        <Pressable onPress={() => setModal(true)} disabled={busy || !householdId} style={[styles.newButton, (busy || !householdId) && styles.saveButtonDisabled]}>
+        <Pressable
+          onPress={() => setModal(true)}
+          disabled={!householdId}
+          accessibilityRole="button"
+          accessibilityLabel="Criar novo lançamento"
+          style={({ pressed }) => [styles.newButton, !householdId && styles.newButtonUnavailable, pressed && styles.newButtonPressed]}
+        >
           <Ionicons name="add" size={19} color="#fff" />
           <Text style={styles.newText}>Novo lançamento</Text>
         </Pressable>
@@ -529,7 +487,7 @@ function ControlPanel({ userId }: { userId: string | null }) {
           {busy ? <ActivityIndicator color={OB.primary} /> : !householdId ? <Text style={emptyStyle}>Conclua o onboarding para criar sua estrutura financeira.</Text> : filtered.length ? filtered.map((tx) => <TxRow key={tx.id} tx={tx} />) : <Text style={emptyStyle}>Nenhum lançamento neste mês.</Text>}
         </View>
       </ScrollView>
-      <AddModal visible={modal} categories={categories} saving={saving} onClose={() => setModal(false)} onSave={saveTransaction} />
+      <AddModal visible={modal} categories={categories} accountOptions={accountOptions} defaultAccountId={defaultAccountId} saving={saving} onClose={() => setModal(false)} onSave={saveTransaction} />
     </>
   );
 }
@@ -587,6 +545,11 @@ function JourneyDrawer({
     router.push("/(app)/categories");
   }
 
+  function goTransactionHistory() {
+    onClose();
+    router.push("/(app)/transaction-history");
+  }
+
   return (
     <View style={styles.drawerLayer}>
       <Pressable onPress={onClose} style={[styles.drawerScrim, WEB_DRAWER_BLUR_STYLE]}>
@@ -608,7 +571,7 @@ function JourneyDrawer({
           <View style={styles.drawerProfile}>
             <Pressable onPress={goProfile} style={styles.drawerAvatar} accessibilityRole="button" accessibilityLabel="Editar perfil">
               {avatarUrl ? (
-                <Image source={{ uri: avatarUrl }} style={styles.drawerAvatarImage} />
+                <Image source={{ uri: avatarUrl }} style={styles.drawerAvatarImage} resizeMode="contain" />
               ) : (
                 <Text style={styles.drawerAvatarText}>{initialsFrom(displayName)}</Text>
               )}
@@ -617,13 +580,14 @@ function JourneyDrawer({
               </View>
             </Pressable>
             <Text style={styles.drawerUserName} numberOfLines={1}>{displayName}</Text>
-            <Text style={styles.drawerSubtitle}>Sua jornada financeira</Text>
+            <Text style={styles.drawerSubtitle}>Realize seus sonhos</Text>
           </View>
         </View>
 
         <View style={styles.drawerList}>
-          <DrawerButton icon="compass-outline" label="Jornada" active={activeTab === "jornada"} onPress={() => goTab("jornada")} />
+          <DrawerButton icon="compass-outline" label="Sonhos" active={activeTab === "jornada"} onPress={() => goTab("jornada")} />
           <DrawerButton icon="wallet-outline" label="Controle financeiro" active={activeTab === "controle"} onPress={() => goTab("controle")} />
+          <DrawerButton icon="time-outline" label="Histórico" onPress={goTransactionHistory} />
           <DrawerButton icon="pricetags-outline" label="Categorias" onPress={goCategories} />
           <DrawerButton icon="trophy-outline" label="Desafios" active={activeTab === "desafios"} onPress={() => goTab("desafios")} />
         </View>
@@ -648,16 +612,18 @@ export default function JourneyScreen() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [goals, setGoals] = useState<GoalProgress[]>([]);
   const [journeyLoading, setJourneyLoading] = useState(true);
-  const [selectedGoal, setSelectedGoal] = useState<GoalProgress | null>(null);
-  const [contributions, setContributions] = useState<GoalContribution[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [contributionSaving, setContributionSaving] = useState(false);
   const [expenseToday, setExpenseToday] = useState(false);
   const [achievementsOpen, setAchievementsOpen] = useState(true);
+  const lastBackPressRef = useRef(0);
+  const logoutPromptOpenRef = useRef(false);
 
   const userMeta = session?.user?.user_metadata as Record<string, any> | undefined;
   const displayName = userMeta?.full_name || userMeta?.name || session?.user?.email?.split("@")[0] || "Usuário";
   const avatarUrl = userMeta?.avatar_url || userMeta?.picture || null;
+  const registeredBankNames = useMemo(
+    () => Array.isArray(userMeta?.finapp_banks) ? userMeta.finapp_banks.map(String) : [],
+    [userMeta?.finapp_banks]
+  );
   const savedDreams = Array.isArray(userMeta?.finapp_dreams) ? JSON.stringify(userMeta.finapp_dreams) : undefined;
   const savedValues = userMeta?.finapp_dream_values && typeof userMeta.finapp_dream_values === "object" ? JSON.stringify(userMeta.finapp_dream_values) : undefined;
   const dreams = useMemo(() => readJson<string[]>(params.dreams ?? savedDreams, []), [params.dreams, savedDreams]);
@@ -670,18 +636,21 @@ export default function JourneyScreen() {
       if (dreams.length) await syncGoalsFromDreams({ householdId, userId, dreams, values });
       const [goalRows, txRows] = await Promise.all([listGoalsWithProgress(householdId), listTransactionsByMonth(householdId)]);
       setGoals(goalRows);
-      setSelectedGoal((current) => current ? goalRows.find((goal) => goal.id === current.id) ?? current : null);
       const now = new Date();
       const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
       setExpenseToday(txRows.some((tx) => tx.type === "expense" && tx.occurred_on === today));
     } catch (error: any) {
-      Alert.alert("Sua jornada", error?.message ?? "Não foi possível carregar seus sonhos.");
+      Alert.alert("Seus sonhos", error?.message ?? "Não foi possível carregar seus sonhos.");
     } finally {
       setJourneyLoading(false);
     }
   }, [dreams, householdId, userId, values]);
 
-  useEffect(() => { if (tab !== "controle") loadJourney(); }, [loadJourney, tab]);
+  useFocusEffect(
+    useCallback(() => {
+      if (tab !== "controle") void loadJourney();
+    }, [loadJourney, tab])
+  );
 
   const activeGoals = useMemo(() => goals.filter((goal) => goal.contributed_cents < goal.target_cents), [goals]);
   const completedGoals = useMemo(() => goals.filter((goal) => goal.contributed_cents >= goal.target_cents), [goals]);
@@ -691,42 +660,77 @@ export default function JourneyScreen() {
   const monthTotal = goals.reduce((sum, goal) => sum + goal.month_contributed_cents, 0);
   const journeyProgress = clampProgress((contributedTotal / Math.max(targetTotal, 1)) * 100);
 
-  async function openGoal(goal: GoalProgress) {
-    setSelectedGoal(goal); setHistoryLoading(true);
-    try { setContributions(await listGoalContributions(goal.id)); }
-    catch (error: any) { Alert.alert("Histórico", error?.message ?? "Não foi possível carregar os aportes."); }
-    finally { setHistoryLoading(false); }
+  function openGoal(goal: GoalProgress) {
+    router.push({ pathname: "/(app)/dream/[goalId]", params: { goalId: goal.id } });
   }
 
-  async function saveContribution(amount: number, note: string) {
-    if (!selectedGoal || !householdId || !userId) return false;
-    const remaining = Math.max(selectedGoal.target_cents - selectedGoal.contributed_cents, 0);
-    if (!remaining || amount > remaining) {
-      Alert.alert("Valor do aporte", `O máximo para concluir este sonho é ${formatBRLFromCents(remaining)}.`);
-      return false;
-    }
-    const completedNow = amount === remaining;
-    try {
-      setContributionSaving(true);
-      await addGoalContribution({ householdId, goalId: selectedGoal.id, userId, amount_cents: amount, note });
-      const [history] = await Promise.all([listGoalContributions(selectedGoal.id), loadJourney()]);
-      setContributions(history);
-      if (completedNow) {
-        setAchievementsOpen(true);
-        Alert.alert("Sonho concluído! 🎉", `Parabéns! Você realizou “${selectedGoal.title}”.`);
-      }
-      return true;
-    } catch (error: any) {
-      Alert.alert("Aporte", error?.message ?? "Não foi possível registrar o aporte.");
-      return false;
-    } finally { setContributionSaving(false); }
-  }
-
-  async function logout() {
+  const logout = useCallback(async () => {
     setMenuOpen(false);
     await supabase.auth.signOut();
     router.replace("/(auth)/login");
-  }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (Platform.OS !== "android") return undefined;
+
+      const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+        if (menuOpen) {
+          setMenuOpen(false);
+          lastBackPressRef.current = 0;
+          return true;
+        }
+
+        const now = Date.now();
+        const isSecondPress = now - lastBackPressRef.current <= ANDROID_BACK_PRESS_WINDOW_MS;
+
+        if (!isSecondPress) {
+          lastBackPressRef.current = now;
+          ToastAndroid.show("Pressione voltar novamente para sair da conta", ToastAndroid.SHORT);
+          return true;
+        }
+
+        lastBackPressRef.current = 0;
+        if (logoutPromptOpenRef.current) return true;
+        logoutPromptOpenRef.current = true;
+
+        Alert.alert(
+          "Sair da conta?",
+          "Deseja deslogar do FinApp?",
+          [
+            {
+              text: "Cancelar",
+              style: "cancel",
+              onPress: () => {
+                logoutPromptOpenRef.current = false;
+              },
+            },
+            {
+              text: "Deslogar",
+              style: "destructive",
+              onPress: () => {
+                logoutPromptOpenRef.current = false;
+                void logout();
+              },
+            },
+          ],
+          {
+            cancelable: true,
+            onDismiss: () => {
+              logoutPromptOpenRef.current = false;
+            },
+          }
+        );
+        return true;
+      });
+
+      return () => {
+        subscription.remove();
+        lastBackPressRef.current = 0;
+        logoutPromptOpenRef.current = false;
+      };
+    }, [logout, menuOpen])
+  );
 
   const challengeCard = (
     <View style={styles.challenge}>
@@ -743,7 +747,7 @@ export default function JourneyScreen() {
     <OnboardingShell light>
       <View style={styles.root}>
         <View style={styles.content}>
-          {tab === "controle" ? <ControlPanel userId={userId} /> : tab === "jornada" ? (
+          {tab === "controle" ? <ControlPanel userId={userId} householdId={householdId} householdLoading={householdLoading} registeredBankNames={registeredBankNames} /> : tab === "jornada" ? (
             <>
               <MountainHero progress={journeyProgress} />
               <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
@@ -763,7 +767,7 @@ export default function JourneyScreen() {
                     <Ionicons name="chevron-forward" size={17} color={OB.support} />
                   </Pressable>
                 ) : null}
-                <View style={styles.monthCard}><View style={styles.monthIcon}><Ionicons name="calendar-outline" size={21} color="#fff" /></View><View><Text style={styles.monthEyebrow}>Avanço deste mês</Text><Text style={styles.monthTitle}>{formatBRLFromCents(monthTotal)} em aportes reais</Text></View></View>
+                <View style={styles.monthCard}><View style={styles.monthIcon}><Ionicons name="calendar-outline" size={21} color="#fff" /></View><View><Text style={styles.monthEyebrow}>Avanço deste mês</Text><Text style={styles.monthTitle}>{formatBRLFromCents(monthTotal)} guardados neste mês</Text></View></View>
                 {challengeCard}
                 {completedGoals.length ? (
                   <View style={styles.achievementsSection}>
@@ -783,12 +787,11 @@ export default function JourneyScreen() {
         </View>
         <View style={styles.nav}>
           <Pressable onPress={() => setMenuOpen(true)} style={styles.navItem}><Ionicons name="menu-outline" size={23} color={menuOpen ? OB.primary : OB.support} /><Text style={[styles.navText, menuOpen && styles.navTextActive]}>Menu</Text>{menuOpen ? <View style={styles.navIndicator} /> : null}</Pressable>
-          {[["controle", "Controle", "bar-chart-outline"], ["jornada", "Jornada", "compass-outline"], ["desafios", "Desafios", "trophy-outline"]].map(([id, label, icon]) => {
+          {[["jornada", "Sonhos", "compass-outline"], ["controle", "Controle", "bar-chart-outline"], ["desafios", "Desafios", "trophy-outline"]].map(([id, label, icon]) => {
             const active = tab === id;
             return <Pressable key={id} onPress={() => setTab(id as Tab)} style={styles.navItem}><Ionicons name={icon as any} size={21} color={active ? OB.primary : OB.support} /><Text style={[styles.navText, active && styles.navTextActive]}>{label}</Text>{active ? <View style={styles.navIndicator} /> : null}</Pressable>;
           })}
         </View>
-        <GoalContributionModal goal={selectedGoal} contributions={contributions} loading={historyLoading} saving={contributionSaving} onClose={() => setSelectedGoal(null)} onSave={saveContribution} />
         <JourneyDrawer open={menuOpen} activeTab={tab} displayName={displayName} avatarUrl={avatarUrl} onClose={() => setMenuOpen(false)} onTab={setTab} onLogout={logout} />
       </View>
     </OnboardingShell>
@@ -850,6 +853,7 @@ const styles = StyleSheet.create({
     borderColor: OB.supportSoft,
   },
   goalCardCompleted: { borderColor: "rgba(22,155,98,0.26)", backgroundColor: "#FBFFFD" },
+  goalCardPressed: { opacity: 0.72, transform: [{ scale: 0.99 }] },
   goalBadge: {
     width: 44,
     height: 44,
@@ -859,6 +863,39 @@ const styles = StyleSheet.create({
     backgroundColor: OB.offWhite,
   },
   goalBadgeCompleted: { backgroundColor: "#E5F7EE" },
+  goalPolaroid: {
+    width: 48,
+    height: 52,
+    borderRadius: 15,
+    padding: 4,
+    paddingBottom: 9,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "rgba(123,160,200,0.26)",
+    shadowColor: OB.primary,
+    shadowOpacity: 0.12,
+    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+    transform: [{ rotate: "-2deg" }],
+  },
+  goalPolaroidCompleted: { borderColor: "rgba(22,155,98,0.34)" },
+  goalPolaroidImage: {
+    width: "100%",
+    flex: 1,
+    borderRadius: 10,
+    backgroundColor: OB.offWhite,
+  },
+  goalPolaroidCaption: {
+    position: "absolute",
+    left: 15,
+    right: 15,
+    bottom: 3,
+    height: 2,
+    borderRadius: 99,
+    backgroundColor: "rgba(123,160,200,0.28)",
+  },
+  goalPolaroidCaptionCompleted: { backgroundColor: "rgba(22,155,98,0.3)" },
   goalInfo: {
     flex: 1,
   },
@@ -1073,6 +1110,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 8,
   },
+  newButtonUnavailable: { opacity: 0.4 },
+  newButtonPressed: { opacity: 0.78, transform: [{ scale: 0.99 }] },
   newText: {
     color: "#fff",
     fontSize: 15,
@@ -1270,6 +1309,54 @@ const styles = StyleSheet.create({
   typeTabTextActive: {
     color: "#fff",
   },
+  accountPanel: {
+    gap: 8,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+    backgroundColor: "#fff",
+    padding: 10,
+  },
+  accountOption: {
+    minHeight: 52,
+    borderRadius: 15,
+    paddingHorizontal: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: OB.offWhite,
+    borderWidth: 1,
+    borderColor: "transparent",
+  },
+  accountOptionActive: {
+    backgroundColor: OB.primary,
+    borderColor: OB.primary,
+  },
+  accountMark: {
+    width: 34,
+    height: 34,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  accountMarkText: {
+    fontSize: 10,
+    fontWeight: "900",
+  },
+  accountOptionText: {
+    flex: 1,
+    color: OB.primary,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  accountOptionTextActive: { color: "#fff" },
+  accountRequiredText: {
+    color: "#B94A4A",
+    fontSize: 10,
+    fontWeight: "800",
+    marginTop: -8,
+    paddingHorizontal: 2,
+  },
   fieldLabel: {
     color: OB.support,
     fontSize: 11,
@@ -1367,72 +1454,6 @@ const styles = StyleSheet.create({
   saveButtonTextDisabled: {
     color: OB.support,
   },
-  goalAction: {
-    flexDirection: "row", alignItems: "center", gap: 3, alignSelf: "flex-start", marginTop: 7,
-  },
-  goalActionText: { color: OB.primary, fontSize: 11, fontWeight: "900" },
-  goalActionTextCompleted: { color: "#169B62" },
-  goalScreen: { flex: 1, backgroundColor: OB.offWhite },
-  goalScreenHeader: {
-    minHeight: 82, paddingHorizontal: 18, paddingBottom: 14, flexDirection: "row", alignItems: "flex-end",
-    borderBottomWidth: 1, borderBottomColor: OB.supportSoft, backgroundColor: "#fff",
-  },
-  goalBackButton: { width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: OB.offWhite },
-  goalHeaderText: { flex: 1, alignItems: "center", paddingHorizontal: 8, paddingBottom: 1 },
-  goalHeaderSpacer: { width: 42 },
-  goalScreenEyebrow: { color: OB.support, fontSize: 10, fontWeight: "800", letterSpacing: 0.5 },
-  goalScreenTitle: { color: OB.primary, fontSize: 18, fontWeight: "900", marginTop: 2, maxWidth: "100%" },
-  goalScreenScroll: { flex: 1 },
-  goalScreenContent: { padding: 18, paddingBottom: 28, gap: 18 },
-  goalSystemBarGuard: { flexShrink: 0, backgroundColor: OB.offWhite },
-  goalSummaryCard: { borderRadius: 22, backgroundColor: OB.primary, padding: 20 },
-  goalSummaryCardCompleted: { backgroundColor: "#126B4A" },
-  goalSummaryTop: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" },
-  goalSummaryLabel: { color: "rgba(255,255,255,0.62)", fontSize: 12, fontWeight: "700" },
-  goalSummaryValue: { color: "#fff", fontSize: 25, fontWeight: "900", marginTop: 4 },
-  goalProgressBadge: { minWidth: 50, height: 34, borderRadius: 12, alignItems: "center", justifyContent: "center", paddingHorizontal: 10, backgroundColor: "rgba(255,255,255,0.13)" },
-  goalProgressBadgeText: { color: "#fff", fontSize: 13, fontWeight: "900" },
-  goalProgressTrack: { height: 8, borderRadius: 999, overflow: "hidden", backgroundColor: "rgba(255,255,255,0.16)", marginTop: 20 },
-  goalProgressFill: { height: "100%", borderRadius: 999, backgroundColor: "#7DBBFF" },
-  goalProgressFillCompleted: { backgroundColor: "#8EE0B7" },
-  goalSummaryFooter: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 9 },
-  goalSummaryMeta: { color: "rgba(255,255,255,0.58)", fontSize: 11, fontWeight: "700" },
-  goalSummaryTarget: { color: "rgba(255,255,255,0.82)", fontSize: 12, fontWeight: "800" },
-  goalFormCard: { borderRadius: 22, backgroundColor: "#fff", padding: 18, gap: 10, borderWidth: 1, borderColor: "rgba(123,160,200,0.15)" },
-  goalCompletedCard: { borderRadius: 22, alignItems: "center", backgroundColor: "#FBFFFD", padding: 22, borderWidth: 1, borderColor: "rgba(22,155,98,0.24)" },
-  goalCompletedIcon: { width: 58, height: 58, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: "#E5F7EE", marginBottom: 12 },
-  goalCompletedTitle: { color: "#126B4A", fontSize: 19, fontWeight: "900" },
-  goalCompletedText: { color: OB.support, fontSize: 12, fontWeight: "700", lineHeight: 18, textAlign: "center", marginTop: 7 },
-  goalCompletedPill: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 999, paddingVertical: 8, paddingHorizontal: 12, backgroundColor: "#E5F7EE", marginTop: 15 },
-  goalCompletedPillText: { color: "#126B4A", fontSize: 11, fontWeight: "900" },
-  goalSectionHeading: { flexDirection: "row", alignItems: "center", gap: 11, marginBottom: 6 },
-  goalSectionIcon: { width: 40, height: 40, borderRadius: 13, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(123,160,200,0.14)" },
-  goalSectionTitle: { color: OB.primary, fontSize: 16, fontWeight: "900" },
-  goalSectionSubtitle: { color: OB.support, fontSize: 11, fontWeight: "700", marginTop: 2 },
-  goalFieldLabel: { color: OB.primary, fontSize: 12, fontWeight: "800", marginTop: 4 },
-  goalOptionalLabel: { color: OB.support, fontWeight: "700" },
-  goalInputBox: { minHeight: 54, borderRadius: 15, borderWidth: 1.5, borderColor: OB.supportSoft, backgroundColor: OB.offWhite, flexDirection: "row", alignItems: "center", paddingHorizontal: 14 },
-  goalCurrency: { color: OB.primary, fontSize: 15, fontWeight: "900", marginRight: 7 },
-  goalInput: { flex: 1, color: OB.primary, fontSize: 17, fontWeight: "900" },
-  goalNoteInput: { minHeight: 54, borderRadius: 15, borderWidth: 1.5, borderColor: OB.supportSoft, backgroundColor: OB.offWhite, paddingHorizontal: 14, color: OB.primary, fontSize: 14, fontWeight: "700" },
-  goalSaveButton: { minHeight: 54, borderRadius: 16, backgroundColor: OB.primary, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 9, marginTop: 6 },
-  goalSaveButtonDisabled: { backgroundColor: "rgba(123,160,200,0.34)" },
-  goalSaveButtonText: { color: "#fff", fontSize: 14, fontWeight: "900" },
-  goalAmountError: { color: "#B94A4A", fontSize: 10, fontWeight: "700", marginTop: -2 },
-  goalHistoryHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", paddingHorizontal: 2, marginTop: 2 },
-  goalHistoryTitle: { color: OB.primary, fontSize: 17, fontWeight: "900" },
-  goalHistorySubtitle: { color: OB.support, fontSize: 11, fontWeight: "700", marginTop: 2 },
-  goalHistoryCard: { borderRadius: 20, backgroundColor: "#fff", overflow: "hidden", borderWidth: 1, borderColor: "rgba(123,160,200,0.15)" },
-  goalHistoryLoading: { minHeight: 100, alignItems: "center", justifyContent: "center" },
-  goalHistoryRow: { flexDirection: "row", alignItems: "center", gap: 12, padding: 15, borderBottomWidth: 1, borderBottomColor: OB.supportSoft },
-  goalHistoryRowLast: { borderBottomWidth: 0 },
-  goalHistoryIcon: { width: 38, height: 38, borderRadius: 13, alignItems: "center", justifyContent: "center", backgroundColor: "#E5F7EE" },
-  goalHistoryAmount: { color: OB.primary, fontSize: 15, fontWeight: "900" },
-  goalHistoryMeta: { color: OB.support, fontSize: 11, fontWeight: "700", marginTop: 3 },
-  goalHistoryEmpty: { alignItems: "center", paddingVertical: 27, paddingHorizontal: 20 },
-  goalHistoryEmptyIcon: { width: 46, height: 46, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: OB.offWhite, marginBottom: 10 },
-  goalHistoryEmptyTitle: { color: OB.primary, fontSize: 14, fontWeight: "900" },
-  goalHistoryEmptyText: { color: OB.support, fontSize: 11, fontWeight: "700", marginTop: 4 },
   challengesPage: { flexGrow: 1, justifyContent: "center", alignItems: "center", padding: 28, gap: 8 },
   placeholder: {
     flex: 1,

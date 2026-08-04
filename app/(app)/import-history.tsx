@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -218,6 +218,26 @@ export default function ImportHistoryScreen() {
 
   const busy = loading || householdLoading;
   const totalTransactions = imports.reduce((sum, item) => sum + item.transaction_count, 0);
+  const bankSummaries = useMemo(() => {
+    const totals = new Map<string, { name: string; shortName: string; color: string; files: number; transactions: number }>();
+
+    for (const statementImport of imports) {
+      const bank = findBankById(statementImport.bank_id);
+      const key = bank?.id ?? "nao-informado";
+      const current = totals.get(key) ?? {
+        name: bank?.name ?? "Banco não informado",
+        shortName: bank?.shortName ?? "?",
+        color: bank?.color ?? OB.support,
+        files: 0,
+        transactions: 0,
+      };
+      current.files += 1;
+      current.transactions += statementImport.transaction_count;
+      totals.set(key, current);
+    }
+
+    return [...totals.values()].sort((a, b) => b.transactions - a.transactions);
+  }, [imports]);
 
   return (
     <OnboardingShell light>
@@ -251,21 +271,49 @@ export default function ImportHistoryScreen() {
         </View>
 
         {!busy && imports.length ? (
-          <View style={styles.summaryCard}>
-            <View style={styles.summaryIcon}>
-              <Ionicons name="folder-open-outline" size={21} color={OB.primary} />
+          <>
+            <View style={styles.summaryCard}>
+              <View style={styles.summaryIcon}>
+                <Ionicons name="folder-open-outline" size={21} color={OB.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.summaryTitle}>
+                  {imports.length === 1 ? "1 arquivo importado" : `${imports.length} arquivos importados`}
+                </Text>
+                <Text style={styles.summaryText}>
+                  {totalTransactions === 1
+                    ? "1 movimentação registrada"
+                    : `${totalTransactions} movimentações registradas`}
+                </Text>
+              </View>
             </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.summaryTitle}>
-                {imports.length === 1 ? "1 arquivo importado" : `${imports.length} arquivos importados`}
-              </Text>
-              <Text style={styles.summaryText}>
-                {totalTransactions === 1
-                  ? "1 movimentação registrada"
-                  : `${totalTransactions} movimentações registradas`}
-              </Text>
+
+            <View style={styles.bankSummaryCard}>
+              <View style={styles.bankSummaryHeader}>
+                <Ionicons name="business-outline" size={19} color={OB.primary} />
+                <Text style={styles.bankSummaryTitle}>Movimentações por banco</Text>
+              </View>
+              <View style={styles.bankSummaryList}>
+                {bankSummaries.map((summary) => (
+                  <View key={summary.name} style={styles.bankSummaryRow}>
+                    <View style={[styles.bankSummaryMark, { backgroundColor: summary.color }]}>
+                      <Text style={styles.bankSummaryMarkText}>{summary.shortName}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.bankSummaryName}>{summary.name}</Text>
+                      <Text style={styles.bankSummaryFiles}>
+                        {summary.files === 1 ? "1 arquivo" : `${summary.files} arquivos`}
+                      </Text>
+                    </View>
+                    <View style={styles.bankSummaryCount}>
+                      <Text style={styles.bankSummaryCountValue}>{summary.transactions}</Text>
+                      <Text style={styles.bankSummaryCountLabel}>movimentações</Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
             </View>
-          </View>
+          </>
         ) : null}
 
         {busy ? (
@@ -402,6 +450,76 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "800",
     marginTop: 4,
+  },
+  bankSummaryCard: {
+    borderRadius: 18,
+    padding: 14,
+    gap: 12,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  bankSummaryHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  bankSummaryTitle: {
+    color: OB.primary,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  bankSummaryList: {
+    gap: 8,
+  },
+  bankSummaryRow: {
+    minHeight: 58,
+    borderRadius: 15,
+    padding: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: OB.offWhite,
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  bankSummaryMark: {
+    width: 38,
+    height: 38,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  bankSummaryMarkText: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  bankSummaryName: {
+    color: OB.primary,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  bankSummaryFiles: {
+    color: OB.support,
+    fontSize: 10,
+    fontWeight: "800",
+    marginTop: 3,
+  },
+  bankSummaryCount: {
+    alignItems: "flex-end",
+  },
+  bankSummaryCountValue: {
+    color: OB.primary,
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  bankSummaryCountLabel: {
+    color: OB.support,
+    fontSize: 8,
+    fontWeight: "900",
+    textTransform: "uppercase",
+    marginTop: 2,
   },
   list: {
     gap: 12,

@@ -264,7 +264,7 @@ export default function OnboardingProfileScreen() {
           <View style={styles.profileCard}>
             <Pressable onPress={pickAvatar} disabled={uploadingAvatar} style={styles.avatarWrap}>
               {cleanAvatarUrl ? (
-                <Image source={{ uri: cleanAvatarUrl }} style={styles.avatarImage} />
+                <Image source={{ uri: cleanAvatarUrl }} style={styles.avatarImage} resizeMode="contain" />
               ) : (
                 <Text style={styles.avatarText}>{initialsFrom(previewName)}</Text>
               )}

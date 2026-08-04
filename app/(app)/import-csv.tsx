@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
 import { router } from "expo-router";
@@ -8,8 +8,8 @@ import { useSession } from "../../src/providers/SessionProvider";
 import { useHouseholdId } from "../../src/hooks/useHousehold";
 import { formatBRLFromCents, formatDateBRFromYMD } from "../../src/lib/format";
 import { CsvParseResult, formatFileSize, ParsedCsvTx, PickedCsvFile, parseCsv, readCsvText } from "../../src/lib/csvImport";
-import { findBankById } from "../../src/lib/banks";
-import { Category, listCategories } from "../../src/lib/categories";
+import { BANK_OPTIONS, BankId, findBankById } from "../../src/lib/banks";
+import { Category, Kind, listCategories } from "../../src/lib/categories";
 import {
   StatementCategorySuggestion,
   statementSimilarityKey,
@@ -62,6 +62,7 @@ function PreviewRow({
   autoSuggested,
   similarCount,
   onCategoryChange,
+  onOpenCategoryPicker,
   onApplySimilar,
 }: {
   row: ParsedCsvTx;
@@ -72,11 +73,13 @@ function PreviewRow({
   autoSuggested: boolean;
   similarCount: number;
   onCategoryChange: (categoryId: string | null) => void;
+  onOpenCategoryPicker: () => void;
   onApplySimilar: () => void;
 }) {
   const isIncome = row.type === "income";
   const color = isIncome ? "#178A55" : "#B94A4A";
   const availableCategories = categories.filter((category) => category.flow === row.type);
+  const selectedCategory = availableCategories.find((category) => category.id === categoryId) ?? null;
 
   return (
     <View style={[styles.previewRow, conflict && styles.previewRowConflict]}>
@@ -109,40 +112,32 @@ function PreviewRow({
             ) : null}
           </View>
 
-          <ScrollView
-            horizontal
-            nestedScrollEnabled
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.categoryChips}
+          <Pressable
+            onPress={onOpenCategoryPicker}
+            style={({ pressed }) => [styles.categorySelectButton, pressed && styles.categorySelectButtonPressed]}
+            accessibilityRole="button"
+            accessibilityLabel={`Selecionar categoria para ${row.note}`}
           >
-            <Pressable
-              onPress={() => onCategoryChange(null)}
-              style={[styles.categoryChip, !categoryId && styles.categoryChipActive]}
-            >
-              <Text style={[styles.categoryChipText, !categoryId && styles.categoryChipTextActive]}>
-                Sem categoria
+            <View style={[styles.categorySelectIcon, selectedCategory && styles.categorySelectIconActive]}>
+              <Ionicons
+                name={(selectedCategory?.icon || "pricetag-outline") as any}
+                size={17}
+                color={selectedCategory ? "#fff" : OB.primary}
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.categorySelectCaption}>
+                {selectedCategory ? "Categoria selecionada" : "Ainda sem categoria"}
               </Text>
-            </Pressable>
-            {availableCategories.map((category) => {
-              const active = category.id === categoryId;
-              return (
-                <Pressable
-                  key={category.id}
-                  onPress={() => onCategoryChange(category.id)}
-                  style={[styles.categoryChip, active && styles.categoryChipActive]}
-                >
-                  <Ionicons
-                    name={(category.icon || "pricetag-outline") as any}
-                    size={12}
-                    color={active ? "#fff" : OB.primary}
-                  />
-                  <Text style={[styles.categoryChipText, active && styles.categoryChipTextActive]}>
-                    {category.name}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
+              <Text style={styles.categorySelectName} numberOfLines={1}>
+                {selectedCategory?.name ?? "Selecionar categoria"}
+              </Text>
+            </View>
+            <View style={styles.categorySelectAction}>
+              <Text style={styles.categorySelectActionText}>{selectedCategory ? "Alterar" : "Escolher"}</Text>
+              <Ionicons name="chevron-down" size={16} color={OB.primary} />
+            </View>
+          </Pressable>
 
           {categoryId ? (
             <Pressable onPress={onApplySimilar} style={styles.applySimilarButton}>
@@ -161,7 +156,7 @@ function PreviewRow({
 }
 
 export default function ImportCsvOnboarding() {
-  const { userId } = useSession();
+  const { session, userId } = useSession();
   const { householdId } = useHouseholdId(userId);
   const [csv, setCsv] = useState("");
   const [file, setFile] = useState<PickedCsvFile | null>(null);
@@ -180,9 +175,30 @@ export default function ImportCsvOnboarding() {
   const [categoryRules, setCategoryRules] = useState<StatementCategoryRule[]>([]);
   const [pendingCategoryRules, setPendingCategoryRules] = useState<Record<string, StatementCategoryRuleInput>>({});
   const [autoSuggestedRows, setAutoSuggestedRows] = useState<Set<string>>(new Set());
+  const [categoryPickerRow, setCategoryPickerRow] = useState<ParsedCsvTx | null>(null);
+  const [selectedBankId, setSelectedBankId] = useState<BankId | null>(null);
+  const [bankPickerOpen, setBankPickerOpen] = useState(false);
 
   const result = useMemo(() => (csv ? parseCsv(csv, { fileName: file?.name }) : emptyResult), [csv, file?.name]);
   const detectedBank = findBankById(result.detectedBankId);
+  const selectedBank = findBankById(selectedBankId);
+  const registeredBankNames = useMemo(
+    () => Array.isArray(session?.user.user_metadata?.finapp_banks)
+      ? session.user.user_metadata.finapp_banks.map(String)
+      : [],
+    [session?.user.user_metadata?.finapp_banks]
+  );
+  const bankOptions = useMemo(() => {
+    const preferred = BANK_OPTIONS.filter((bank) => registeredBankNames.includes(bank.name));
+    if (detectedBank && !preferred.some((bank) => bank.id === detectedBank.id)) {
+      preferred.unshift(detectedBank);
+    }
+    const otherBank = BANK_OPTIONS.find((bank) => bank.id === "outro-banco");
+    if (preferred.length && otherBank && !preferred.some((bank) => bank.id === otherBank.id)) {
+      preferred.push(otherBank);
+    }
+    return preferred.length ? preferred : [...BANK_OPTIONS];
+  }, [detectedBank, registeredBankNames]);
   const income = result.rows.filter((row) => row.type === "income").reduce((sum, row) => sum + row.amount_cents, 0);
   const expense = result.rows.filter((row) => row.type === "expense").reduce((sum, row) => sum + row.amount_cents, 0);
   const partial = income - expense;
@@ -218,12 +234,19 @@ export default function ImportCsvOnboarding() {
   ).length;
   const partialConflict = conflictLines.length > 0 && !duplicateImport;
   const previewRows = showAllPreview ? result.rows : result.rows.slice(0, 8);
+  const pickerCategories = categoryPickerRow
+    ? categories.filter((category) => category.flow === categoryPickerRow.type)
+    : [];
+  const pickerCategoryId = categoryPickerRow
+    ? categoryAssignments[categoryPickerRow.key] ?? null
+    : null;
   const importDisabled =
     busy ||
     checkingDuplicate ||
     Boolean(duplicateImport) ||
     Boolean(duplicateCheckError) ||
     importableCount < 1 ||
+    !selectedBankId ||
     !fileHash;
 
   useEffect(() => {
@@ -353,12 +376,17 @@ export default function ImportCsvOnboarding() {
 
       const content = await readCsvText(asset.uri);
       const hash = await hashStatementContent(content);
+      const fileName = asset.name || "extrato.csv";
+      const parsed = parseCsv(content, { fileName });
       setCsv(content);
-      setFile({ name: asset.name || "extrato.csv", size: asset.size });
+      setFile({ name: fileName, size: asset.size });
       setFileHash(hash);
+      setSelectedBankId(null);
+      setBankPickerOpen(parsed.rows.length > 0);
       setCategoryAssignments({});
       setPendingCategoryRules({});
       setAutoSuggestedRows(new Set());
+      setCategoryPickerRow(null);
       setShowAllPreview(false);
     } catch (error: any) {
       Alert.alert("Erro", error?.message ?? "Não foi possível ler o arquivo CSV.");
@@ -371,11 +399,14 @@ export default function ImportCsvOnboarding() {
     setCsv("");
     setFile(null);
     setFileHash(null);
+    setSelectedBankId(null);
+    setBankPickerOpen(false);
     setDuplicateImport(null);
     setConflictLines([]);
     setCategoryAssignments({});
     setPendingCategoryRules({});
     setAutoSuggestedRows(new Set());
+    setCategoryPickerRow(null);
     setDuplicateCheckError("");
     setShowAllPreview(false);
   }
@@ -400,6 +431,12 @@ export default function ImportCsvOnboarding() {
       else delete next[ruleKey];
       return next;
     });
+  }
+
+  function choosePickerCategory(categoryId: string | null) {
+    if (!categoryPickerRow) return;
+    setRowCategory(categoryPickerRow, categoryId);
+    setCategoryPickerRow(null);
   }
 
   function applyCategoryToSimilar(row: ParsedCsvTx) {
@@ -457,6 +494,10 @@ export default function ImportCsvOnboarding() {
     if (!userId || !householdId) return Alert.alert("Atenção", "Entre em uma casa antes de importar.");
     if (!result.rows.length) return Alert.alert("Atenção", "Não há transações válidas para importar.");
     if (!file || !fileHash) return Alert.alert("Atenção", "A identificação do arquivo ainda não está disponível.");
+    if (!selectedBankId) {
+      setBankPickerOpen(true);
+      return Alert.alert("Escolha o banco", "Informe de qual banco é este extrato antes de importar.");
+    }
     if (checkingDuplicate) return Alert.alert("Atenção", "Aguarde a verificação do arquivo.");
     if (duplicateImport) return Alert.alert("Arquivo já importado", "Escolha outro extrato para continuar.");
     if (busy) return;
@@ -467,7 +508,7 @@ export default function ImportCsvOnboarding() {
         householdId,
         fileHash,
         fileName: file.name,
-        bankId: result.detectedBankId,
+        bankId: selectedBankId,
         initialBalanceCents: result.initialBalanceCents,
         finalBalanceCents: result.finalBalanceCents ?? accountBalance,
         rejectedCount: result.rejectedRows,
@@ -479,7 +520,7 @@ export default function ImportCsvOnboarding() {
       });
 
       const completionParts = [
-        `${importResult.imported_count} movimentação(ões) foram salvas`,
+        `${importResult.imported_count} movimentação(ões) do ${selectedBank?.name ?? "banco selecionado"} foram salvas`,
       ];
       if (importResult.skipped_count) {
         completionParts.push(`${importResult.skipped_count} repetida(s) foram ignoradas`);
@@ -526,7 +567,8 @@ export default function ImportCsvOnboarding() {
 
   return (
     <OnboardingShell light>
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <>
+        <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <View style={styles.headerCard}>
           <Pressable onPress={() => router.back()} style={styles.backButton} hitSlop={12}>
             <Ionicons name="arrow-back" size={18} color="#fff" />
@@ -571,6 +613,45 @@ export default function ImportCsvOnboarding() {
           </View>
         ) : (
           <>
+            <View style={styles.card}>
+              <View style={styles.bankSelectionHeader}>
+                <View style={[styles.bankSelectionIcon, selectedBank && { backgroundColor: `${selectedBank.color}18` }]}>
+                  <Ionicons name="business-outline" size={20} color={selectedBank?.color ?? OB.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.sectionTitle}>Banco do extrato</Text>
+                  <Text style={styles.bankSelectionSubtitle}>Essa informação identifica a origem das movimentações.</Text>
+                </View>
+                <View style={styles.requiredBadge}>
+                  <Text style={styles.requiredBadgeText}>Obrigatório</Text>
+                </View>
+              </View>
+
+              <Pressable
+                onPress={() => setBankPickerOpen(true)}
+                style={({ pressed }) => [styles.bankSelectionButton, selectedBank && styles.bankSelectionButtonSelected, pressed && styles.pressed]}
+                accessibilityRole="button"
+                accessibilityLabel="Escolher banco do extrato"
+              >
+                <View style={[styles.bankSelectionMark, selectedBank && { backgroundColor: selectedBank.color }]}>
+                  <Text style={styles.bankSelectionMarkText}>{selectedBank?.shortName ?? "?"}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.bankSelectionCaption}>{selectedBank ? "Banco confirmado" : "Selecione o banco"}</Text>
+                  <Text style={styles.bankSelectionName}>{selectedBank?.name ?? "De qual banco é este CSV?"}</Text>
+                </View>
+                <Text style={styles.bankSelectionAction}>{selectedBank ? "Alterar" : "Escolher"}</Text>
+                <Ionicons name="chevron-forward" size={17} color={OB.primary} />
+              </Pressable>
+
+              {detectedBank && !selectedBank ? (
+                <View style={styles.bankDetectionHint}>
+                  <Ionicons name="sparkles-outline" size={14} color="#175CD3" />
+                  <Text style={styles.bankDetectionHintText}>O arquivo parece ser do {detectedBank.name}. Confirme antes de continuar.</Text>
+                </View>
+              ) : null}
+            </View>
+
             {checkingDuplicate ? (
               <View style={styles.infoCard}>
                 <ActivityIndicator size="small" color={OB.primary} />
@@ -613,12 +694,6 @@ export default function ImportCsvOnboarding() {
 
             <View style={styles.card}>
               <Text style={styles.sectionTitle}>Resumo da leitura</Text>
-              {detectedBank ? (
-                <View style={styles.detectedBank}>
-                  <Ionicons name="business-outline" size={17} color={OB.primary} />
-                  <Text style={styles.detectedBankText}>Banco identificado: {detectedBank.name}</Text>
-                </View>
-              ) : null}
               <View style={styles.summaryGrid}>
                 <SummaryPill label="Válidas" value={String(result.rows.length)} tone="primary" />
                 <SummaryPill label="Entradas" value={formatBRLFromCents(income)} tone="good" />
@@ -727,6 +802,7 @@ export default function ImportCsvOnboarding() {
                     similarityCounts.get(`${row.type}:${statementSimilarityKey(row.note)}`) ?? 1
                   }
                   onCategoryChange={(categoryId) => setRowCategory(row, categoryId)}
+                  onOpenCategoryPicker={() => setCategoryPickerRow(row)}
                   onApplySimilar={() => applyCategoryToSimilar(row)}
                 />
               ))}
@@ -758,7 +834,134 @@ export default function ImportCsvOnboarding() {
             </Pressable>
           </>
         )}
-      </ScrollView>
+        </ScrollView>
+
+        <Modal visible={Boolean(categoryPickerRow)} transparent animationType="fade" onRequestClose={() => setCategoryPickerRow(null)}>
+          <Pressable style={styles.categoryPickerBackdrop} onPress={() => setCategoryPickerRow(null)}>
+            <Pressable style={styles.categoryPickerCard} onPress={(event) => event.stopPropagation()}>
+              <View style={styles.categoryPickerHeader}>
+                <View style={styles.categoryPickerHeaderIcon}>
+                  <Ionicons name="pricetags-outline" size={20} color={OB.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.categoryPickerTitle}>Escolher categoria</Text>
+                  <Text style={styles.categoryPickerSubtitle} numberOfLines={2}>
+                    {categoryPickerRow?.note}
+                  </Text>
+                </View>
+                <Pressable onPress={() => setCategoryPickerRow(null)} style={styles.categoryPickerClose} hitSlop={10} accessibilityRole="button" accessibilityLabel="Fechar">
+                  <Ionicons name="close" size={20} color={OB.support} />
+                </Pressable>
+              </View>
+
+              <ScrollView style={styles.categoryPickerScroll} contentContainerStyle={styles.categoryPickerContent} showsVerticalScrollIndicator={false}>
+                <Pressable
+                  onPress={() => choosePickerCategory(null)}
+                  style={({ pressed }) => [
+                    styles.categoryPickerOption,
+                    !pickerCategoryId && styles.categoryPickerOptionActive,
+                    pressed && styles.categoryPickerOptionPressed,
+                  ]}
+                >
+                  <View style={[styles.categoryPickerOptionIcon, !pickerCategoryId && styles.categoryPickerOptionIconActive]}>
+                    <Ionicons name="remove-circle-outline" size={18} color={!pickerCategoryId ? "#fff" : OB.support} />
+                  </View>
+                  <Text style={[styles.categoryPickerOptionText, !pickerCategoryId && styles.categoryPickerOptionTextActive]}>Sem categoria</Text>
+                  {!pickerCategoryId ? <Ionicons name="checkmark-circle" size={20} color="#fff" /> : null}
+                </Pressable>
+
+                {(["fixed", "variable"] as Kind[]).map((pickerKind) => {
+                  const groupCategories = pickerCategories.filter((category) => category.kind === pickerKind);
+                  if (!groupCategories.length) return null;
+                  const isIncome = categoryPickerRow?.type === "income";
+                  const groupTitle = isIncome
+                    ? pickerKind === "fixed" ? "Entradas fixas" : "Entradas variáveis"
+                    : pickerKind === "fixed" ? "Saídas fixas" : "Saídas variáveis";
+
+                  return (
+                    <View key={pickerKind} style={styles.categoryPickerGroup}>
+                      <Text style={styles.categoryPickerGroupTitle}>{groupTitle}</Text>
+                      {groupCategories.map((category) => {
+                        const active = category.id === pickerCategoryId;
+                        return (
+                          <Pressable
+                            key={category.id}
+                            onPress={() => choosePickerCategory(category.id)}
+                            style={({ pressed }) => [
+                              styles.categoryPickerOption,
+                              active && styles.categoryPickerOptionActive,
+                              pressed && styles.categoryPickerOptionPressed,
+                            ]}
+                          >
+                            <View style={[styles.categoryPickerOptionIcon, active && styles.categoryPickerOptionIconActive]}>
+                              <Ionicons name={(category.icon || "pricetag-outline") as any} size={18} color={active ? "#fff" : OB.primary} />
+                            </View>
+                            <Text style={[styles.categoryPickerOptionText, active && styles.categoryPickerOptionTextActive]}>{category.name}</Text>
+                            {active ? <Ionicons name="checkmark-circle" size={20} color="#fff" /> : <Ionicons name="chevron-forward" size={17} color={OB.support} />}
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  );
+                })}
+              </ScrollView>
+            </Pressable>
+          </Pressable>
+        </Modal>
+
+        <Modal visible={bankPickerOpen && hasFile} transparent animationType="fade" onRequestClose={() => setBankPickerOpen(false)}>
+          <Pressable style={styles.categoryPickerBackdrop} onPress={() => setBankPickerOpen(false)}>
+            <Pressable style={styles.bankPickerCard} onPress={(event) => event.stopPropagation()}>
+              <View style={styles.categoryPickerHeader}>
+                <View style={styles.categoryPickerHeaderIcon}>
+                  <Ionicons name="business-outline" size={20} color={OB.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.categoryPickerTitle}>De qual banco é este CSV?</Text>
+                  <Text style={styles.categoryPickerSubtitle}>Escolha o banco para identificar a origem das movimentações.</Text>
+                </View>
+                <Pressable onPress={() => setBankPickerOpen(false)} style={styles.categoryPickerClose} hitSlop={10} accessibilityRole="button" accessibilityLabel="Fechar">
+                  <Ionicons name="close" size={20} color={OB.support} />
+                </Pressable>
+              </View>
+
+              <ScrollView style={styles.bankPickerScroll} contentContainerStyle={styles.bankPickerContent} showsVerticalScrollIndicator={false}>
+                {bankOptions.map((bank) => {
+                  const active = bank.id === selectedBankId;
+                  const detected = bank.id === result.detectedBankId;
+                  const registered = registeredBankNames.includes(bank.name);
+                  return (
+                    <Pressable
+                      key={bank.id}
+                      onPress={() => {
+                        setSelectedBankId(bank.id);
+                        setBankPickerOpen(false);
+                      }}
+                      style={({ pressed }) => [
+                        styles.bankPickerOption,
+                        active && { borderColor: bank.color, backgroundColor: `${bank.color}12` },
+                        pressed && styles.categoryPickerOptionPressed,
+                      ]}
+                    >
+                      <View style={[styles.bankPickerMark, { backgroundColor: bank.color }]}>
+                        <Text style={styles.bankPickerMarkText}>{bank.shortName}</Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.bankPickerName}>{bank.name}</Text>
+                        <View style={styles.bankPickerBadges}>
+                          {registered ? <Text style={styles.registeredBankText}>Cadastrado</Text> : null}
+                          {detected ? <Text style={styles.detectedBankText}>Identificado no arquivo</Text> : null}
+                        </View>
+                      </View>
+                      {active ? <Ionicons name="checkmark-circle" size={21} color={bank.color} /> : <Ionicons name="chevron-forward" size={18} color={OB.support} />}
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </Pressable>
+          </Pressable>
+        </Modal>
+      </>
     </OnboardingShell>
   );
 }
@@ -926,21 +1129,101 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "900",
   },
-  detectedBank: {
-    minHeight: 42,
-    borderRadius: 14,
-    paddingHorizontal: 12,
+  bankSelectionHeader: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 10,
+  },
+  bankSelectionIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
     backgroundColor: "rgba(123,160,200,0.14)",
+  },
+  bankSelectionSubtitle: {
+    color: OB.support,
+    fontSize: 10,
+    fontWeight: "800",
+    lineHeight: 14,
+    marginTop: 3,
+  },
+  requiredBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    backgroundColor: "#FFF4F2",
     borderWidth: 1,
+    borderColor: "#FDA29B",
+  },
+  requiredBadgeText: {
+    color: "#B42318",
+    fontSize: 8,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  bankSelectionButton: {
+    minHeight: 64,
+    borderRadius: 16,
+    padding: 11,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "#FFFAEB",
+    borderWidth: 1.5,
+    borderColor: "#FEC84B",
+  },
+  bankSelectionButtonSelected: {
+    backgroundColor: OB.offWhite,
     borderColor: OB.supportSoft,
   },
-  detectedBankText: {
-    color: OB.primary,
+  bankSelectionMark: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: OB.support,
+  },
+  bankSelectionMarkText: {
+    color: "#fff",
     fontSize: 12,
     fontWeight: "900",
+  },
+  bankSelectionCaption: {
+    color: OB.support,
+    fontSize: 9,
+    fontWeight: "900",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  bankSelectionName: {
+    color: OB.primary,
+    fontSize: 14,
+    fontWeight: "900",
+    marginTop: 3,
+  },
+  bankSelectionAction: {
+    color: OB.primary,
+    fontSize: 10,
+    fontWeight: "900",
+  },
+  bankDetectionHint: {
+    minHeight: 34,
+    borderRadius: 11,
+    paddingHorizontal: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    backgroundColor: "#EFF8FF",
+  },
+  bankDetectionHintText: {
+    flex: 1,
+    color: "#175CD3",
+    fontSize: 10,
+    fontWeight: "800",
+    lineHeight: 14,
   },
   summaryGrid: {
     flexDirection: "row",
@@ -1193,32 +1476,54 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: "900",
   },
-  categoryChips: {
-    gap: 7,
-    paddingRight: 4,
-  },
-  categoryChip: {
-    minHeight: 32,
-    borderRadius: 999,
-    paddingHorizontal: 10,
+  categorySelectButton: {
+    minHeight: 58,
+    borderRadius: 14,
+    padding: 10,
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
+    gap: 10,
     backgroundColor: "#fff",
     borderWidth: 1,
     borderColor: OB.supportSoft,
   },
-  categoryChipActive: {
-    backgroundColor: OB.primary,
-    borderColor: OB.primary,
+  categorySelectButtonPressed: {
+    backgroundColor: "rgba(123,160,200,0.12)",
+    transform: [{ scale: 0.99 }],
   },
-  categoryChipText: {
-    color: OB.primary,
+  categorySelectIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: OB.offWhite,
+  },
+  categorySelectIconActive: {
+    backgroundColor: OB.primary,
+  },
+  categorySelectCaption: {
+    color: OB.support,
     fontSize: 9,
     fontWeight: "900",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
   },
-  categoryChipTextActive: {
-    color: "#fff",
+  categorySelectName: {
+    color: OB.primary,
+    fontSize: 13,
+    fontWeight: "900",
+    marginTop: 2,
+  },
+  categorySelectAction: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+  },
+  categorySelectActionText: {
+    color: OB.primary,
+    fontSize: 10,
+    fontWeight: "900",
   },
   applySimilarButton: {
     alignSelf: "flex-start",
@@ -1262,5 +1567,177 @@ const styles = StyleSheet.create({
   },
   importTextDisabled: {
     color: OB.support,
+  },
+  categoryPickerBackdrop: {
+    flex: 1,
+    padding: 20,
+    justifyContent: "center",
+    backgroundColor: "rgba(7, 18, 38, 0.62)",
+  },
+  categoryPickerCard: {
+    width: "100%",
+    maxWidth: 460,
+    maxHeight: "82%",
+    alignSelf: "center",
+    borderRadius: 22,
+    padding: 18,
+    gap: 14,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  categoryPickerHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 11,
+  },
+  categoryPickerHeaderIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: OB.offWhite,
+  },
+  categoryPickerTitle: {
+    color: OB.primary,
+    fontSize: 17,
+    fontWeight: "900",
+  },
+  categoryPickerSubtitle: {
+    color: OB.support,
+    fontSize: 11,
+    fontWeight: "700",
+    lineHeight: 15,
+    marginTop: 2,
+  },
+  categoryPickerClose: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: OB.offWhite,
+  },
+  categoryPickerScroll: {
+    flexGrow: 0,
+  },
+  categoryPickerContent: {
+    gap: 12,
+    paddingBottom: 2,
+  },
+  categoryPickerGroup: {
+    gap: 8,
+  },
+  categoryPickerGroupTitle: {
+    color: OB.support,
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 0.9,
+    textTransform: "uppercase",
+    paddingHorizontal: 2,
+  },
+  categoryPickerOption: {
+    minHeight: 54,
+    borderRadius: 15,
+    paddingHorizontal: 11,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: OB.offWhite,
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  categoryPickerOptionActive: {
+    backgroundColor: OB.primary,
+    borderColor: OB.primary,
+  },
+  categoryPickerOptionPressed: {
+    opacity: 0.82,
+    transform: [{ scale: 0.99 }],
+  },
+  categoryPickerOptionIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fff",
+  },
+  categoryPickerOptionIconActive: {
+    backgroundColor: "rgba(255,255,255,0.18)",
+  },
+  categoryPickerOptionText: {
+    flex: 1,
+    color: OB.primary,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  categoryPickerOptionTextActive: {
+    color: "#fff",
+  },
+  bankPickerCard: {
+    width: "100%",
+    maxWidth: 460,
+    maxHeight: "82%",
+    alignSelf: "center",
+    borderRadius: 22,
+    padding: 18,
+    gap: 14,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  bankPickerScroll: {
+    flexGrow: 0,
+  },
+  bankPickerContent: {
+    gap: 9,
+    paddingBottom: 2,
+  },
+  bankPickerOption: {
+    minHeight: 62,
+    borderRadius: 16,
+    paddingHorizontal: 11,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 11,
+    backgroundColor: OB.offWhite,
+    borderWidth: 1.5,
+    borderColor: OB.supportSoft,
+  },
+  bankPickerMark: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  bankPickerMarkText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  bankPickerName: {
+    color: OB.primary,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  bankPickerBadges: {
+    minHeight: 15,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 7,
+    marginTop: 4,
+  },
+  registeredBankText: {
+    color: "#178A55",
+    fontSize: 9,
+    fontWeight: "900",
+  },
+  detectedBankText: {
+    color: "#175CD3",
+    fontSize: 9,
+    fontWeight: "900",
   },
 });
