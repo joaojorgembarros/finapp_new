@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Image, Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import { router } from "expo-router";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
 import { useSession } from "../../src/providers/SessionProvider";
+import { useKeyboardAwareScroll } from "../../src/hooks/useKeyboardAwareScroll";
 import { expectedMonthlyIncomeCents, EmploymentType, getProfile, upsertProfile } from "../../src/lib/profile";
 import { formatBRLFromCents, formatBRLInputFromDigits, parseBRLToCents } from "../../src/lib/format";
 import { supabase } from "../../src/lib/supabase";
@@ -55,6 +56,7 @@ function extensionFromMime(mimeType?: string | null) {
 
 export default function OnboardingProfileScreen() {
   const { session, userId, signOut } = useSession();
+  const { scrollRef, keyboardHeight, registerField, focusField } = useKeyboardAwareScroll<"personal" | "financial">();
   const userMeta = session?.user?.user_metadata as Record<string, any> | undefined;
   const email = session?.user?.email || "";
 
@@ -248,7 +250,7 @@ export default function OnboardingProfileScreen() {
 
   return (
     <OnboardingShell light>
-      <View style={styles.root}>
+      <KeyboardAvoidingView enabled={Platform.OS === "ios"} behavior="padding" style={styles.root}>
         <View style={styles.header}>
           <Pressable onPress={() => router.replace("/(app)/journey")} style={styles.backButton} hitSlop={12}>
             <Ionicons name="arrow-back" size={18} color="#fff" />
@@ -260,7 +262,13 @@ export default function OnboardingProfileScreen() {
           </View>
         </View>
 
-        <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          ref={scrollRef}
+          contentContainerStyle={[styles.scroll, keyboardHeight ? { paddingBottom: keyboardHeight + 28 } : null]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+        >
           <View style={styles.profileCard}>
             <Pressable onPress={pickAvatar} disabled={uploadingAvatar} style={styles.avatarWrap}>
               {cleanAvatarUrl ? (
@@ -280,10 +288,10 @@ export default function OnboardingProfileScreen() {
             </Pressable>
           </View>
 
-          <View style={styles.card}>
+          <View style={styles.card} onLayout={registerField("personal")}>
             <Text style={styles.cardTitle}>Dados pessoais</Text>
             <Text style={styles.label}>Nome</Text>
-            <TextInput value={name} onChangeText={setName} placeholder="Seu nome" placeholderTextColor={OB.support} style={styles.input} />
+            <TextInput value={name} onChangeText={setName} placeholder="Seu nome" placeholderTextColor={OB.support} returnKeyType="done" onFocus={() => focusField("personal")} onPressIn={() => focusField("personal")} onSubmitEditing={Keyboard.dismiss} style={styles.input} />
 
             <Text style={styles.label}>E-mail</Text>
             <TextInput
@@ -294,6 +302,10 @@ export default function OnboardingProfileScreen() {
               keyboardType="email-address"
               autoCapitalize="none"
               autoCorrect={false}
+              returnKeyType="done"
+              onFocus={() => focusField("personal")}
+              onPressIn={() => focusField("personal")}
+              onSubmitEditing={Keyboard.dismiss}
               style={styles.input}
             />
 
@@ -304,11 +316,15 @@ export default function OnboardingProfileScreen() {
               placeholder="(00) 00000-0000"
               placeholderTextColor={OB.support}
               keyboardType="phone-pad"
+              returnKeyType="done"
+              onFocus={() => focusField("personal")}
+              onPressIn={() => focusField("personal")}
+              onSubmitEditing={Keyboard.dismiss}
               style={styles.input}
             />
           </View>
 
-          <View style={styles.card}>
+          <View style={styles.card} onLayout={registerField("financial")}>
             <Text style={styles.cardTitle}>Informações financeiras</Text>
             <Text style={styles.label}>Renda fixa mensal</Text>
             <TextInput
@@ -317,6 +333,11 @@ export default function OnboardingProfileScreen() {
               placeholder="Ex: 2400,00"
               placeholderTextColor={OB.support}
               keyboardType="number-pad"
+              returnKeyType="done"
+              selectTextOnFocus
+              onFocus={() => focusField("financial")}
+              onPressIn={() => focusField("financial")}
+              onSubmitEditing={Keyboard.dismiss}
               style={styles.input}
             />
 
@@ -327,6 +348,11 @@ export default function OnboardingProfileScreen() {
               placeholder="Ex: 300,00"
               placeholderTextColor={OB.support}
               keyboardType="number-pad"
+              returnKeyType="done"
+              selectTextOnFocus
+              onFocus={() => focusField("financial")}
+              onPressIn={() => focusField("financial")}
+              onSubmitEditing={Keyboard.dismiss}
               style={styles.input}
             />
 
@@ -391,7 +417,7 @@ export default function OnboardingProfileScreen() {
             <Text style={styles.dangerText}>Excluir minha conta</Text>
           </Pressable>
         </ScrollView>
-      </View>
+      </KeyboardAvoidingView>
     </OnboardingShell>
   );
 }

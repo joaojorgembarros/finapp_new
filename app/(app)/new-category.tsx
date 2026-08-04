@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import { useHouseholdId } from "../../src/hooks/useHousehold";
+import { useKeyboardAwareScroll } from "../../src/hooks/useKeyboardAwareScroll";
 import { Category, createCategory, Flow, Kind, listCategories, updateCategoryName } from "../../src/lib/categories";
 import { useSession } from "../../src/providers/SessionProvider";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
@@ -32,6 +33,7 @@ export default function NewCategoryScreen() {
   const params = useLocalSearchParams<{ categoryId?: string; categoryName?: string; flow?: string; kind?: string }>();
   const { userId } = useSession();
   const { householdId, loading: householdLoading } = useHouseholdId(userId);
+  const { scrollRef, keyboardHeight, registerField, focusField } = useKeyboardAwareScroll<"category">();
   const flow: Flow = params.flow === "income" ? "income" : "expense";
   const kind: Kind = params.kind === "fixed" ? "fixed" : "variable";
   const editing = Boolean(params.categoryId);
@@ -106,8 +108,14 @@ export default function NewCategoryScreen() {
 
   return (
     <OnboardingShell light>
-      <View style={styles.root}>
-        <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+      <KeyboardAvoidingView enabled={Platform.OS === "ios"} behavior="padding" style={styles.root}>
+        <ScrollView
+          ref={scrollRef}
+          contentContainerStyle={[styles.scroll, keyboardHeight ? { paddingBottom: keyboardHeight + 28 } : null]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+        >
           <View style={styles.headerCard}>
             <Pressable onPress={() => router.back()} style={styles.backButton} hitSlop={12} accessibilityRole="button" accessibilityLabel="Voltar para categorias">
               <Ionicons name="arrow-back" size={18} color="#fff" />
@@ -119,7 +127,7 @@ export default function NewCategoryScreen() {
             </Text>
           </View>
 
-          <View style={styles.card}>
+          <View style={styles.card} onLayout={registerField("category")}>
             <View style={styles.groupBadge}>
               <View style={styles.groupBadgeIcon}>
                 <Ionicons name={groupIcon(flow, kind)} size={19} color={OB.primary} />
@@ -139,7 +147,10 @@ export default function NewCategoryScreen() {
               style={styles.input}
               autoFocus
               returnKeyType="done"
+              onFocus={() => focusField("category")}
+              onPressIn={() => focusField("category")}
               onSubmitEditing={() => {
+                Keyboard.dismiss();
                 if (!disabled) void saveCategory();
               }}
             />
@@ -173,7 +184,7 @@ export default function NewCategoryScreen() {
             </Pressable>
           </View>
         </ScrollView>
-      </View>
+      </KeyboardAvoidingView>
     </OnboardingShell>
   );
 }

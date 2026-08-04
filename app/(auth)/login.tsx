@@ -154,6 +154,8 @@ function AuthField({
   onBlur,
   right,
   inputRef,
+  returnKeyType,
+  onSubmitEditing,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
@@ -168,6 +170,8 @@ function AuthField({
   onBlur: () => void;
   right?: React.ReactNode;
   inputRef?: React.RefObject<TextInput | null>;
+  returnKeyType?: TextInputProps["returnKeyType"];
+  onSubmitEditing?: TextInputProps["onSubmitEditing"];
 }) {
   const localInputRef = React.useRef<TextInput>(null);
   const refocusTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -212,6 +216,8 @@ function AuthField({
           onPressIn={focusInput}
           onFocus={onFocus}
           onBlur={onBlur}
+          returnKeyType={returnKeyType}
+          onSubmitEditing={onSubmitEditing}
           style={styles.fieldInput}
         />
         {right}
@@ -325,6 +331,8 @@ export default function LoginScreen() {
                   keyboardVisible={keyboardVisible}
                   onFocus={() => setFocused("email")}
                   onBlur={() => setFocused(null)}
+                  returnKeyType="next"
+                  onSubmitEditing={() => passwordInputRef.current?.focus()}
                 />
 
                 <AuthField
@@ -339,6 +347,11 @@ export default function LoginScreen() {
                   inputRef={passwordInputRef}
                   onFocus={() => setFocused("password")}
                   onBlur={() => setFocused(null)}
+                  returnKeyType="done"
+                  onSubmitEditing={() => {
+                    Keyboard.dismiss();
+                    void onLogin();
+                  }}
                   right={
                     <Pressable onPress={() => setShowPass((v) => !v)} hitSlop={10} style={styles.eyeButton}>
                       <Ionicons name={showPass ? "eye-off-outline" : "eye-outline"} size={19} color={showPass ? T.primary : T.support} />

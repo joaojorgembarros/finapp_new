@@ -1,12 +1,16 @@
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import {
   ActivityIndicator,
   Alert,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
@@ -20,6 +24,8 @@ import {
 import { markNewOnboardingDone } from "../../src/lib/newOnboarding";
 import { useSession } from "../../src/providers/SessionProvider";
 import { BANK_OPTIONS } from "../../src/lib/banks";
+import { formatBRLFromCents, formatBRLInputFromDigits, parseBRLToCents } from "../../src/lib/format";
+import { EmploymentType, expectedMonthlyIncomeCents, getProfile } from "../../src/lib/profile";
 
 type Bank = {
   name: string;
@@ -43,6 +49,8 @@ const BANKS: Bank[] = [
   ...BANK_OPTIONS.map(({ name, shortName, color }) => ({ name, shortName, color })),
   { name: NO_BANK, shortName: "—", color: "#64748B" },
 ];
+
+const EMPLOYMENT_TYPES: EmploymentType[] = ["CLT", "PJ", "Autônomo", "Estudante", "Outro"];
 
 function parseStringArray(raw: string | string[] | undefined) {
   try {
@@ -115,6 +123,8 @@ export default function FinancialSituationScreen() {
   const params = useLocalSearchParams<{ dreams?: string; values?: string }>();
   const { session, userId } = useSession();
   const metadata = session?.user.user_metadata;
+  const listRef = useRef<ScrollView>(null);
+  const incomeFieldY = useRef<Record<"fixed" | "variable", number>>({ fixed: 0, variable: 0 });
 
   const dreams = useMemo(
     () => {
@@ -143,8 +153,74 @@ export default function FinancialSituationScreen() {
   const [selectedBanks, setSelectedBanks] = useState<Set<string>>(
     () => new Set(Array.isArray(metadata?.finapp_banks) ? metadata.finapp_banks.map(String) : [])
   );
-  const [section, setSection] = useState<"debts" | "banks">("debts");
+  const [fixedIncome, setFixedIncome] = useState("");
+  const [variableIncome, setVariableIncome] = useState("");
+  const [employmentType, setEmploymentType] = useState<EmploymentType | null>(null);
+  const [section, setSection] = useState<"income" | "debts" | "banks">("income");
   const [saving, setSaving] = useState(false);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  const scrollToIncomeField = useCallback((field: "fixed" | "variable", delay = 80) => {
+    setTimeout(() => {
+      listRef.current?.scrollTo({
+        y: Math.max(incomeFieldY.current[field] - 12, 0),
+        animated: true,
+      });
+    }, delay);
+  }, []);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const showSub = Keyboard.addListener(showEvent, (event) => {
+      setKeyboardVisible(true);
+      setKeyboardHeight(Platform.OS === "android" ? event.endCoordinates.height : 0);
+    });
+    const hideSub = Keyboard.addListener(hideEvent, () => {
+      setKeyboardVisible(false);
+      setKeyboardHeight(0);
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadExistingIncome() {
+      if (!userId) return;
+      try {
+        const profile = await getProfile(userId);
+        if (!active || !profile) return;
+        const fixed = Number(profile.income_fixed_cents || 0);
+        const variable = Number(profile.income_variable_avg_cents || 0);
+        if (fixed > 0 || variable > 0) {
+          setFixedIncome(fixed > 0 ? formatBRLFromCents(fixed) : "");
+          setVariableIncome(variable > 0 ? formatBRLFromCents(variable) : "");
+          setEmploymentType(profile.employment_type || null);
+        }
+      } catch {
+        // O preenchimento continua disponivel mesmo quando ainda nao existe perfil.
+      }
+    }
+
+    loadExistingIncome();
+    return () => {
+      active = false;
+    };
+  }, [userId]);
+
+  const fixedIncomeCents = useMemo(() => parseBRLToCents(fixedIncome), [fixedIncome]);
+  const variableIncomeCents = useMemo(() => parseBRLToCents(variableIncome), [variableIncome]);
+  const expectedIncomeCents = expectedMonthlyIncomeCents({
+    income_fixed_cents: fixedIncomeCents,
+    income_variable_avg_cents: variableIncomeCents,
+  });
+  const incomeAnswered = Boolean(fixedIncome.trim() || variableIncome.trim());
 
   function toggleDebt(label: string) {
     setSelectedDebts((current) => {
@@ -171,6 +247,9 @@ export default function FinancialSituationScreen() {
     if (!dreams.length) {
       return Alert.alert("Sonhos não encontrados", "Volte e selecione ao menos um sonho.");
     }
+    if (!incomeAnswered || !employmentType) {
+      return Alert.alert("Conte sobre sua renda", "Informe sua renda mensal e o tipo de trabalho.");
+    }
     if (!selectedDebts.size) {
       return Alert.alert("Conte sobre suas dívidas", "Escolha uma opção para continuar.");
     }
@@ -183,6 +262,9 @@ export default function FinancialSituationScreen() {
       await markNewOnboardingDone(userId, dreams, values, {
         banks: [...selectedBanks],
         debts: [...selectedDebts],
+        incomeFixedCents: fixedIncomeCents,
+        incomeVariableAvgCents: variableIncomeCents,
+        employmentType,
       });
       router.replace({
         pathname: "/(app)/journey",
@@ -201,7 +283,7 @@ export default function FinancialSituationScreen() {
     }
   }
 
-  const canFinish = selectedDebts.size > 0 && selectedBanks.size > 0 && !saving;
+  const canFinish = incomeAnswered && Boolean(employmentType) && selectedDebts.size > 0 && selectedBanks.size > 0 && !saving;
 
   function goBack() {
     router.replace({
@@ -218,7 +300,23 @@ export default function FinancialSituationScreen() {
       setSection("debts");
       return;
     }
+    if (section === "debts") {
+      setSection("income");
+      return;
+    }
     goBack();
+  }
+
+  function continueToDebts() {
+    if (!incomeAnswered) {
+      Alert.alert("Conte sobre sua renda", "Preencha ao menos um dos valores. Se não recebe renda, informe zero.");
+      return;
+    }
+    if (!employmentType) {
+      Alert.alert("Tipo de trabalho", "Selecione a opção que melhor representa sua situação atual.");
+      return;
+    }
+    setSection("debts");
   }
 
   function continueToBanks() {
@@ -232,7 +330,11 @@ export default function FinancialSituationScreen() {
   return (
     <OnboardingShell>
       <OnboardingBackground />
-      <View style={styles.root}>
+      <KeyboardAvoidingView
+        enabled={Platform.OS === "ios"}
+        behavior="padding"
+        style={styles.root}
+      >
         <ScreenIntro
           eyebrow="Seu ponto de partida"
           title="Vamos entender onde você está hoje"
@@ -246,14 +348,20 @@ export default function FinancialSituationScreen() {
           <View style={styles.sectionProgress}>
             <View style={styles.sectionProgressCopy}>
               <Text style={styles.sectionProgressLabel}>
-                PARTE {section === "debts" ? "1" : "2"} DE 2
+                PARTE {section === "income" ? "1" : section === "debts" ? "2" : "3"} DE 3
               </Text>
               <Text style={styles.sectionProgressTitle}>
-                {section === "debts" ? "Dívidas" : "Seus bancos"}
+                {section === "income" ? "Sua renda" : section === "debts" ? "Dívidas" : "Seus bancos"}
               </Text>
             </View>
             <View style={styles.sectionProgressBars}>
               <View style={styles.sectionProgressBarActive} />
+              <View
+                style={[
+                  styles.sectionProgressBar,
+                  section !== "income" && styles.sectionProgressBarActive,
+                ]}
+              />
               <View
                 style={[
                   styles.sectionProgressBar,
@@ -264,11 +372,93 @@ export default function FinancialSituationScreen() {
           </View>
 
           <ScrollView
+            ref={listRef}
             key={section}
-            contentContainerStyle={styles.content}
-            showsVerticalScrollIndicator={section === "banks"}
+            contentContainerStyle={[
+              styles.content,
+              keyboardHeight ? { paddingBottom: keyboardHeight + 24 } : null,
+            ]}
+            showsVerticalScrollIndicator={section !== "debts"}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
           >
-            {section === "debts" ? (
+            {section === "income" ? (
+              <View>
+                <View style={styles.sectionHeading}>
+                  <View style={styles.sectionIcon}>
+                    <Ionicons name="cash-outline" size={18} color={OB.primary} />
+                  </View>
+                  <View style={styles.sectionCopy}>
+                    <Text style={styles.sectionTitle}>Quanto você recebe por mês?</Text>
+                    <Text style={styles.sectionSubtitle}>Separe o que costuma entrar todo mês da renda que pode variar.</Text>
+                  </View>
+                </View>
+
+                <View onLayout={(event) => { incomeFieldY.current.fixed = event.nativeEvent.layout.y; }}>
+                  <Text style={styles.fieldLabel}>Renda fixa mensal</Text>
+                  <TextInput
+                    accessibilityLabel="Renda fixa mensal"
+                    value={fixedIncome}
+                    onChangeText={(text) => setFixedIncome(formatBRLInputFromDigits(text))}
+                    placeholder="Ex.: R$ 2.400,00"
+                    placeholderTextColor={OB.support}
+                    keyboardType="number-pad"
+                    returnKeyType="done"
+                    selectTextOnFocus
+                    onFocus={() => scrollToIncomeField("fixed", 220)}
+                    onPressIn={() => scrollToIncomeField("fixed", 220)}
+                    onSubmitEditing={Keyboard.dismiss}
+                    style={styles.moneyInput}
+                  />
+                  <Text style={styles.fieldHint}>Salário, aposentadoria ou outra entrada recorrente.</Text>
+                </View>
+
+                <View onLayout={(event) => { incomeFieldY.current.variable = event.nativeEvent.layout.y; }}>
+                  <Text style={styles.fieldLabel}>Média de renda extra</Text>
+                  <TextInput
+                    accessibilityLabel="Média de renda extra mensal"
+                    value={variableIncome}
+                    onChangeText={(text) => setVariableIncome(formatBRLInputFromDigits(text))}
+                    placeholder="Ex.: R$ 300,00"
+                    placeholderTextColor={OB.support}
+                    keyboardType="number-pad"
+                    returnKeyType="done"
+                    selectTextOnFocus
+                    onFocus={() => scrollToIncomeField("variable", 220)}
+                    onPressIn={() => scrollToIncomeField("variable", 220)}
+                    onSubmitEditing={Keyboard.dismiss}
+                    style={styles.moneyInput}
+                  />
+                  <Text style={styles.fieldHint}>Freelas, comissões, bicos ou outras entradas variáveis.</Text>
+                </View>
+
+                <View style={styles.incomeTotalBox}>
+                  <Ionicons name="trending-up-outline" size={22} color="#169B62" />
+                  <View>
+                    <Text style={styles.incomeTotalLabel}>Renda mensal estimada</Text>
+                    <Text style={styles.incomeTotalValue}>{formatBRLFromCents(expectedIncomeCents)}</Text>
+                  </View>
+                </View>
+
+                <Text style={styles.fieldLabel}>Tipo de trabalho</Text>
+                <View style={styles.employmentOptions}>
+                  {EMPLOYMENT_TYPES.map((item) => {
+                    const selected = employmentType === item;
+                    return (
+                      <Pressable
+                        key={item}
+                        accessibilityRole="radio"
+                        accessibilityState={{ selected }}
+                        onPress={() => setEmploymentType(item)}
+                        style={[styles.employmentChip, selected && styles.employmentChipSelected]}
+                      >
+                        <Text style={[styles.employmentChipText, selected && styles.employmentChipTextSelected]}>{item}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+            ) : section === "debts" ? (
               <View>
               <View style={styles.sectionHeading}>
                 <View style={styles.sectionIcon}>
@@ -315,13 +505,21 @@ export default function FinancialSituationScreen() {
             )}
           </ScrollView>
 
-          <View style={styles.footer}>
+          {!keyboardVisible ? <View style={styles.footer}>
             <Text style={styles.footerHint}>
-              {section === "debts"
-                ? "Na próxima parte, você poderá escolher seus bancos."
-                : "Usaremos essas escolhas para personalizar sua experiência."}
+              {section === "income"
+                ? "Esses valores serão a base das suas projeções financeiras."
+                : section === "debts"
+                  ? "Na próxima parte, você poderá escolher seus bancos."
+                  : "Usaremos essas escolhas para personalizar sua experiência."}
             </Text>
-            {section === "debts" ? (
+            {section === "income" ? (
+              <PrimaryButton
+                title="Continuar para minhas dívidas"
+                disabled={!incomeAnswered || !employmentType}
+                onPress={continueToDebts}
+              />
+            ) : section === "debts" ? (
               <PrimaryButton
                 title="Continuar para meus bancos"
                 disabled={!selectedDebts.size}
@@ -337,9 +535,9 @@ export default function FinancialSituationScreen() {
                 {saving ? <ActivityIndicator color={OB.primary} size="small" /> : null}
               </>
             )}
-          </View>
+          </View> : null}
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </OnboardingShell>
   );
 }
@@ -391,7 +589,7 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   sectionProgressBars: {
-    width: 76,
+    width: 96,
     flexDirection: "row",
     gap: 6,
   },
@@ -442,6 +640,82 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     fontWeight: "700",
     marginTop: 2,
+  },
+  fieldLabel: {
+    color: OB.primary,
+    fontSize: 12,
+    fontWeight: "900",
+    marginBottom: 7,
+    marginTop: 8,
+    textTransform: "uppercase",
+    letterSpacing: 0.7,
+  },
+  moneyInput: {
+    minHeight: 52,
+    borderRadius: 15,
+    borderWidth: 1.5,
+    borderColor: OB.supportSoft,
+    backgroundColor: "#fff",
+    paddingHorizontal: 15,
+    color: OB.primary,
+    fontSize: 17,
+    fontWeight: "900",
+  },
+  fieldHint: {
+    color: OB.support,
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: "700",
+    marginTop: 5,
+    marginBottom: 7,
+  },
+  incomeTotalBox: {
+    minHeight: 68,
+    borderRadius: 17,
+    backgroundColor: "#EAF8F1",
+    borderWidth: 1,
+    borderColor: "#BDE8D1",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 14,
+    marginVertical: 10,
+  },
+  incomeTotalLabel: {
+    color: OB.support,
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  incomeTotalValue: {
+    color: OB.primary,
+    fontSize: 19,
+    fontWeight: "900",
+    marginTop: 2,
+  },
+  employmentOptions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  employmentChip: {
+    borderRadius: 999,
+    paddingHorizontal: 13,
+    paddingVertical: 9,
+    backgroundColor: "#fff",
+    borderWidth: 1.5,
+    borderColor: OB.supportSoft,
+  },
+  employmentChipSelected: {
+    backgroundColor: OB.primary,
+    borderColor: OB.primary,
+  },
+  employmentChipText: {
+    color: OB.support,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  employmentChipTextSelected: {
+    color: "#fff",
   },
   debtList: {
     flexDirection: "row",

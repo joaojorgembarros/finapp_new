@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -18,6 +19,7 @@ import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useHouseholdId } from "../../../src/hooks/useHousehold";
+import { useKeyboardAwareScroll } from "../../../src/hooks/useKeyboardAwareScroll";
 import { formatBRLFromCents, formatBRLInputFromDigits, parseBRLToCents } from "../../../src/lib/format";
 import {
   addGoalContribution,
@@ -138,6 +140,7 @@ export default function DreamDetailsScreen() {
   const goalId = Array.isArray(params.goalId) ? params.goalId[0] : params.goalId;
   const { userId } = useSession();
   const { householdId, loading: householdLoading } = useHouseholdId(userId);
+  const { scrollRef, keyboardHeight, registerField, focusField } = useKeyboardAwareScroll<"motivation" | "contribution">();
 
   const [goal, setGoal] = useState<GoalProgress | null>(null);
   const [contributions, setContributions] = useState<GoalContribution[]>([]);
@@ -344,7 +347,13 @@ export default function DreamDetailsScreen() {
   return (
     <OnboardingShell light>
       <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+        <ScrollView
+          ref={scrollRef}
+          contentContainerStyle={[styles.scroll, keyboardHeight ? { paddingBottom: keyboardHeight + 32 } : null]}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          showsVerticalScrollIndicator={false}
+        >
           <View style={styles.headerCard}>
             <Pressable onPress={() => router.back()} style={styles.backButton} hitSlop={12} accessibilityRole="button" accessibilityLabel="Voltar">
               <Ionicons name="arrow-back" size={19} color="#fff" />
@@ -387,7 +396,7 @@ export default function DreamDetailsScreen() {
             </View>
           </View>
 
-          <View style={styles.card}>
+          <View style={styles.card} onLayout={registerField("motivation")}>
             <View style={styles.sectionHeading}>
               <View style={styles.sectionIcon}><Ionicons name="heart-outline" size={20} color={OB.primary} /></View>
               <View style={{ flex: 1 }}><Text style={styles.sectionTitle}>Minha motivação</Text><Text style={styles.sectionSubtitle}>Por que você quer realizar este sonho?</Text></View>
@@ -400,6 +409,8 @@ export default function DreamDetailsScreen() {
               multiline
               maxLength={1000}
               textAlignVertical="top"
+              onFocus={() => focusField("motivation")}
+              onPressIn={() => focusField("motivation")}
               style={styles.motivationInput}
             />
             <Text style={styles.characterCount}>{motivation.length}/1000</Text>
@@ -446,15 +457,19 @@ export default function DreamDetailsScreen() {
           </View>
 
           {!completed ? (
-            <View style={styles.card}>
+            <View style={styles.card} onLayout={registerField("contribution")}>
               <View style={styles.sectionHeading}>
                 <View style={styles.sectionIcon}><Ionicons name="add" size={20} color={OB.primary} /></View>
                 <View style={{ flex: 1 }}><Text style={styles.sectionTitle}>Adicionar valor</Text><Text style={styles.sectionSubtitle}>Informe quanto você guardou para este sonho.</Text></View>
               </View>
-              <Text style={styles.fieldLabel}>Valor</Text>
-              <View style={styles.moneyInputWrap}><Text style={styles.moneyPrefix}>R$</Text><TextInput value={amount.replace("R$", "").trim()} onChangeText={(text) => setAmount(formatBRLInputFromDigits(text))} placeholder="0,00" placeholderTextColor={OB.support} keyboardType="number-pad" style={styles.moneyInput} /></View>
-              <Text style={styles.fieldLabel}>Observação <Text style={styles.optionalLabel}>(opcional)</Text></Text>
-              <TextInput value={note} onChangeText={setNote} placeholder="Ex.: reserva do salário" placeholderTextColor={OB.support} style={styles.noteInput} />
+              <View>
+                <Text style={styles.fieldLabel}>Valor</Text>
+                <View style={styles.moneyInputWrap}><Text style={styles.moneyPrefix}>R$</Text><TextInput value={amount.replace("R$", "").trim()} onChangeText={(text) => setAmount(formatBRLInputFromDigits(text))} placeholder="0,00" placeholderTextColor={OB.support} keyboardType="number-pad" returnKeyType="done" selectTextOnFocus onFocus={() => focusField("contribution")} onPressIn={() => focusField("contribution")} onSubmitEditing={Keyboard.dismiss} style={styles.moneyInput} /></View>
+              </View>
+              <View>
+                <Text style={styles.fieldLabel}>Observação <Text style={styles.optionalLabel}>(opcional)</Text></Text>
+                <TextInput value={note} onChangeText={setNote} placeholder="Ex.: reserva do salário" placeholderTextColor={OB.support} returnKeyType="done" onFocus={() => focusField("contribution")} onPressIn={() => focusField("contribution")} onSubmitEditing={Keyboard.dismiss} style={styles.noteInput} />
+              </View>
               {amountCents > metrics.remainingCents ? <Text style={styles.amountError}>O valor ultrapassa o que falta para concluir.</Text> : null}
               <Pressable onPress={() => void saveContribution()} disabled={!amountCents || amountCents > metrics.remainingCents || savingContribution} style={[styles.contributionButton, (!amountCents || amountCents > metrics.remainingCents || savingContribution) && styles.buttonDisabled]}>
                 {savingContribution ? <ActivityIndicator color="#fff" /> : <><Text style={styles.contributionButtonText}>Adicionar ao sonho</Text><Ionicons name="arrow-forward" size={18} color="#fff" /></>}

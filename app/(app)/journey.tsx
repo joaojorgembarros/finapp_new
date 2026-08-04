@@ -9,6 +9,7 @@ import { formatBRLFromCents, formatBRLInputFromDigits, parseBRLToCents } from ".
 import { supabase } from "../../src/lib/supabase";
 import { useSession } from "../../src/providers/SessionProvider";
 import { useHouseholdId } from "../../src/hooks/useHousehold";
+import { useKeyboardAwareScroll } from "../../src/hooks/useKeyboardAwareScroll";
 import { Category, listCategories } from "../../src/lib/categories";
 import { addTransaction, listTransactionsByMonth, TxRow as DatabaseTx } from "../../src/lib/transactions";
 import {
@@ -154,10 +155,7 @@ function AddModal({
   const insets = useSafeAreaInsets();
   const androidStatusBar = Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0;
   const topInset = Math.max(insets.top, androidStatusBar, 18);
-  const scrollRef = useRef<ScrollView>(null);
-  const descriptionFocused = useRef(false);
-  const [descriptionY, setDescriptionY] = useState(0);
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const { scrollRef, keyboardHeight, registerField, focusField } = useKeyboardAwareScroll<"amount" | "description">(18);
   const [type, setType] = useState<TxType>("Receita");
   const [amount, setAmount] = useState("");
   const [desc, setDesc] = useState("");
@@ -175,44 +173,6 @@ function AddModal({
     if (accountId && accountOptions.some((account) => account.id === accountId)) return;
     setAccountId(defaultAccountId && accountOptions.some((account) => account.id === defaultAccountId) ? defaultAccountId : null);
   }, [accountId, accountOptions, defaultAccountId]);
-
-  const scrollDescriptionIntoView = useCallback((delay = 80) => {
-    setTimeout(() => {
-      scrollRef.current?.scrollTo({ y: Math.max(descriptionY - 18, 0), animated: true });
-    }, delay);
-  }, [descriptionY]);
-
-  useEffect(() => {
-    if (Platform.OS !== "android") return;
-
-    const showSub = Keyboard.addListener("keyboardDidShow", (event) => {
-      setKeyboardHeight(event.endCoordinates.height);
-      if (descriptionFocused.current) {
-        scrollDescriptionIntoView(120);
-      }
-    });
-    const hideSub = Keyboard.addListener("keyboardDidHide", () => {
-      setKeyboardHeight(0);
-      descriptionFocused.current = false;
-    });
-
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
-  }, [scrollDescriptionIntoView]);
-
-  function scrollToDescription() {
-    if (Platform.OS !== "android") return;
-
-    descriptionFocused.current = true;
-    if (keyboardHeight > 0) {
-      scrollDescriptionIntoView();
-      return;
-    }
-
-    scrollDescriptionIntoView(260);
-  }
 
   function changeType(next: TxType) {
     setType(next);
@@ -244,7 +204,7 @@ function AddModal({
             showsVerticalScrollIndicator={false}
             bounces={false}
             overScrollMode="never"
-            keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "none"}
+            keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={[
               styles.sheetContent,
@@ -308,10 +268,12 @@ function AddModal({
             </View>
             {!accountId ? <Text style={styles.accountRequiredText}>Escolha uma conta para continuar.</Text> : null}
 
-            <Text style={styles.fieldLabel}>Valor</Text>
-            <View style={styles.inputBox}>
-              <Text style={styles.currency}>R$</Text>
-              <TextInput value={amount.replace("R$", "").trim()} onChangeText={(text) => setAmount(formatBRLInputFromDigits(text))} placeholder="0,00" placeholderTextColor={OB.support} keyboardType="number-pad" style={styles.input} />
+            <View onLayout={registerField("amount")}>
+              <Text style={styles.fieldLabel}>Valor</Text>
+              <View style={styles.inputBox}>
+                <Text style={styles.currency}>R$</Text>
+                <TextInput value={amount.replace("R$", "").trim()} onChangeText={(text) => setAmount(formatBRLInputFromDigits(text))} placeholder="0,00" placeholderTextColor={OB.support} keyboardType="number-pad" returnKeyType="done" selectTextOnFocus onFocus={() => focusField("amount")} onPressIn={() => focusField("amount")} onSubmitEditing={Keyboard.dismiss} style={styles.input} />
+              </View>
             </View>
 
             <Text style={styles.fieldLabel}>Categoria</Text>
@@ -329,19 +291,18 @@ function AddModal({
 
             <View
               style={styles.descriptionField}
-              onLayout={(event) => setDescriptionY(event.nativeEvent.layout.y)}
+              onLayout={registerField("description")}
             >
               <Text style={styles.fieldLabel}>Descrição</Text>
               <TextInput
                 value={desc}
                 onChangeText={setDesc}
-                onFocus={scrollToDescription}
-                onPressIn={scrollToDescription}
-                onBlur={() => {
-                  descriptionFocused.current = false;
-                }}
+                onFocus={() => focusField("description")}
+                onPressIn={() => focusField("description")}
                 placeholder="Ex: compra mercado"
                 placeholderTextColor={OB.support}
+                returnKeyType="done"
+                onSubmitEditing={Keyboard.dismiss}
                 style={styles.inputBoxText}
               />
             </View>

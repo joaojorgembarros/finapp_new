@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
-import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { OB, OnboardingBackground, OnboardingShell, PrimaryButton, ScreenIntro } from "../../src/ui/OnboardingKit";
 
@@ -212,7 +212,10 @@ export default function DreamsScreen() {
       </View>
 
       <Modal visible={modal} transparent animationType="fade" onRequestClose={() => setModal(false)}>
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.modalOverlay}
+        >
           <BlurView
             intensity={34}
             tint="dark"
@@ -232,6 +235,11 @@ export default function DreamsScreen() {
               placeholder="Digite seu sonho"
               placeholderTextColor={OB.support}
               autoFocus
+              returnKeyType="done"
+              onSubmitEditing={() => {
+                Keyboard.dismiss();
+                addCustom();
+              }}
               style={styles.modalInput}
             />
             <View style={styles.modalActions}>
@@ -246,7 +254,7 @@ export default function DreamsScreen() {
               />
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </OnboardingShell>
   );

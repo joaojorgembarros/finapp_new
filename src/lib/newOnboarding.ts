@@ -3,10 +3,14 @@ import { supabase } from "./supabase";
 import { createHousehold, getMyHouseholdId } from "./household";
 import { seedDefaultCategories } from "./categories";
 import { syncGoalsFromDreams } from "./goals";
+import { EmploymentType, upsertProfile } from "./profile";
 
 export type FinancialSituation = {
   banks: string[];
   debts: string[];
+  incomeFixedCents: number;
+  incomeVariableAvgCents: number;
+  employmentType: EmploymentType;
 };
 
 function keyFor(userId: string) {
@@ -60,6 +64,14 @@ export async function markNewOnboardingDone(
   }
   await seedDefaultCategories(householdId);
   await syncGoalsFromDreams({ householdId, userId, dreams, values });
+  if (financialSituation) {
+    await upsertProfile(userId, {
+      income_fixed_cents: financialSituation.incomeFixedCents,
+      income_variable_avg_cents: financialSituation.incomeVariableAvgCents,
+      employment_type: financialSituation.employmentType,
+      onboarding_done: true,
+    });
+  }
   await syncNewOnboardingCompletion(dreams, values, financialSituation);
   await AsyncStorage.setItem(keyFor(userId), "done");
 }

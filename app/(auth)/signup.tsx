@@ -40,6 +40,8 @@ function AuthField({
   onBlur,
   onLayout,
   right,
+  returnKeyType,
+  onSubmitEditing,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
@@ -53,6 +55,8 @@ function AuthField({
   onBlur: () => void;
   onLayout?: (y: number) => void;
   right?: React.ReactNode;
+  returnKeyType?: TextInputProps["returnKeyType"];
+  onSubmitEditing?: TextInputProps["onSubmitEditing"];
 }) {
   return (
     <View onLayout={(event) => onLayout?.(event.nativeEvent.layout.y)}>
@@ -70,6 +74,8 @@ function AuthField({
           autoCorrect={false}
           onFocus={onFocus}
           onBlur={onBlur}
+          returnKeyType={returnKeyType}
+          onSubmitEditing={onSubmitEditing}
           style={styles.fieldInput}
         />
         {right}
@@ -99,12 +105,10 @@ export default function SignupScreen() {
     () => name.trim().length >= 2 && isValidEmail(email) && password.length >= 6 && password === confirm && !loading,
     [confirm, email, loading, name, password]
   );
-  const passwordKeyboardLocked = keyboardHeight > 0 && (focused === "password" || focused === "confirm");
-
   useEffect(() => {
     const showSub = Keyboard.addListener("keyboardDidShow", (event) => {
       setKeyboardHeight(event.endCoordinates.height);
-      if (focusedRef.current === "password" || focusedRef.current === "confirm") {
+      if (focusedRef.current) {
         scrollToField(focusedRef.current, 90);
       }
     });
@@ -135,9 +139,7 @@ export default function SignupScreen() {
     focusedRef.current = key;
     setFocused(key);
 
-    if (key === "password" || key === "confirm") {
-      scrollToField(key, keyboardHeight ? 40 : 220);
-    }
+    scrollToField(key, keyboardHeight ? 40 : 220);
   }
 
   function blurField(key: FocusKey) {
@@ -186,9 +188,8 @@ export default function SignupScreen() {
               styles.scroll,
               { paddingBottom: 28 + (keyboardHeight ? keyboardHeight + 24 : 0) },
             ]}
-            scrollEnabled={!passwordKeyboardLocked}
             keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="none"
+            keyboardDismissMode="on-drag"
             showsVerticalScrollIndicator={false}
           >
             <View style={styles.topBar}>
@@ -275,6 +276,11 @@ export default function SignupScreen() {
                   focused={focused === "confirm"}
                   onFocus={() => focusField("confirm")}
                   onBlur={() => blurField("confirm")}
+                  returnKeyType="done"
+                  onSubmitEditing={() => {
+                    Keyboard.dismiss();
+                    if (canSubmit) void onSignup();
+                  }}
                   onLayout={(y) => {
                     fieldY.current.confirm = y;
                   }}

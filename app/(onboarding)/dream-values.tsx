@@ -151,16 +151,16 @@ export default function DreamValuesScreen() {
   }, []);
 
   useEffect(() => {
-    if (Platform.OS !== "android") return;
-
-    const showSub = Keyboard.addListener("keyboardDidShow", (event) => {
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const showSub = Keyboard.addListener(showEvent, (event) => {
       setKeyboardVisible(true);
-      setKeyboardHeight(event.endCoordinates.height);
+      setKeyboardHeight(Platform.OS === "android" ? event.endCoordinates.height : 0);
       if (focusedIndex.current !== null) {
         scrollToDream(focusedIndex.current, 100);
       }
     });
-    const hideSub = Keyboard.addListener("keyboardDidHide", () => {
+    const hideSub = Keyboard.addListener(hideEvent, () => {
       setKeyboardVisible(false);
       setKeyboardHeight(0);
       focusedIndex.current = null;
@@ -173,7 +173,6 @@ export default function DreamValuesScreen() {
   }, [scrollToDream]);
 
   function focusDream(index: number) {
-    if (Platform.OS !== "android") return;
     focusedIndex.current = index;
     scrollToDream(index, keyboardVisible ? 40 : 240);
   }

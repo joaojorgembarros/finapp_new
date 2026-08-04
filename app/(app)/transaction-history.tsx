@@ -1,6 +1,9 @@
 import React, { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -12,6 +15,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
 import { useHouseholdId } from "../../src/hooks/useHousehold";
+import { useKeyboardAwareScroll } from "../../src/hooks/useKeyboardAwareScroll";
 import { findTransactionAccountById } from "../../src/lib/banks";
 import { formatBRLFromCents, formatDateBRFromYMD } from "../../src/lib/format";
 import { listTransactionHistory, TxRow } from "../../src/lib/transactions";
@@ -59,6 +63,7 @@ function TransactionCard({ transaction }: { transaction: TxRow }) {
 export default function TransactionHistoryScreen() {
   const { userId } = useSession();
   const { householdId, loading: householdLoading } = useHouseholdId(userId);
+  const { scrollRef, keyboardHeight, registerField, focusField } = useKeyboardAwareScroll<"search">();
   const [transactions, setTransactions] = useState<TxRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -125,11 +130,15 @@ export default function TransactionHistoryScreen() {
 
   return (
     <OnboardingShell light>
-      <ScrollView
-        contentContainerStyle={styles.scroll}
-        showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} tintColor={OB.primary} />}
-      >
+      <KeyboardAvoidingView enabled={Platform.OS === "ios"} behavior="padding" style={styles.keyboard}>
+        <ScrollView
+          ref={scrollRef}
+          contentContainerStyle={[styles.scroll, keyboardHeight ? { paddingBottom: keyboardHeight + 28 } : null]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} tintColor={OB.primary} />}
+        >
         <View style={styles.headerCard}>
           <Pressable onPress={() => router.back()} style={styles.backButton} hitSlop={12} accessibilityRole="button" accessibilityLabel="Voltar">
             <Ionicons name="arrow-back" size={20} color="#fff" />
@@ -139,9 +148,9 @@ export default function TransactionHistoryScreen() {
           <Text style={styles.headerSubtitle}>Consulte tudo o que entrou e saiu, manualmente ou por CSV.</Text>
         </View>
 
-        <View style={styles.searchBox}>
+        <View style={styles.searchBox} onLayout={registerField("search")}>
           <Ionicons name="search-outline" size={19} color={OB.support} />
-          <TextInput value={search} onChangeText={setSearch} placeholder="Buscar descrição, categoria ou conta" placeholderTextColor={OB.support} style={styles.searchInput} />
+          <TextInput value={search} onChangeText={setSearch} placeholder="Buscar descrição, categoria ou conta" placeholderTextColor={OB.support} returnKeyType="search" onFocus={() => focusField("search")} onPressIn={() => focusField("search")} onSubmitEditing={Keyboard.dismiss} style={styles.searchInput} />
           {search ? <Pressable onPress={() => setSearch("")} hitSlop={10}><Ionicons name="close-circle" size={19} color={OB.support} /></Pressable> : null}
         </View>
 
@@ -189,12 +198,14 @@ export default function TransactionHistoryScreen() {
         ) : (
           <View style={styles.stateCard}><Ionicons name="receipt-outline" size={32} color={OB.support} /><Text style={styles.stateTitle}>Nenhuma movimentação encontrada</Text><Text style={styles.stateText}>Altere os filtros ou registre um novo lançamento.</Text></View>
         )}
-      </ScrollView>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </OnboardingShell>
   );
 }
 
 const styles = StyleSheet.create({
+  keyboard: { flex: 1 },
   scroll: { padding: 18, gap: 14, paddingBottom: 34 },
   headerCard: { minHeight: 184, borderRadius: 24, padding: 20, paddingRight: 64, justifyContent: "flex-end", backgroundColor: OB.primary },
   backButton: { position: "absolute", right: 14, top: 14, width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.14)", borderWidth: 1, borderColor: "rgba(255,255,255,0.20)" },
