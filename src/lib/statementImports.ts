@@ -5,6 +5,8 @@ import type { BankId } from "./banks";
 import type { ParsedCsvTx } from "./csvImport";
 import type { StatementCategoryRuleInput } from "./statementCategoryRules";
 
+export type StatementBalanceConfidence = "confirmed" | "derived" | "unavailable";
+
 export type StatementImport = {
   id: string;
   file_name: string;
@@ -16,13 +18,54 @@ export type StatementImport = {
   expense_cents: number;
   initial_balance_cents: number | null;
   final_balance_cents: number | null;
+  balance_confidence: StatementBalanceConfidence;
   period_start: string;
   period_end: string;
   created_at: string;
 };
 
 const statementImportColumns =
+  "id,file_name,bank_id,transaction_count,skipped_transaction_count,rejected_transaction_count,income_cents,expense_cents,initial_balance_cents,final_balance_cents,balance_confidence,period_start,period_end,created_at";
+const legacyStatementImportColumns =
   "id,file_name,bank_id,transaction_count,skipped_transaction_count,rejected_transaction_count,income_cents,expense_cents,initial_balance_cents,final_balance_cents,period_start,period_end,created_at";
+
+type StatementImportWithoutConfidence = Omit<StatementImport, "balance_confidence">;
+
+function isBalanceConfidence(value: unknown): value is StatementBalanceConfidence {
+  return value === "confirmed" || value === "derived" || value === "unavailable";
+}
+
+function normalizeStatementImport(
+  row: StatementImportWithoutConfidence & { balance_confidence?: unknown }
+): StatementImport {
+  const balanceConfidence = isBalanceConfidence(row.balance_confidence)
+    ? row.balance_confidence
+    : row.initial_balance_cents !== null
+      ? "derived"
+      : "unavailable";
+  const derivedFinalBalance = row.initial_balance_cents === null
+    ? null
+    : row.initial_balance_cents + row.income_cents - row.expense_cents;
+
+  return {
+    ...row,
+    final_balance_cents: balanceConfidence === "unavailable"
+      ? null
+      : row.final_balance_cents ?? derivedFinalBalance,
+    balance_confidence: balanceConfidence,
+  };
+}
+
+function isMissingBalanceConfidenceColumn(error: unknown) {
+  const candidate = error as { code?: string; message?: string; details?: string } | null;
+  const description = `${candidate?.message ?? ""} ${candidate?.details ?? ""}`;
+  return candidate?.code === "42703" || candidate?.code === "PGRST204" || /balance_confidence/i.test(description);
+}
+
+function isMissingImportStatementV6(error: unknown) {
+  const candidate = error as { code?: string } | null;
+  return candidate?.code === "42883" || candidate?.code === "PGRST202";
+}
 
 export type CategorizedStatementRow = ParsedCsvTx & {
   categoryId?: string | null;
@@ -44,26 +87,57 @@ export async function hashStatementContent(content: string) {
 }
 
 export async function findStatementImportByHash(householdId: string, fileHash: string) {
-  const { data, error } = await supabase
+  const currentResult = await supabase
     .from("statement_imports")
     .select(statementImportColumns)
     .eq("household_id", householdId)
     .eq("file_hash", fileHash)
     .maybeSingle();
 
-  if (error) throw error;
-  return (data ?? null) as StatementImport | null;
+  if (!currentResult.error) {
+    return currentResult.data
+      ? normalizeStatementImport(currentResult.data as unknown as StatementImport)
+      : null;
+  }
+  if (!isMissingBalanceConfidenceColumn(currentResult.error)) throw currentResult.error;
+
+  const legacyResult = await supabase
+    .from("statement_imports")
+    .select(legacyStatementImportColumns)
+    .eq("household_id", householdId)
+    .eq("file_hash", fileHash)
+    .maybeSingle();
+
+  if (legacyResult.error) throw legacyResult.error;
+  return legacyResult.data
+    ? normalizeStatementImport(legacyResult.data as unknown as StatementImportWithoutConfidence)
+    : null;
 }
 
 export async function listStatementImports(householdId: string) {
-  const { data, error } = await supabase
+  const currentResult = await supabase
     .from("statement_imports")
     .select(statementImportColumns)
     .eq("household_id", householdId)
     .order("created_at", { ascending: false });
 
-  if (error) throw error;
-  return (data ?? []) as StatementImport[];
+  if (!currentResult.error) {
+    return (currentResult.data ?? []).map((row) =>
+      normalizeStatementImport(row as unknown as StatementImport)
+    );
+  }
+  if (!isMissingBalanceConfidenceColumn(currentResult.error)) throw currentResult.error;
+
+  const legacyResult = await supabase
+    .from("statement_imports")
+    .select(legacyStatementImportColumns)
+    .eq("household_id", householdId)
+    .order("created_at", { ascending: false });
+
+  if (legacyResult.error) throw legacyResult.error;
+  return (legacyResult.data ?? []).map((row) =>
+    normalizeStatementImport(row as unknown as StatementImportWithoutConfidence)
+  );
 }
 
 export async function deleteStatementImport(householdId: string, importId: string) {
@@ -105,6 +179,8 @@ export type ImportStatementResult = {
   rejected_count: number;
   categorized_count: number;
   learned_rules_count: number;
+  imported_period_start?: string | null;
+  imported_period_end?: string | null;
 };
 
 export async function importStatement(params: {
@@ -114,24 +190,33 @@ export async function importStatement(params: {
   bankId: BankId | null;
   initialBalanceCents: number | null;
   finalBalanceCents: number | null;
+  balanceConfidence: StatementBalanceConfidence;
   rejectedCount: number;
   rows: CategorizedStatementRow[];
   categoryRules: StatementCategoryRuleInput[];
 }) {
-  const { data, error } = await supabase.rpc("import_statement_v5", {
+  const rpcParams = {
     p_household_id: params.householdId,
     p_file_hash: params.fileHash,
     p_file_name: params.fileName,
     p_bank_id: params.bankId,
     p_initial_balance_cents: params.initialBalanceCents,
     p_final_balance_cents: params.finalBalanceCents,
+    p_balance_confidence: params.balanceConfidence,
     p_rejected_count: params.rejectedCount,
     p_rows: toStatementRows(params.rows),
     p_category_rules: params.categoryRules,
-  });
+  };
+  const currentResult = await supabase.rpc("import_statement_v6", rpcParams);
 
-  if (error) throw error;
-  return data as ImportStatementResult;
+  if (!currentResult.error) return currentResult.data as ImportStatementResult;
+  if (!isMissingImportStatementV6(currentResult.error)) throw currentResult.error;
+
+  const { p_balance_confidence: _balanceConfidence, ...legacyRpcParams } = rpcParams;
+  const legacyResult = await supabase.rpc("import_statement_v5", legacyRpcParams);
+
+  if (legacyResult.error) throw legacyResult.error;
+  return legacyResult.data as ImportStatementResult;
 }
 
 export type StatementImportTransaction = {

@@ -140,7 +140,7 @@ export default function DreamDetailsScreen() {
   const goalId = Array.isArray(params.goalId) ? params.goalId[0] : params.goalId;
   const { userId } = useSession();
   const { householdId, loading: householdLoading } = useHouseholdId(userId);
-  const { scrollRef, keyboardHeight, registerField, focusField } = useKeyboardAwareScroll<"motivation" | "contribution">();
+  const { scrollRef, keyboardInset, registerField, focusField, cancelPendingScroll } = useKeyboardAwareScroll<"motivation" | "contribution">();
 
   const [goal, setGoal] = useState<GoalProgress | null>(null);
   const [contributions, setContributions] = useState<GoalContribution[]>([]);
@@ -349,9 +349,10 @@ export default function DreamDetailsScreen() {
       <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScrollView
           ref={scrollRef}
-          contentContainerStyle={[styles.scroll, keyboardHeight ? { paddingBottom: keyboardHeight + 32 } : null]}
+          contentContainerStyle={[styles.scroll, { paddingBottom: 32 + keyboardInset }]}
           keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
+          keyboardDismissMode="none"
+          onScrollBeginDrag={cancelPendingScroll}
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.headerCard}>
@@ -496,15 +497,14 @@ export default function DreamDetailsScreen() {
                 const selected = selectedDay === dateKey;
                 return (
                   <Pressable key={dateKey} onPress={() => setSelectedDay(dateKey)} style={styles.calendarCell}>
-                    <View style={[styles.dayCircle, selected && styles.dayCircleSelected]}>
-                      <Text style={[styles.dayText, selected && styles.dayTextSelected]}>{day}</Text>
+                    <View style={[styles.dayCircle, hasContribution && styles.dayCircleContribution, selected && styles.dayCircleSelected]}>
+                      <Text style={[styles.dayText, hasContribution && styles.dayTextContribution, selected && styles.dayTextSelected]}>{day}</Text>
                     </View>
-                    <View style={[styles.contributionDot, hasContribution && styles.contributionDotActive]} />
                   </Pressable>
                 );
               })}
             </View>
-            <View style={styles.calendarLegend}><View style={styles.legendDot} /><Text style={styles.calendarLegendText}>Dia com valor guardado</Text></View>
+            <View style={styles.calendarLegend}><View style={styles.legendDay}><Text style={styles.legendDayText}>12</Text></View><Text style={styles.calendarLegendText}>Dia com valor guardado</Text></View>
 
             {selectedDay ? (
               <View style={styles.selectedDayCard}>
@@ -533,7 +533,7 @@ const styles = StyleSheet.create({
   loadingText: { color: OB.support, fontSize: 13, fontWeight: "800" },
   simpleBackButton: { borderRadius: 14, paddingHorizontal: 18, paddingVertical: 11, backgroundColor: OB.primary },
   simpleBackText: { color: "#fff", fontWeight: "900" },
-  headerCard: { minHeight: 170, borderRadius: 24, padding: 20, paddingRight: 60, justifyContent: "flex-end", backgroundColor: OB.primary },
+  headerCard: { minHeight: 140, borderRadius: 24, padding: 20, paddingRight: 60, justifyContent: "flex-end", backgroundColor: OB.primary },
   backButton: { position: "absolute", right: 14, top: 14, width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.14)", borderWidth: 1, borderColor: "rgba(255,255,255,0.20)" },
   headerEyebrow: { color: OB.textOnDarkMid, fontSize: 10, fontWeight: "900", letterSpacing: 2, textTransform: "uppercase" },
   headerTitle: { color: "#fff", fontSize: 25, fontWeight: "900", lineHeight: 30, marginTop: 8 },
@@ -582,7 +582,7 @@ const styles = StyleSheet.create({
   saveDetailsButton: { minHeight: 52, borderRadius: 16, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: OB.primary },
   saveDetailsText: { color: "#fff", fontSize: 13, fontWeight: "900" },
   buttonDisabled: { opacity: 0.4 },
-  fieldLabel: { color: OB.support, fontSize: 10, fontWeight: "900", letterSpacing: 0.8, textTransform: "uppercase" },
+  fieldLabel: { color: OB.support, fontSize: 10, fontWeight: "900", letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 4 },
   optionalLabel: { textTransform: "none", letterSpacing: 0, fontWeight: "700" },
   moneyInputWrap: { minHeight: 54, borderRadius: 16, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: OB.offWhite, borderWidth: 1, borderColor: OB.supportSoft },
   moneyPrefix: { color: OB.support, fontSize: 14, fontWeight: "900" },
@@ -600,13 +600,14 @@ const styles = StyleSheet.create({
   calendarGrid: { flexDirection: "row", flexWrap: "wrap", rowGap: 5 },
   calendarCell: { width: "14.2857%", height: 46, alignItems: "center", justifyContent: "center" },
   dayCircle: { width: 31, height: 31, borderRadius: 999, alignItems: "center", justifyContent: "center" },
-  dayCircleSelected: { backgroundColor: OB.primary },
+  dayCircleContribution: { borderWidth: 2, borderColor: "#2F73E0", backgroundColor: "rgba(47,115,224,0.07)" },
+  dayCircleSelected: { borderWidth: 2, borderColor: OB.primary, backgroundColor: OB.primary },
   dayText: { color: OB.primary, fontSize: 12, fontWeight: "900" },
+  dayTextContribution: { color: "#2F73E0" },
   dayTextSelected: { color: "#fff" },
-  contributionDot: { width: 5, height: 5, borderRadius: 999, marginTop: 2, backgroundColor: "transparent" },
-  contributionDotActive: { backgroundColor: "#2F73E0" },
   calendarLegend: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 },
-  legendDot: { width: 6, height: 6, borderRadius: 999, backgroundColor: "#2F73E0" },
+  legendDay: { width: 21, height: 21, borderRadius: 999, alignItems: "center", justifyContent: "center", borderWidth: 1.5, borderColor: "#2F73E0", backgroundColor: "rgba(47,115,224,0.07)" },
+  legendDayText: { color: "#2F73E0", fontSize: 7, fontWeight: "900" },
   calendarLegendText: { color: OB.support, fontSize: 9, fontWeight: "800" },
   selectedDayCard: { borderRadius: 16, padding: 12, gap: 9, backgroundColor: OB.offWhite, borderWidth: 1, borderColor: OB.supportSoft },
   selectedDayTitle: { color: OB.primary, fontSize: 12, fontWeight: "900" },

@@ -274,7 +274,7 @@ const styles = StyleSheet.create({
     backgroundColor: OB.offWhite,
   },
   headerCard: {
-    minHeight: 154,
+    minHeight: 140,
     borderRadius: 22,
     padding: 20,
     paddingRight: 58,

@@ -13,14 +13,17 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { router, useFocusEffect } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useHouseholdId } from "../../src/hooks/useHousehold";
 import { useKeyboardAwareScroll } from "../../src/hooks/useKeyboardAwareScroll";
 import { findTransactionAccountById } from "../../src/lib/banks";
+import { Category, listCategories } from "../../src/lib/categories";
 import { formatBRLFromCents, formatDateBRFromYMD } from "../../src/lib/format";
 import { listTransactionHistory, TxRow } from "../../src/lib/transactions";
 import { useSession } from "../../src/providers/SessionProvider";
+import { BankLogo } from "../../src/ui/BankLogo";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
+import { TransactionEditorModal } from "../../src/ui/TransactionEditorModal";
 
 type FlowFilter = "all" | "income" | "expense";
 
@@ -35,16 +38,31 @@ function accountName(accountId: string | null) {
   return findTransactionAccountById(accountId)?.name ?? "Outra conta";
 }
 
-function TransactionCard({ transaction }: { transaction: TxRow }) {
+function TransactionCard({ transaction, onPress }: { transaction: TxRow; onPress: () => void }) {
   const income = transaction.type === "income";
   const color = income ? "#169B62" : "#D84C4C";
+  const transactionAccount = findTransactionAccountById(transaction.account_id);
   const title = transaction.note?.trim() || transaction.category?.name || "Movimentação";
 
   return (
-    <View style={styles.transactionCard}>
-      <View style={[styles.transactionIcon, { backgroundColor: `${color}16` }]}>
-        <Ionicons name={income ? "arrow-down" : "arrow-up"} size={18} color={color} />
-      </View>
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [styles.transactionCard, pressed && styles.transactionCardPressed]}
+      accessibilityRole="button"
+      accessibilityLabel={`Editar ${income ? "receita" : "despesa"}: ${title}, ${transactionAccount?.name ?? "conta não informada"}`}
+    >
+      {transactionAccount ? (
+        <BankLogo
+          bankId={transactionAccount.id}
+          size={39}
+          color={transactionAccount.color}
+          shortName={transactionAccount.shortName}
+        />
+      ) : (
+        <View style={[styles.transactionIcon, { backgroundColor: `${color}16` }]}>
+          <Ionicons name={income ? "arrow-down" : "arrow-up"} size={18} color={color} />
+        </View>
+      )}
       <View style={styles.transactionInfo}>
         <Text numberOfLines={1} style={styles.transactionTitle}>{title}</Text>
         <Text style={styles.transactionMeta} numberOfLines={2}>
@@ -55,16 +73,23 @@ function TransactionCard({ transaction }: { transaction: TxRow }) {
           <Text style={[styles.sourceText, transaction.statement_import_id && styles.sourceTextCsv]}>{transaction.statement_import_id ? "CSV" : "Manual"}</Text>
         </View>
       </View>
-      <Text style={[styles.transactionAmount, { color }]}>{income ? "+" : "-"}{formatBRLFromCents(transaction.amount_cents)}</Text>
-    </View>
+      <View style={styles.amountColumn}>
+        <Text style={[styles.transactionAmount, { color }]}>{income ? "+" : "-"}{formatBRLFromCents(transaction.amount_cents)}</Text>
+        <Ionicons name="chevron-forward" size={16} color={OB.support} />
+      </View>
+    </Pressable>
   );
 }
 
 export default function TransactionHistoryScreen() {
+  const params = useLocalSearchParams<{ importId?: string | string[] }>();
+  const requestedImportId = Array.isArray(params.importId) ? params.importId[0] : params.importId;
   const { userId } = useSession();
   const { householdId, loading: householdLoading } = useHouseholdId(userId);
-  const { scrollRef, keyboardHeight, registerField, focusField } = useKeyboardAwareScroll<"search">();
+  const { scrollRef, keyboardInset, registerField, focusField, cancelPendingScroll } = useKeyboardAwareScroll<"search">();
   const [transactions, setTransactions] = useState<TxRow[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [selectedTransaction, setSelectedTransaction] = useState<TxRow | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState("");
@@ -72,6 +97,7 @@ export default function TransactionHistoryScreen() {
   const [flow, setFlow] = useState<FlowFilter>("all");
   const [month, setMonth] = useState("all");
   const [account, setAccount] = useState("all");
+  const [statementImportId, setStatementImportId] = useState<string | null>(requestedImportId ?? null);
 
   const load = useCallback(async (refresh = false) => {
     if (!householdId) {
@@ -82,7 +108,12 @@ export default function TransactionHistoryScreen() {
       if (refresh) setRefreshing(true);
       else setLoading(true);
       setLoadError("");
-      setTransactions(await listTransactionHistory(householdId));
+      const [nextTransactions, nextCategories] = await Promise.all([
+        listTransactionHistory(householdId),
+        listCategories(householdId),
+      ]);
+      setTransactions(nextTransactions);
+      setCategories(nextCategories);
     } catch (error: any) {
       setLoadError(error?.message ?? "Não foi possível carregar o histórico.");
     } finally {
@@ -110,6 +141,7 @@ export default function TransactionHistoryScreen() {
   const filtered = useMemo(() => {
     const query = search.trim().toLocaleLowerCase("pt-BR");
     return transactions.filter((transaction) => {
+      if (statementImportId && transaction.statement_import_id !== statementImportId) return false;
       if (flow !== "all" && transaction.type !== flow) return false;
       if (month !== "all" && !transaction.occurred_on.startsWith(month)) return false;
       const accountKey = transaction.account_id ?? "not-informed";
@@ -119,7 +151,7 @@ export default function TransactionHistoryScreen() {
         .filter(Boolean)
         .some((value) => String(value).toLocaleLowerCase("pt-BR").includes(query));
     });
-  }, [account, flow, month, search, transactions]);
+  }, [account, flow, month, search, statementImportId, transactions]);
   const totals = useMemo(() => filtered.reduce((summary, transaction) => {
     if (transaction.type === "income") summary.income += Number(transaction.amount_cents || 0);
     else summary.expense += Number(transaction.amount_cents || 0);
@@ -133,10 +165,11 @@ export default function TransactionHistoryScreen() {
       <KeyboardAvoidingView enabled={Platform.OS === "ios"} behavior="padding" style={styles.keyboard}>
         <ScrollView
           ref={scrollRef}
-          contentContainerStyle={[styles.scroll, keyboardHeight ? { paddingBottom: keyboardHeight + 28 } : null]}
+          contentContainerStyle={[styles.scroll, { paddingBottom: 34 + keyboardInset }]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
+          keyboardDismissMode="none"
+          onScrollBeginDrag={cancelPendingScroll}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} tintColor={OB.primary} />}
         >
         <View style={styles.headerCard}>
@@ -153,6 +186,19 @@ export default function TransactionHistoryScreen() {
           <TextInput value={search} onChangeText={setSearch} placeholder="Buscar descrição, categoria ou conta" placeholderTextColor={OB.support} returnKeyType="search" onFocus={() => focusField("search")} onPressIn={() => focusField("search")} onSubmitEditing={Keyboard.dismiss} style={styles.searchInput} />
           {search ? <Pressable onPress={() => setSearch("")} hitSlop={10}><Ionicons name="close-circle" size={19} color={OB.support} /></Pressable> : null}
         </View>
+
+        {statementImportId ? (
+          <View style={styles.importFilterCard}>
+            <Ionicons name="document-text-outline" size={19} color="#376EA5" />
+            <View style={styles.importFilterInfo}>
+              <Text style={styles.importFilterTitle}>Movimentações do arquivo importado</Text>
+              <Text style={styles.importFilterText}>A lista está mostrando somente os registros desta importação.</Text>
+            </View>
+            <Pressable onPress={() => setStatementImportId(null)} hitSlop={10} accessibilityRole="button" accessibilityLabel="Mostrar todo o histórico">
+              <Ionicons name="close-circle" size={21} color={OB.support} />
+            </Pressable>
+          </View>
+        ) : null}
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
           {([{"id":"all","label":"Todas"},{"id":"income","label":"Receitas"},{"id":"expense","label":"Despesas"}] as { id: FlowFilter; label: string }[]).map((item) => (
@@ -194,12 +240,23 @@ export default function TransactionHistoryScreen() {
         ) : loadError ? (
           <View style={styles.stateCard}><Ionicons name="cloud-offline-outline" size={32} color={OB.support} /><Text style={styles.stateTitle}>Não foi possível carregar</Text><Text style={styles.stateText}>{loadError}</Text><Pressable onPress={() => void load()} style={styles.retryButton}><Text style={styles.retryText}>Tentar novamente</Text></Pressable></View>
         ) : filtered.length ? (
-          <View style={styles.transactionList}>{filtered.map((transaction) => <TransactionCard key={transaction.id} transaction={transaction} />)}</View>
+          <View style={styles.transactionList}>{filtered.map((transaction) => <TransactionCard key={transaction.id} transaction={transaction} onPress={() => setSelectedTransaction(transaction)} />)}</View>
         ) : (
           <View style={styles.stateCard}><Ionicons name="receipt-outline" size={32} color={OB.support} /><Text style={styles.stateTitle}>Nenhuma movimentação encontrada</Text><Text style={styles.stateText}>Altere os filtros ou registre um novo lançamento.</Text></View>
         )}
         </ScrollView>
       </KeyboardAvoidingView>
+      {householdId && userId ? (
+        <TransactionEditorModal
+          visible={Boolean(selectedTransaction)}
+          transaction={selectedTransaction}
+          categories={categories}
+          householdId={householdId}
+          userId={userId}
+          onClose={() => setSelectedTransaction(null)}
+          onChanged={() => load(true)}
+        />
+      ) : null}
     </OnboardingShell>
   );
 }
@@ -207,13 +264,17 @@ export default function TransactionHistoryScreen() {
 const styles = StyleSheet.create({
   keyboard: { flex: 1 },
   scroll: { padding: 18, gap: 14, paddingBottom: 34 },
-  headerCard: { minHeight: 184, borderRadius: 24, padding: 20, paddingRight: 64, justifyContent: "flex-end", backgroundColor: OB.primary },
+  headerCard: { minHeight: 140, borderRadius: 24, padding: 20, paddingRight: 64, justifyContent: "flex-end", backgroundColor: OB.primary },
   backButton: { position: "absolute", right: 14, top: 14, width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.14)", borderWidth: 1, borderColor: "rgba(255,255,255,0.20)" },
   headerEyebrow: { color: OB.textOnDarkMid, fontSize: 10, fontWeight: "900", letterSpacing: 2, textTransform: "uppercase" },
   headerTitle: { color: "#fff", fontSize: 24, fontWeight: "900", lineHeight: 29, marginTop: 8 },
   headerSubtitle: { color: OB.textOnDarkMid, fontSize: 12, fontWeight: "700", lineHeight: 18, marginTop: 6 },
   searchBox: { minHeight: 54, borderRadius: 17, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "#fff", borderWidth: 1, borderColor: OB.supportSoft },
   searchInput: { flex: 1, color: OB.primary, fontSize: 13, fontWeight: "700" },
+  importFilterCard: { minHeight: 64, borderRadius: 16, padding: 13, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "rgba(55,110,165,0.10)", borderWidth: 1, borderColor: "rgba(55,110,165,0.22)" },
+  importFilterInfo: { flex: 1 },
+  importFilterTitle: { color: OB.primary, fontSize: 11, fontWeight: "900" },
+  importFilterText: { color: OB.support, fontSize: 9, lineHeight: 14, fontWeight: "700", marginTop: 2 },
   filterRow: { gap: 8, paddingRight: 4 },
   filterChip: { minHeight: 42, borderRadius: 14, paddingHorizontal: 17, alignItems: "center", justifyContent: "center", backgroundColor: "#fff", borderWidth: 1, borderColor: OB.supportSoft },
   filterChipActive: { backgroundColor: OB.primary, borderColor: OB.primary },
@@ -235,6 +296,7 @@ const styles = StyleSheet.create({
   listCount: { color: OB.support, fontSize: 10, fontWeight: "800" },
   transactionList: { borderRadius: 20, overflow: "hidden", backgroundColor: "#fff", borderWidth: 1, borderColor: OB.supportSoft },
   transactionCard: { minHeight: 92, padding: 13, flexDirection: "row", alignItems: "flex-start", gap: 11, borderBottomWidth: 1, borderBottomColor: OB.supportSoft },
+  transactionCardPressed: { backgroundColor: OB.offWhite },
   transactionIcon: { width: 39, height: 39, borderRadius: 13, alignItems: "center", justifyContent: "center" },
   transactionInfo: { flex: 1, minWidth: 0 },
   transactionTitle: { color: OB.primary, fontSize: 13, fontWeight: "900" },
@@ -245,6 +307,7 @@ const styles = StyleSheet.create({
   sourceText: { color: OB.support, fontSize: 8, fontWeight: "900", textTransform: "uppercase" },
   sourceTextCsv: { color: "#376EA5" },
   transactionAmount: { maxWidth: 105, fontSize: 12, fontWeight: "900", paddingTop: 2 },
+  amountColumn: { minHeight: 42, alignItems: "flex-end", justifyContent: "space-between" },
   stateCard: { minHeight: 180, borderRadius: 20, padding: 24, alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "#fff", borderWidth: 1, borderColor: OB.supportSoft },
   stateTitle: { color: OB.primary, fontSize: 14, fontWeight: "900", textAlign: "center" },
   stateText: { color: OB.support, fontSize: 11, fontWeight: "700", textAlign: "center", lineHeight: 17 },

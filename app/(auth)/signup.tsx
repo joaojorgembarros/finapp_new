@@ -1,9 +1,10 @@
 // app/(auth)/signup.tsx
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   Keyboard,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -87,6 +88,8 @@ function AuthField({
 export default function SignupScreen() {
   const background = useMemo(() => <OnboardingBackground />, []);
   const scrollRef = useRef<ScrollView>(null);
+  const pendingScrollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const manualScrollRef = useRef(false);
   const focusedRef = useRef<FocusKey>(null);
   const fieldY = useRef<Record<string, number>>({});
   const cardY = useRef(0);
@@ -97,7 +100,8 @@ export default function SignupScreen() {
   const [confirm, setConfirm] = useState("");
   const [loading, setLoading] = useState(false);
   const [focused, setFocused] = useState<FocusKey>(null);
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [keyboardInset, setKeyboardInset] = useState(0);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
 
@@ -105,41 +109,84 @@ export default function SignupScreen() {
     () => name.trim().length >= 2 && isValidEmail(email) && password.length >= 6 && password === confirm && !loading,
     [confirm, email, loading, name, password]
   );
-  useEffect(() => {
-    const showSub = Keyboard.addListener("keyboardDidShow", (event) => {
-      setKeyboardHeight(event.endCoordinates.height);
-      if (focusedRef.current) {
-        scrollToField(focusedRef.current, 90);
-      }
-    });
-    const hideSub = Keyboard.addListener("keyboardDidHide", () => {
-      setKeyboardHeight(0);
-      focusedRef.current = null;
-    });
 
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
+  const clearPendingScroll = useCallback(() => {
+    if (pendingScrollRef.current === null) return;
+    clearTimeout(pendingScrollRef.current);
+    pendingScrollRef.current = null;
   }, []);
 
-  function scrollToField(key: FocusKey, delay = 40) {
+  const cancelPendingScroll = useCallback(() => {
+    manualScrollRef.current = true;
+    clearPendingScroll();
+  }, [clearPendingScroll]);
+
+  const scrollToField = useCallback((key: FocusKey, delay = 40) => {
+    clearPendingScroll();
+    if (manualScrollRef.current) return;
     if (!key) return;
     const y = fieldY.current[key];
     if (typeof y !== "number") return;
     const fieldTopOnPage = cardY.current + formY.current + y;
     const targetTop = key === "confirm" ? 248 : key === "password" ? 260 : 18;
 
-    setTimeout(() => {
+    pendingScrollRef.current = setTimeout(() => {
+      pendingScrollRef.current = null;
       scrollRef.current?.scrollTo({ y: Math.max(fieldTopOnPage - targetTop, 0), animated: true });
     }, delay);
-  }
+  }, [clearPendingScroll]);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener("keyboardDidShow", (event) => {
+      setKeyboardVisible(true);
+
+      const applyInset = (inset: number) => {
+        setKeyboardInset(inset);
+        if (!manualScrollRef.current && focusedRef.current) {
+          scrollToField(focusedRef.current, 90);
+        }
+      };
+
+      if (Platform.OS === "ios") {
+        applyInset(event.endCoordinates.height);
+        return;
+      }
+
+      const scrollView = scrollRef.current?.getNativeScrollRef();
+      if (!scrollView) {
+        applyInset(0);
+        return;
+      }
+
+      scrollView.measureInWindow((_x, y, _width, height) => {
+        const overlap = Math.max(
+          0,
+          Math.min(event.endCoordinates.height, y + height - event.endCoordinates.screenY)
+        );
+        applyInset(overlap);
+      });
+    });
+    const hideSub = Keyboard.addListener("keyboardDidHide", () => {
+      setKeyboardVisible(false);
+      setKeyboardInset(0);
+      focusedRef.current = null;
+      manualScrollRef.current = false;
+      clearPendingScroll();
+    });
+
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+      clearPendingScroll();
+    };
+  }, [clearPendingScroll, scrollToField]);
 
   function focusField(key: FocusKey) {
+    manualScrollRef.current = false;
     focusedRef.current = key;
     setFocused(key);
 
-    scrollToField(key, keyboardHeight ? 40 : 220);
+    scrollToField(key, keyboardVisible ? 40 : 220);
   }
 
   function blurField(key: FocusKey) {
@@ -186,10 +233,11 @@ export default function SignupScreen() {
             ref={scrollRef}
             contentContainerStyle={[
               styles.scroll,
-              { paddingBottom: 28 + (keyboardHeight ? keyboardHeight + 24 : 0) },
+              { paddingBottom: 28 + (keyboardInset ? keyboardInset + 24 : 0) },
             ]}
             keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="on-drag"
+            keyboardDismissMode="none"
+            onScrollBeginDrag={cancelPendingScroll}
             showsVerticalScrollIndicator={false}
           >
             <View style={styles.topBar}>

@@ -1,9 +1,10 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { Alert, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { OB, OnboardingBackground, OnboardingShell, PrimaryButton, ScreenIntro } from "../../src/ui/OnboardingKit";
+import { useKeyboardAwareScroll } from "../../src/hooks/useKeyboardAwareScroll";
 
 type Dream = { label: string; size: "sm" | "md" | "lg" };
 
@@ -96,6 +97,8 @@ export default function DreamsScreen() {
   );
   const [modal, setModal] = useState(false);
   const [custom, setCustom] = useState("");
+  const customInputRef = useRef<TextInput>(null);
+  const modalKeyboard = useKeyboardAwareScroll<"custom">(12, { ensureFieldRunway: true });
 
   const allDreams = useMemo(
     () =>
@@ -105,6 +108,12 @@ export default function DreamsScreen() {
     [excludedDreams, extras]
   );
   const count = selected.size;
+
+  function closeCustomModal() {
+    modalKeyboard.cancelPendingScroll();
+    Keyboard.dismiss();
+    setModal(false);
+  }
 
   function toggle(label: string) {
     if (!selected.has(label) && count >= maxDreams) {
@@ -136,7 +145,7 @@ export default function DreamsScreen() {
     }
     setSelected((previous) => new Set([...previous, label]));
     setCustom("");
-    setModal(false);
+    closeCustomModal();
   }
 
   function openCustomModal() {
@@ -211,9 +220,18 @@ export default function DreamsScreen() {
         </View>
       </View>
 
-      <Modal visible={modal} transparent animationType="fade" onRequestClose={() => setModal(false)}>
+      <Modal
+        visible={modal}
+        transparent
+        animationType="fade"
+        onRequestClose={closeCustomModal}
+        onShow={() => {
+          requestAnimationFrame(() => customInputRef.current?.focus());
+        }}
+      >
         <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          enabled={Platform.OS === "ios"}
+          behavior="padding"
           style={styles.modalOverlay}
         >
           <BlurView
@@ -222,38 +240,60 @@ export default function DreamsScreen() {
             experimentalBlurMethod="dimezisBlurView"
             style={StyleSheet.absoluteFill}
           />
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Cadastrar sonho</Text>
-              <Pressable onPress={() => setModal(false)} hitSlop={12}>
-                <Ionicons name="close" size={20} color={OB.support} />
-              </Pressable>
-            </View>
-            <TextInput
-              value={custom}
-              onChangeText={setCustom}
-              placeholder="Digite seu sonho"
-              placeholderTextColor={OB.support}
-              autoFocus
-              returnKeyType="done"
-              onSubmitEditing={() => {
-                Keyboard.dismiss();
-                addCustom();
-              }}
-              style={styles.modalInput}
-            />
-            <View style={styles.modalActions}>
-              <Pressable onPress={() => setModal(false)} style={styles.cancelButton}>
-                <Text style={styles.cancelText}>Cancelar</Text>
-              </Pressable>
-              <PrimaryButton
-                title="Concluir"
-                disabled={!custom.trim()}
-                onPress={addCustom}
-                style={styles.modalPrimary}
+          <ScrollView
+            ref={modalKeyboard.scrollRef}
+            style={styles.modalScroll}
+            contentContainerStyle={[
+              styles.modalScrollContent,
+              modalKeyboard.keyboardInset
+                ? { paddingBottom: 20 + modalKeyboard.keyboardInset }
+                : null,
+            ]}
+            keyboardDismissMode="none"
+            keyboardShouldPersistTaps="always"
+            onScrollBeginDrag={modalKeyboard.cancelPendingScroll}
+            onScroll={modalKeyboard.handleScroll}
+            scrollEventThrottle={16}
+            onContentSizeChange={modalKeyboard.handleContentSizeChange}
+            showsVerticalScrollIndicator={false}
+          >
+            <View
+              ref={modalKeyboard.registerFieldNode("custom")}
+              collapsable={false}
+              onLayout={modalKeyboard.registerField("custom")}
+              style={styles.modalCard}
+            >
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Cadastrar sonho</Text>
+                <Pressable onPress={closeCustomModal} hitSlop={12}>
+                  <Ionicons name="close" size={20} color={OB.support} />
+                </Pressable>
+              </View>
+              <TextInput
+                ref={customInputRef}
+                value={custom}
+                onChangeText={setCustom}
+                placeholder="Digite seu sonho"
+                placeholderTextColor={OB.support}
+                returnKeyType="done"
+                onFocus={() => modalKeyboard.focusField("custom")}
+                onPressIn={() => modalKeyboard.focusField("custom")}
+                onSubmitEditing={addCustom}
+                style={styles.modalInput}
               />
+              <View style={styles.modalActions}>
+                <Pressable onPress={closeCustomModal} style={styles.cancelButton}>
+                  <Text style={styles.cancelText}>Cancelar</Text>
+                </Pressable>
+                <PrimaryButton
+                  title="Concluir"
+                  disabled={!custom.trim()}
+                  onPress={addCustom}
+                  style={styles.modalPrimary}
+                />
+              </View>
             </View>
-          </View>
+          </ScrollView>
         </KeyboardAvoidingView>
       </Modal>
     </OnboardingShell>
@@ -363,10 +403,15 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    alignItems: "center",
+    backgroundColor: "rgba(6,21,46,0.78)",
+  },
+  modalScroll: {
+    flex: 1,
+  },
+  modalScrollContent: {
+    flexGrow: 1,
     justifyContent: "center",
     padding: 20,
-    backgroundColor: "rgba(6,21,46,0.78)",
   },
   modalCard: {
     width: "100%",

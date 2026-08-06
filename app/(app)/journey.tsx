@@ -10,18 +10,26 @@ import { supabase } from "../../src/lib/supabase";
 import { useSession } from "../../src/providers/SessionProvider";
 import { useHouseholdId } from "../../src/hooks/useHousehold";
 import { useKeyboardAwareScroll } from "../../src/hooks/useKeyboardAwareScroll";
-import { Category, listCategories } from "../../src/lib/categories";
-import { addTransaction, listTransactionsByMonth, TxRow as DatabaseTx } from "../../src/lib/transactions";
+import { Category } from "../../src/lib/categories";
+import { listTransactionsByMonth } from "../../src/lib/transactions";
 import {
-  BANK_OPTIONS,
-  CASH_ACCOUNT,
-  OTHER_BANK,
   findTransactionAccountById,
   TransactionAccountId,
   TransactionAccountOption,
 } from "../../src/lib/banks";
 import { GoalProgress, listGoalsWithProgress, syncGoalsFromDreams } from "../../src/lib/goals";
 import { MountainHero } from "../../src/features/journey/MountainHero";
+import { getAndroidBackAction } from "../../src/lib/androidBack";
+import { BankLogo } from "../../src/ui/BankLogo";
+import {
+  FinancialOverview,
+  FinancialOverviewCommitment,
+  FinancialOverviewTransaction,
+  getCycleForOffset,
+  getFinancialOverview,
+  getFinancialSettings,
+  setCommitmentPaid,
+} from "../../src/lib/financialPlanning";
 
 type Tab = "controle" | "jornada" | "desafios";
 type MenuIcon = keyof typeof Ionicons.glyphMap;
@@ -101,15 +109,34 @@ function ProgressCard({ goal, icon, onOpen }: { goal: GoalProgress; icon: string
     </Pressable>
   );
 }
-function SummaryCard({ label, value, icon, color }: { label: string; value: number; icon: string; color: string }) {
+function SummaryCard({
+  label,
+  value,
+  icon,
+  color,
+  wide = false,
+}: {
+  label: string;
+  value: number;
+  icon: string;
+  color: string;
+  wide?: boolean;
+}) {
   return (
-    <View style={styles.summaryCard}>
+    <View style={[styles.summaryCard, wide && styles.summaryCardWide]}>
       <View style={[styles.summaryAccent, { backgroundColor: color }]} />
       <View style={[styles.summaryIcon, { backgroundColor: `${color}1A` }]}>
         <Ionicons name={icon as any} size={17} color={color} />
       </View>
-      <Text style={styles.summaryLabel}>{label}</Text>
-      <Text style={styles.summaryValue}>{formatBRLFromCents(value)}</Text>
+      <Text style={[styles.summaryLabel, wide && styles.summaryTextWide]}>{label}</Text>
+      <Text
+        style={[styles.summaryValue, wide && styles.summaryTextWide]}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.72}
+      >
+        {formatBRLFromCents(value)}
+      </Text>
     </View>
   );
 }
@@ -135,7 +162,7 @@ function TxRow({ tx }: { tx: Tx }) {
   );
 }
 
-function AddModal({
+export function AddModal({
   visible,
   categories,
   accountOptions,
@@ -155,7 +182,7 @@ function AddModal({
   const insets = useSafeAreaInsets();
   const androidStatusBar = Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0;
   const topInset = Math.max(insets.top, androidStatusBar, 18);
-  const { scrollRef, keyboardHeight, registerField, focusField } = useKeyboardAwareScroll<"amount" | "description">(18);
+  const { scrollRef, keyboardInset, registerField, focusField, cancelPendingScroll } = useKeyboardAwareScroll<"amount" | "description">(18);
   const [type, setType] = useState<TxType>("Receita");
   const [amount, setAmount] = useState("");
   const [desc, setDesc] = useState("");
@@ -194,7 +221,15 @@ function AddModal({
   }
 
   return (
-    <Modal visible={visible} animationType="fade" presentationStyle="fullScreen" onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      animationType="fade"
+      transparent
+      presentationStyle="overFullScreen"
+      statusBarTranslucent={Platform.OS === "android"}
+      navigationBarTranslucent={Platform.OS === "android"}
+      onRequestClose={onClose}
+    >
       <StatusBar barStyle="dark-content" backgroundColor={OB.offWhite} translucent />
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalShade}>
         <View style={styles.sheet}>
@@ -204,13 +239,14 @@ function AddModal({
             showsVerticalScrollIndicator={false}
             bounces={false}
             overScrollMode="never"
-            keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+            keyboardDismissMode="none"
             keyboardShouldPersistTaps="handled"
+            onScrollBeginDrag={cancelPendingScroll}
             contentContainerStyle={[
               styles.sheetContent,
               {
                 paddingTop: topInset + 16,
-                paddingBottom: Math.max(insets.bottom, 18) + (keyboardHeight ? keyboardHeight + 52 : 28),
+                paddingBottom: Math.max(insets.bottom, 18) + 28 + keyboardInset,
               },
             ]}
           >
@@ -257,9 +293,7 @@ function AddModal({
                     accessibilityState={{ selected: active }}
                     style={[styles.accountOption, active && styles.accountOptionActive]}
                   >
-                    <View style={[styles.accountMark, { backgroundColor: active ? "rgba(255,255,255,0.18)" : `${account.color}18` }]}>
-                      <Text style={[styles.accountMarkText, { color: active ? "#fff" : account.color }]}>{account.shortName}</Text>
-                    </View>
+                    <BankLogo bankId={account.id} size={34} color={account.color} shortName={account.shortName} />
                     <Text numberOfLines={1} style={[styles.accountOptionText, active && styles.accountOptionTextActive]}>{account.name}</Text>
                     {active ? <Ionicons name="checkmark-circle" size={17} color="#fff" /> : null}
                   </Pressable>
@@ -317,69 +351,96 @@ function AddModal({
   );
 }
 
-function mapDatabaseTx(row: DatabaseTx): Tx {
+function mapOverviewTx(row: FinancialOverviewTransaction): Tx {
+  const accountId = row.account_id as TransactionAccountId | null;
   return {
     id: row.id,
     type: row.type === "income" ? "Receita" : "Despesa",
     amount: Number(row.amount_cents || 0),
-    description: row.note?.trim() || row.category?.name || "Lançamento",
-    category: row.category?.name || "Sem categoria",
+    description: row.note?.trim() || "Lançamento",
+    category: row.category?.name ?? "Sem categoria",
     categoryId: row.category_id,
-    account: findTransactionAccountById(row.account_id)?.name ?? "Conta não informada",
-    accountId: row.account_id,
+    account: findTransactionAccountById(accountId)?.name ?? "Conta não informada",
+    accountId,
     date: row.occurred_on,
   };
 }
 
-function ControlPanel({
-  userId,
-  householdId,
-  householdLoading,
-  registeredBankNames,
-}: {
-  userId: string | null;
-  householdId: string | null;
-  householdLoading: boolean;
-  registeredBankNames: string[];
-}) {
-  const [txs, setTxs] = useState<Tx[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [modal, setModal] = useState(false);
-  const [filter, setFilter] = useState<Filter>("Todos");
-  const registeredAccounts = useMemo(
-    () => BANK_OPTIONS.filter((account) => registeredBankNames.includes(account.name)),
-    [registeredBankNames]
+function routeCycleReference(cycleDate?: string) {
+  const match = cycleDate?.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return new Date();
+  const value = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  return Number.isNaN(value.getTime()) ? new Date() : value;
+}
+
+function previousDate(ymd: string) {
+  const [year, month, day] = ymd.split("-").map(Number);
+  const value = new Date(year, month - 1, day - 1);
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+}
+
+function PlanningMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.planningMetric}>
+      <Text style={styles.planningMetricLabel}>{label}</Text>
+      <Text style={styles.planningMetricValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.74}>{value}</Text>
+    </View>
   );
-  const accountOptions = useMemo<TransactionAccountOption[]>(() => {
-    const options = [...registeredAccounts, CASH_ACCOUNT];
-    if (!options.some((account) => account.id === OTHER_BANK.id)) options.push(OTHER_BANK);
-    return options;
-  }, [registeredAccounts]);
-  const defaultAccountId = useMemo<TransactionAccountId | null>(() => {
-    if (registeredAccounts.length === 1) return registeredAccounts[0].id;
-    return registeredBankNames.includes("Não uso banco") ? CASH_ACCOUNT.id : null;
-  }, [registeredAccounts, registeredBankNames]);
+}
+
+function ControlPanel({
+  householdId,
+  userId,
+  householdLoading,
+  cycleDate,
+  onCycleDateChange,
+}: {
+  householdId: string | null;
+  userId: string | null;
+  householdLoading: boolean;
+  cycleDate?: string;
+  onCycleDateChange: (cycleDate: string) => void;
+}) {
+  const [overview, setOverview] = useState<FinancialOverview | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<Filter>("Todos");
+  const [cycleOffset, setCycleOffset] = useState(0);
+  const [reference, setReference] = useState(() => routeCycleReference(cycleDate));
+  const [updatingCommitmentId, setUpdatingCommitmentId] = useState<string | null>(null);
+  const loadTokenRef = useRef(0);
+  const cycleDateRef = useRef(cycleDate);
+
+  useEffect(() => {
+    if (cycleDateRef.current === cycleDate) return;
+    cycleDateRef.current = cycleDate;
+    setReference(routeCycleReference(cycleDate));
+    setCycleOffset(0);
+  }, [cycleDate]);
 
   const load = useCallback(async () => {
-    if (!householdId) {
-      setTxs([]);
-      setCategories([]);
+    const loadToken = ++loadTokenRef.current;
+    if (!householdId || !userId) {
+      setOverview(null);
       setLoading(false);
       return;
     }
     try {
       setLoading(true);
-      const [rows, categoryRows] = await Promise.all([listTransactionsByMonth(householdId), listCategories(householdId)]);
-      setTxs(rows.map(mapDatabaseTx));
-      setCategories(categoryRows);
+      const settings = await getFinancialSettings(householdId);
+      const cycle = getCycleForOffset(settings, cycleOffset, reference);
+      const nextOverview = await getFinancialOverview({ householdId, userId, cycle });
+      if (loadToken === loadTokenRef.current) {
+        setOverview(nextOverview);
+        onCycleDateChange(nextOverview.cycle.start);
+      }
     } catch (error: any) {
-      Alert.alert("Controle financeiro", error?.message ?? "Não foi possível carregar seus lançamentos.");
+      if (loadToken === loadTokenRef.current) {
+        Alert.alert("Controle financeiro", error?.message ?? "Não foi possível carregar seu planejamento.");
+      }
     } finally {
-      setLoading(false);
+      if (loadToken === loadTokenRef.current) setLoading(false);
     }
-  }, [householdId]);
+  }, [cycleOffset, householdId, onCycleDateChange, reference, userId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -387,33 +448,69 @@ function ControlPanel({
     }, [load])
   );
 
-  const totals = useMemo(() => {
-    const income = txs.filter((tx) => tx.type === "Receita").reduce((sum, tx) => sum + tx.amount, 0);
-    const expense = txs.filter((tx) => tx.type === "Despesa").reduce((sum, tx) => sum + tx.amount, 0);
-    return { income, expense, balance: income - expense };
-  }, [txs]);
+  const txs = useMemo(() => overview?.transactions.map(mapOverviewTx) ?? [], [overview]);
   const filtered = filter === "Todos" ? txs : txs.filter((tx) => tx.type === filter);
-
-  async function saveTransaction(draft: TxDraft) {
-    if (!householdId || !userId) {
-      Alert.alert("Controle financeiro", "Sua estrutura financeira ainda não está disponível.");
-      return false;
-    }
-    try {
-      setSaving(true);
-      await addTransaction({ householdId, userId, type: draft.type === "Receita" ? "income" : "expense", amount_cents: draft.amount, category_id: draft.categoryId, account_id: draft.accountId, note: draft.description });
-      await load();
-      return true;
-    } catch (error: any) {
-      Alert.alert("Controle financeiro", error?.message ?? "Não foi possível salvar o lançamento.");
-      return false;
-    } finally {
-      setSaving(false);
-    }
-  }
-
   const busy = loading || householdLoading;
   const emptyStyle = { color: OB.support, fontSize: 14, fontWeight: "700" as const, paddingVertical: 24, textAlign: "center" as const };
+
+  const showToday = useCallback(() => {
+    setReference(new Date());
+    setCycleOffset(0);
+  }, []);
+
+  const toggleCommitment = useCallback(async (commitment: FinancialOverviewCommitment) => {
+    if (!householdId || !userId || !overview) return;
+    const isPaid = commitment.pending_cents <= 0;
+
+    if (!isPaid) {
+      router.push({
+        pathname: "/(app)/link-commitment",
+        params: {
+          commitmentId: commitment.id,
+          cycleKey: overview.cycle.key,
+          cycleStart: overview.cycle.start,
+          cycleEnd: overview.cycle.end,
+          cycleDate: overview.cycle.start,
+        },
+      });
+      return;
+    }
+
+    const persist = async () => {
+      try {
+        setUpdatingCommitmentId(commitment.id);
+        await setCommitmentPaid({
+          householdId,
+          userId,
+          commitmentId: commitment.id,
+          cycleKey: overview.cycle.key,
+          paid: false,
+          amountCents: commitment.amount_cents,
+        });
+        await load();
+      } catch (error: any) {
+        Alert.alert("Compromisso", error?.message ?? "Não foi possível atualizar este compromisso.");
+      } finally {
+        setUpdatingCommitmentId(null);
+      }
+    };
+
+    await persist();
+  }, [householdId, load, overview, userId]);
+
+  const openAllocation = useCallback(() => {
+    if (!overview || overview.availableCents <= 0) return;
+    router.push({
+      pathname: "/(app)/allocate-surplus",
+      params: {
+        cycleKey: overview.cycle.key,
+        cycleStart: overview.cycle.start,
+        cycleEnd: overview.cycle.end,
+        availableCents: String(overview.availableCents),
+        cycleDate: overview.cycle.start,
+      },
+    });
+  }, [overview]);
 
   return (
     <>
@@ -421,23 +518,152 @@ function ControlPanel({
         <View style={styles.controlHeader}>
           <Text style={styles.controlEyebrow}>Controle financeiro</Text>
           <Text style={styles.controlTitle}>Liberdade financeira</Text>
-          <Text style={styles.controlSubtitle}>Organize seus lançamentos e acompanhe seu dinheiro com clareza.</Text>
+          <Text style={styles.controlSubtitle}>Veja o que aconteceu no ciclo, o que ainda está comprometido e quanto pode seguir para seus sonhos.</Text>
         </View>
-        <View style={styles.summaryGrid}>
-          <SummaryCard label="Receitas do mês" value={totals.income} color="#22a96b" icon="trending-up-outline" />
-          <SummaryCard label="Despesas do mês" value={totals.expense} color="#e05252" icon="trending-down-outline" />
-          <SummaryCard label="Saldo atual" value={totals.balance} color={OB.primary} icon="wallet-outline" />
+
+        <View style={styles.cycleNavigator}>
+          <Pressable onPress={() => setCycleOffset((value) => value - 1)} accessibilityLabel="Ciclo anterior" style={styles.cycleArrow}>
+            <Ionicons name="chevron-back" size={20} color={OB.primary} />
+          </Pressable>
+          <View style={styles.cycleLabelWrap}>
+            <Text style={styles.cycleEyebrow}>Ciclo selecionado</Text>
+            <Text style={styles.cycleLabel}>{overview?.cycle.label ?? "Carregando..."}</Text>
+            {overview ? <Text style={styles.cycleRange}>{formatDate(overview.cycle.start)} a {formatDate(previousDate(overview.cycle.end))}</Text> : null}
+          </View>
+          <Pressable onPress={() => setCycleOffset((value) => value + 1)} accessibilityLabel="Próximo ciclo" style={styles.cycleArrow}>
+            <Ionicons name="chevron-forward" size={20} color={OB.primary} />
+          </Pressable>
         </View>
-        <Pressable
-          onPress={() => setModal(true)}
-          disabled={!householdId}
-          accessibilityRole="button"
-          accessibilityLabel="Criar novo lançamento"
-          style={({ pressed }) => [styles.newButton, !householdId && styles.newButtonUnavailable, pressed && styles.newButtonPressed]}
-        >
-          <Ionicons name="add" size={19} color="#fff" />
-          <Text style={styles.newText}>Novo lançamento</Text>
+        <Pressable onPress={showToday} style={styles.todayButton}>
+          <Ionicons name="today-outline" size={15} color={OB.primary} />
+          <Text style={styles.todayButtonText}>Ir para o ciclo de hoje</Text>
         </Pressable>
+
+        {busy && !overview ? (
+          <View style={styles.controlLoading}><ActivityIndicator color={OB.primary} /><Text style={styles.controlLoadingText}>Organizando seu ciclo...</Text></View>
+        ) : overview ? (
+          <>
+            <View style={styles.summaryGrid}>
+              <View style={styles.summaryExpectedRow}>
+                <SummaryCard label="Renda prevista" value={overview.expectedIncomeCents} color="#527BA7" icon="calendar-outline" />
+              </View>
+              <SummaryCard label="Receitas realizadas" value={overview.realizedIncomeCents} color="#22a96b" icon="trending-up-outline" />
+              <SummaryCard label="Despesas realizadas" value={overview.realizedExpenseCents} color="#e05252" icon="trending-down-outline" />
+              <SummaryCard label="Resultado do ciclo" value={overview.resultCents} color={overview.resultCents >= 0 ? OB.primary : "#e05252"} icon="analytics-outline" wide />
+            </View>
+
+            <View style={styles.planningCard}>
+              <View style={styles.planningHeader}>
+                <View style={styles.planningTitleWrap}>
+                  <Text style={styles.planningEyebrow}>Planejamento</Text>
+                  <Text style={styles.planningTitle}>Sua sobra possível</Text>
+                </View>
+                <Pressable onPress={() => router.push("/(app)/financial-plan")} style={styles.configureButton}>
+                  <Ionicons name="options-outline" size={17} color={OB.primary} />
+                  <Text style={styles.configureButtonText}>Configurar</Text>
+                </Pressable>
+              </View>
+
+              <View style={styles.balanceSnapshot}>
+                <View style={styles.balanceSnapshotIcon}><Ionicons name="business-outline" size={20} color={OB.primary} /></View>
+                <View style={styles.balanceSnapshotCopy}>
+                  <Text style={styles.balanceSnapshotLabel}>Saldo conhecido nos extratos</Text>
+                  <Text style={styles.balanceSnapshotValue}>{overview.balance.total_cents === null ? "Indisponível" : formatBRLFromCents(overview.balance.total_cents)}</Text>
+                  <Text style={styles.balanceSnapshotMeta}>
+                    {overview.balance.total_cents === null
+                      ? "Importe um extrato com saldo final para aumentar a precisão."
+                      : `${overview.balance.status === "reliable" ? "Confirmado" : "Estimado"}${overview.balance.as_of ? ` até ${formatDate(overview.balance.as_of)}` : ""}.`}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.planningMetrics}>
+                <PlanningMetric label="Compromissos pendentes" value={formatBRLFromCents(overview.pendingCommitmentsCents)} />
+                <PlanningMetric label="Reserva mínima" value={formatBRLFromCents(overview.reserveCents)} />
+                <PlanningMetric label="Já destinado neste ciclo" value={formatBRLFromCents(overview.allocatedCents)} />
+              </View>
+
+              <View style={styles.availableCard}>
+                <Text style={styles.availableLabel}>Disponível para sonhos</Text>
+                <Text style={styles.availableValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>{formatBRLFromCents(overview.availableCents)}</Text>
+                <Text style={styles.availableExplanation}>Estimativa conservadora: parte do resultado positivo, respeita o saldo conhecido e desconta compromissos, reserva e valores já destinados.</Text>
+              </View>
+
+              <Pressable
+                onPress={openAllocation}
+                disabled={overview.availableCents <= 0}
+                style={({ pressed }) => [styles.allocateButton, overview.availableCents <= 0 && styles.allocateButtonDisabled, pressed && styles.newButtonPressed]}
+              >
+                <Ionicons name="sparkles-outline" size={18} color={overview.availableCents > 0 ? "#fff" : OB.support} />
+                <Text style={[styles.allocateButtonText, overview.availableCents <= 0 && styles.allocateButtonTextDisabled]}>{overview.availableCents > 0 ? "Destinar sobra para um sonho" : "Sem sobra disponível neste ciclo"}</Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.commitmentsCard}>
+              <View style={styles.commitmentsHeader}>
+                <View>
+                  <Text style={styles.commitmentsEyebrow}>Contas, dívidas e parcelas</Text>
+                  <Text style={styles.commitmentsTitle}>Compromissos do ciclo</Text>
+                </View>
+                <Text style={styles.commitmentsCount}>{overview.commitments.length}</Text>
+              </View>
+              <Text style={styles.commitmentsHelper}>Marque quando a conta já aparecer nas despesas do ciclo; isso evita descontar o mesmo valor duas vezes.</Text>
+              {overview.commitments.length ? overview.commitments.map((commitment) => {
+                const isPaid = commitment.pending_cents <= 0;
+                const updating = updatingCommitmentId === commitment.id;
+                return (
+                  <View key={commitment.id} style={styles.commitmentRow}>
+                    <View style={[styles.commitmentCheck, isPaid && styles.commitmentCheckPaid]}>
+                      <Ionicons name={isPaid ? "checkmark" : "receipt-outline"} size={17} color={isPaid ? "#fff" : OB.primary} />
+                    </View>
+                    <View style={styles.commitmentInfo}>
+                      <Text style={[styles.commitmentName, isPaid && styles.commitmentNamePaid]} numberOfLines={1}>{commitment.name}</Text>
+                      <Text style={styles.commitmentMeta}>
+                        {commitment.installment_number && commitment.installments_total
+                          ? `Parcela ${commitment.installment_number}/${commitment.installments_total} · `
+                          : ""}
+                        Vence em {formatDate(commitment.due_on)} · {formatBRLFromCents(commitment.amount_cents)}
+                      </Text>
+                    </View>
+                    <Pressable onPress={() => void toggleCommitment(commitment)} disabled={updating} style={[styles.commitmentToggle, isPaid && styles.commitmentTogglePaid]}>
+                      {updating ? <ActivityIndicator size="small" color={isPaid ? "#fff" : OB.primary} /> : <Text style={[styles.commitmentToggleText, isPaid && styles.commitmentToggleTextPaid]}>{isPaid ? "Contabilizado" : "Já apareceu?"}</Text>}
+                    </Pressable>
+                  </View>
+                );
+              }) : (
+                <View style={styles.noCommitments}>
+                  <Ionicons name="checkmark-circle-outline" size={22} color="#22a96b" />
+                  <Text style={styles.noCommitmentsText}>Nenhum compromisso configurado para este ciclo.</Text>
+                </View>
+              )}
+              <Pressable onPress={() => router.push("/(app)/financial-plan")} style={styles.manageCommitmentsButton}>
+                <Text style={styles.manageCommitmentsText}>Configurar planejamento e compromissos</Text>
+                <Ionicons name="chevron-forward" size={17} color={OB.primary} />
+              </Pressable>
+            </View>
+          </>
+        ) : !householdId ? (
+          <Text style={emptyStyle}>Conclua o onboarding para criar sua estrutura financeira.</Text>
+        ) : null}
+
+        <View style={styles.controlActions}>
+          <Pressable onPress={() => router.push("/(app)/new-transaction")} disabled={!householdId} accessibilityRole="button" accessibilityLabel="Criar novo lançamento" style={({ pressed }) => [styles.controlActionButton, !householdId && styles.newButtonUnavailable, pressed && styles.newButtonPressed]}>
+            <View style={styles.controlActionIcon}><Ionicons name="add" size={19} color="#fff" /></View>
+            <Text style={styles.controlActionText}>Novo lançamento</Text>
+          </Pressable>
+          <Pressable onPress={() => router.push("/(app)/import-csv")} disabled={!householdId} accessibilityRole="button" accessibilityLabel="Importar extrato" style={({ pressed }) => [styles.controlActionButtonSecondary, !householdId && styles.newButtonUnavailable, pressed && styles.newButtonPressed]}>
+            <View style={styles.controlActionIconSecondary}><Ionicons name="document-text-outline" size={18} color={OB.primary} /></View>
+            <Text style={styles.controlActionTextSecondary}>Importar extrato</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.transactionsHeader}>
+          <View>
+            <Text style={styles.transactionsEyebrow}>Movimentações</Text>
+            <Text style={styles.transactionsTitle}>Lançamentos do ciclo</Text>
+          </View>
+          {loading && overview ? <ActivityIndicator size="small" color={OB.primary} /> : null}
+        </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
           {(["Todos", "Receita", "Despesa"] as Filter[]).map((item) => {
             const active = item === filter;
@@ -445,10 +671,9 @@ function ControlPanel({
           })}
         </ScrollView>
         <View style={styles.txList}>
-          {busy ? <ActivityIndicator color={OB.primary} /> : !householdId ? <Text style={emptyStyle}>Conclua o onboarding para criar sua estrutura financeira.</Text> : filtered.length ? filtered.map((tx) => <TxRow key={tx.id} tx={tx} />) : <Text style={emptyStyle}>Nenhum lançamento neste mês.</Text>}
+          {busy && !overview ? <ActivityIndicator color={OB.primary} /> : !householdId ? <Text style={emptyStyle}>Conclua o onboarding para criar sua estrutura financeira.</Text> : filtered.length ? filtered.map((tx) => <TxRow key={tx.id} tx={tx} />) : <Text style={emptyStyle}>Nenhum lançamento neste ciclo.</Text>}
         </View>
       </ScrollView>
-      <AddModal visible={modal} categories={categories} accountOptions={accountOptions} defaultAccountId={defaultAccountId} saving={saving} onClose={() => setModal(false)} onSave={saveTransaction} />
     </>
   );
 }
@@ -565,11 +790,14 @@ function JourneyDrawer({
 }
 
 export default function JourneyScreen() {
-  const params = useLocalSearchParams<{ dreams?: string; values?: string }>();
+  const params = useLocalSearchParams<{ dreams?: string; values?: string; tab?: string; cycleDate?: string }>();
   const { session } = useSession();
   const userId = session?.user?.id ?? null;
   const { householdId, loading: householdLoading } = useHouseholdId(userId);
-  const [tab, setTab] = useState<Tab>("jornada");
+  const requestedTab = Array.isArray(params.tab) ? params.tab[0] : params.tab;
+  const requestedCycleDate = Array.isArray(params.cycleDate) ? params.cycleDate[0] : params.cycleDate;
+  const [tab, setTab] = useState<Tab>(requestedTab === "controle" ? "controle" : "jornada");
+  const [controlCycleDate, setControlCycleDate] = useState(requestedCycleDate);
   const [menuOpen, setMenuOpen] = useState(false);
   const [goals, setGoals] = useState<GoalProgress[]>([]);
   const [journeyLoading, setJourneyLoading] = useState(true);
@@ -581,14 +809,24 @@ export default function JourneyScreen() {
   const userMeta = session?.user?.user_metadata as Record<string, any> | undefined;
   const displayName = userMeta?.full_name || userMeta?.name || session?.user?.email?.split("@")[0] || "Usuário";
   const avatarUrl = userMeta?.avatar_url || userMeta?.picture || null;
-  const registeredBankNames = useMemo(
-    () => Array.isArray(userMeta?.finapp_banks) ? userMeta.finapp_banks.map(String) : [],
-    [userMeta?.finapp_banks]
-  );
   const savedDreams = Array.isArray(userMeta?.finapp_dreams) ? JSON.stringify(userMeta.finapp_dreams) : undefined;
   const savedValues = userMeta?.finapp_dream_values && typeof userMeta.finapp_dream_values === "object" ? JSON.stringify(userMeta.finapp_dream_values) : undefined;
   const dreams = useMemo(() => readJson<string[]>(params.dreams ?? savedDreams, []), [params.dreams, savedDreams]);
   const values = useMemo(() => readJson<Record<string, string>>(params.values ?? savedValues, {}), [params.values, savedValues]);
+
+  useEffect(() => {
+    if (requestedTab === "controle" || requestedTab === "jornada" || requestedTab === "desafios") {
+      setTab(requestedTab);
+    }
+  }, [requestedTab]);
+
+  useEffect(() => {
+    if (requestedCycleDate) setControlCycleDate(requestedCycleDate);
+  }, [requestedCycleDate]);
+
+  const rememberControlCycle = useCallback((nextCycleDate: string) => {
+    setControlCycleDate(nextCycleDate);
+  }, []);
 
   const loadJourney = useCallback(async () => {
     if (!householdId || !userId) { setGoals([]); setJourneyLoading(false); return; }
@@ -636,16 +874,26 @@ export default function JourneyScreen() {
       if (Platform.OS !== "android") return undefined;
 
       const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
-        if (menuOpen) {
+        const now = Date.now();
+        const action = getAndroidBackAction({
+          menuOpen,
+          tab,
+          isSecondPress: now - lastBackPressRef.current <= ANDROID_BACK_PRESS_WINDOW_MS,
+        });
+
+        if (action === "close-menu") {
           setMenuOpen(false);
           lastBackPressRef.current = 0;
           return true;
         }
 
-        const now = Date.now();
-        const isSecondPress = now - lastBackPressRef.current <= ANDROID_BACK_PRESS_WINDOW_MS;
+        if (action === "go-home") {
+          setTab("jornada");
+          lastBackPressRef.current = 0;
+          return true;
+        }
 
-        if (!isSecondPress) {
+        if (action === "warn-exit") {
           lastBackPressRef.current = now;
           ToastAndroid.show("Pressione voltar novamente para sair da conta", ToastAndroid.SHORT);
           return true;
@@ -690,7 +938,7 @@ export default function JourneyScreen() {
         lastBackPressRef.current = 0;
         logoutPromptOpenRef.current = false;
       };
-    }, [logout, menuOpen])
+    }, [logout, menuOpen, tab])
   );
 
   const challengeCard = (
@@ -708,7 +956,7 @@ export default function JourneyScreen() {
     <OnboardingShell light>
       <View style={styles.root}>
         <View style={styles.content}>
-          {tab === "controle" ? <ControlPanel userId={userId} householdId={householdId} householdLoading={householdLoading} registeredBankNames={registeredBankNames} /> : tab === "jornada" ? (
+          {tab === "controle" ? <ControlPanel householdId={householdId} userId={userId} householdLoading={householdLoading} cycleDate={controlCycleDate} onCycleDateChange={rememberControlCycle} /> : tab === "jornada" ? (
             <>
               <MountainHero progress={journeyProgress} />
               <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
@@ -1016,10 +1264,87 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginTop: 6,
   },
+  cycleNavigator: {
+    minHeight: 82,
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  cycleArrow: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: OB.offWhite,
+  },
+  cycleLabelWrap: {
+    flex: 1,
+    alignItems: "center",
+    paddingHorizontal: 8,
+  },
+  cycleEyebrow: {
+    color: OB.support,
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+  },
+  cycleLabel: {
+    color: OB.primary,
+    fontSize: 15,
+    fontWeight: "900",
+    textAlign: "center",
+    marginTop: 3,
+  },
+  cycleRange: {
+    color: OB.support,
+    fontSize: 10,
+    fontWeight: "700",
+    marginTop: 2,
+  },
+  todayButton: {
+    alignSelf: "center",
+    minHeight: 34,
+    paddingHorizontal: 12,
+    borderRadius: 99,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "rgba(123,160,200,0.13)",
+  },
+  todayButtonText: {
+    color: OB.primary,
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  controlLoading: {
+    minHeight: 150,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    backgroundColor: "#fff",
+  },
+  controlLoadingText: {
+    color: OB.support,
+    fontSize: 12,
+    fontWeight: "800",
+  },
   summaryGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 10,
+    justifyContent: "space-between",
+    rowGap: 10,
+  },
+  summaryExpectedRow: {
+    width: "100%",
+    alignItems: "center",
   },
   summaryCard: {
     width: "48.5%",
@@ -1035,6 +1360,14 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 3 },
     elevation: 2,
+  },
+  summaryCardWide: {
+    width: "100%",
+    minHeight: 118,
+    alignItems: "center",
+  },
+  summaryTextWide: {
+    textAlign: "center",
   },
   summaryAccent: {
     position: "absolute",
@@ -1061,6 +1394,367 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "900",
     marginTop: 4,
+  },
+  planningCard: {
+    borderRadius: 22,
+    padding: 16,
+    gap: 14,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  planningHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  planningTitleWrap: {
+    flex: 1,
+  },
+  planningEyebrow: {
+    color: OB.support,
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 1.4,
+    textTransform: "uppercase",
+  },
+  planningTitle: {
+    color: OB.primary,
+    fontSize: 18,
+    fontWeight: "900",
+    marginTop: 3,
+  },
+  configureButton: {
+    minHeight: 38,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: OB.offWhite,
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  configureButtonText: {
+    color: OB.primary,
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  balanceSnapshot: {
+    borderRadius: 17,
+    padding: 13,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 11,
+    backgroundColor: OB.offWhite,
+  },
+  balanceSnapshotIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(123,160,200,0.18)",
+  },
+  balanceSnapshotCopy: {
+    flex: 1,
+  },
+  balanceSnapshotLabel: {
+    color: OB.support,
+    fontSize: 10,
+    fontWeight: "800",
+  },
+  balanceSnapshotValue: {
+    color: OB.primary,
+    fontSize: 17,
+    fontWeight: "900",
+    marginTop: 2,
+  },
+  balanceSnapshotMeta: {
+    color: OB.support,
+    fontSize: 9,
+    fontWeight: "700",
+    lineHeight: 13,
+    marginTop: 3,
+  },
+  planningMetrics: {
+    gap: 8,
+  },
+  planningMetric: {
+    minHeight: 38,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    paddingHorizontal: 2,
+    borderBottomWidth: 1,
+    borderBottomColor: OB.supportSoft,
+  },
+  planningMetricLabel: {
+    flex: 1,
+    color: OB.support,
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  planningMetricValue: {
+    maxWidth: "45%",
+    color: OB.primary,
+    fontSize: 13,
+    fontWeight: "900",
+    textAlign: "right",
+  },
+  availableCard: {
+    borderRadius: 19,
+    padding: 17,
+    alignItems: "center",
+    backgroundColor: OB.primary,
+  },
+  availableLabel: {
+    color: OB.textOnDarkMid,
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+  },
+  availableValue: {
+    color: "#fff",
+    fontSize: 27,
+    fontWeight: "900",
+    marginTop: 6,
+  },
+  availableExplanation: {
+    color: OB.textOnDarkMid,
+    fontSize: 10,
+    fontWeight: "700",
+    lineHeight: 15,
+    textAlign: "center",
+    marginTop: 7,
+  },
+  allocateButton: {
+    minHeight: 52,
+    borderRadius: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#22A96B",
+  },
+  allocateButtonDisabled: {
+    backgroundColor: "rgba(123,160,200,0.18)",
+  },
+  allocateButtonText: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  allocateButtonTextDisabled: {
+    color: OB.support,
+  },
+  commitmentsCard: {
+    borderRadius: 22,
+    padding: 16,
+    gap: 5,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  commitmentsHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 6,
+  },
+  commitmentsHelper: {
+    color: OB.support,
+    fontSize: 9,
+    lineHeight: 14,
+    fontWeight: "700",
+    marginBottom: 4,
+  },
+  commitmentsEyebrow: {
+    color: OB.support,
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+  },
+  commitmentsTitle: {
+    color: OB.primary,
+    fontSize: 17,
+    fontWeight: "900",
+    marginTop: 3,
+  },
+  commitmentsCount: {
+    minWidth: 30,
+    height: 30,
+    borderRadius: 15,
+    textAlign: "center",
+    textAlignVertical: "center",
+    color: OB.primary,
+    fontSize: 12,
+    fontWeight: "900",
+    backgroundColor: OB.offWhite,
+  },
+  commitmentRow: {
+    minHeight: 65,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+    paddingVertical: 9,
+    borderBottomWidth: 1,
+    borderBottomColor: OB.supportSoft,
+  },
+  commitmentCheck: {
+    width: 35,
+    height: 35,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: OB.offWhite,
+  },
+  commitmentCheckPaid: {
+    backgroundColor: "#22A96B",
+  },
+  commitmentInfo: {
+    flex: 1,
+    minWidth: 0,
+  },
+  commitmentName: {
+    color: OB.primary,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  commitmentNamePaid: {
+    color: OB.support,
+    textDecorationLine: "line-through",
+  },
+  commitmentMeta: {
+    color: OB.support,
+    fontSize: 9,
+    fontWeight: "700",
+    marginTop: 3,
+  },
+  commitmentToggle: {
+    minHeight: 34,
+    maxWidth: 92,
+    paddingHorizontal: 9,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: OB.offWhite,
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  commitmentTogglePaid: {
+    backgroundColor: "#22A96B",
+    borderColor: "#22A96B",
+  },
+  commitmentToggleText: {
+    color: OB.primary,
+    fontSize: 9,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  commitmentToggleTextPaid: {
+    color: "#fff",
+  },
+  noCommitments: {
+    minHeight: 64,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+  },
+  noCommitmentsText: {
+    flex: 1,
+    color: OB.support,
+    fontSize: 11,
+    fontWeight: "700",
+    lineHeight: 16,
+  },
+  manageCommitmentsButton: {
+    minHeight: 42,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    marginTop: 8,
+    paddingHorizontal: 12,
+    borderRadius: 13,
+    backgroundColor: OB.offWhite,
+  },
+  manageCommitmentsText: {
+    flex: 1,
+    color: OB.primary,
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  controlActions: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  controlActionButton: {
+    flex: 1,
+    minHeight: 78,
+    borderRadius: 18,
+    padding: 12,
+    justifyContent: "space-between",
+    backgroundColor: OB.primary,
+  },
+  controlActionButtonSecondary: {
+    flex: 1,
+    minHeight: 78,
+    borderRadius: 18,
+    padding: 12,
+    justifyContent: "space-between",
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  controlActionIcon: {
+    width: 29,
+    height: 29,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.14)",
+  },
+  controlActionIconSecondary: {
+    width: 29,
+    height: 29,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: OB.offWhite,
+  },
+  controlActionText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  controlActionTextSecondary: {
+    color: OB.primary,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  transactionsHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 4,
+  },
+  transactionsEyebrow: {
+    color: OB.support,
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+  },
+  transactionsTitle: {
+    color: OB.primary,
+    fontSize: 17,
+    fontWeight: "900",
+    marginTop: 3,
   },
   newButton: {
     minHeight: 54,
@@ -1293,17 +1987,6 @@ const styles = StyleSheet.create({
     backgroundColor: OB.primary,
     borderColor: OB.primary,
   },
-  accountMark: {
-    width: 34,
-    height: 34,
-    borderRadius: 11,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  accountMarkText: {
-    fontSize: 10,
-    fontWeight: "900",
-  },
   accountOptionText: {
     flex: 1,
     color: OB.primary,
@@ -1325,6 +2008,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     textTransform: "uppercase",
     marginTop: 2,
+    marginBottom: 4,
   },
   inputBox: {
     minHeight: 58,

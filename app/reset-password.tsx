@@ -8,7 +8,7 @@ import { useKeyboardAwareScroll } from "../src/hooks/useKeyboardAwareScroll";
 
 export default function ResetPasswordScreen() {
   const { session, loading } = useSession();
-  const { scrollRef, keyboardHeight, registerField, focusField } = useKeyboardAwareScroll<"password" | "confirm">();
+  const { scrollRef, keyboardInset, registerField, focusField, cancelPendingScroll } = useKeyboardAwareScroll<"password" | "confirm">();
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
@@ -36,9 +36,10 @@ export default function ResetPasswordScreen() {
   return <KeyboardAvoidingView enabled={Platform.OS === "ios"} behavior="padding" style={{ flex: 1, backgroundColor: theme.colors.bg0 }}>
     <ScrollView
       ref={scrollRef}
-      contentContainerStyle={{ flexGrow: 1, justifyContent: "center", padding: 24, gap: 14, paddingBottom: keyboardHeight ? keyboardHeight + 28 : 24 }}
+      contentContainerStyle={[{ flexGrow: 1, justifyContent: "center", padding: 24, gap: 14 }, { paddingBottom: 24 + keyboardInset }]}
       keyboardShouldPersistTaps="handled"
-      keyboardDismissMode="on-drag"
+      keyboardDismissMode="none"
+      onScrollBeginDrag={cancelPendingScroll}
     >
       <Text style={{ color: theme.colors.text, fontSize: 28, fontWeight: "900" }}>Criar nova senha</Text>
       <Text style={{ color: theme.colors.muted, fontWeight: "600" }}>Use pelo menos 8 caracteres.</Text>

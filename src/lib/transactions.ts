@@ -17,6 +17,10 @@ export type TxRow = {
   statement_import_id: string | null;
   occurred_on: string; // YYYY-MM-DD
   created_at: string;
+  original_note?: string | null;
+  ignored_at?: string | null;
+  ignored_by?: string | null;
+  updated_at?: string;
   category?: { name: string } | null;
 };
 
@@ -115,6 +119,7 @@ export async function listTransactionsByMonth(
     `
     )
     .eq("household_id", householdId)
+    .is("ignored_at", null)
     .gte("occurred_on", start) // ✅ era .get
     .lt("occurred_on", end)
     .order("occurred_on", { ascending: false })
@@ -155,6 +160,7 @@ export async function listTransactionsRecent(householdId: string, days = 90) {
     `
     )
     .eq("household_id", householdId)
+    .is("ignored_at", null)
     .gte("occurred_on", start) // ✅ era .get
     .lt("occurred_on", end)
     .order("occurred_on", { ascending: false })
@@ -196,6 +202,7 @@ export async function listTransactionHistory(householdId: string) {
       `
       )
       .eq("household_id", householdId)
+      .is("ignored_at", null)
       .order("occurred_on", { ascending: false })
       .order("created_at", { ascending: false })
       .range(from, from + pageSize - 1);
@@ -234,6 +241,7 @@ export async function getMonthlyNet(
     .from("transactions")
     .select("type,amount_cents,occurred_on")
     .eq("household_id", householdId)
+    .is("ignored_at", null)
     .gte("occurred_on", start)
     .lt("occurred_on", end);
 
@@ -261,6 +269,7 @@ export async function getNetBetween(
     .from("transactions")
     .select("type,amount_cents,occurred_on")
     .eq("household_id", householdId)
+    .is("ignored_at", null)
     .gte("occurred_on", startYMD)
     .lt("occurred_on", endYMD);
 
@@ -275,4 +284,101 @@ export async function getNetBetween(
   }
 
   return { income, expense, net: income - expense };
+}
+
+function transactionManagementError(error: any) {
+  if (error?.code === "42703") {
+    return new Error("A atualização para editar lançamentos ainda não foi aplicada no banco de dados.");
+  }
+  return error;
+}
+
+export async function updateManualTransaction(opts: {
+  householdId: string;
+  transactionId: string;
+  type: TxType;
+  amount_cents: number;
+  category_id?: string | null;
+  account_id: TransactionAccountId;
+  note?: string;
+  occurred_on: string;
+}) {
+  const { data, error } = await sb
+    .from("transactions")
+    .update({
+      type: opts.type,
+      amount_cents: opts.amount_cents,
+      category_id: opts.category_id ?? null,
+      account_id: opts.account_id,
+      note: opts.note?.trim() || null,
+      occurred_on: opts.occurred_on,
+    })
+    .eq("id", opts.transactionId)
+    .eq("household_id", opts.householdId)
+    .is("statement_import_id", null)
+    .select("*")
+    .maybeSingle();
+
+  if (error) throw transactionManagementError(error);
+  if (!data) throw new Error("Lançamento manual não encontrado.");
+  return data as TxRow;
+}
+
+export async function updateImportedTransaction(opts: {
+  householdId: string;
+  transactionId: string;
+  category_id?: string | null;
+  account_id: TransactionAccountId | null;
+  note?: string;
+}) {
+  const { data, error } = await sb
+    .from("transactions")
+    .update({
+      category_id: opts.category_id ?? null,
+      account_id: opts.account_id,
+      note: opts.note?.trim() || null,
+    })
+    .eq("id", opts.transactionId)
+    .eq("household_id", opts.householdId)
+    .not("statement_import_id", "is", null)
+    .is("ignored_at", null)
+    .select("*")
+    .maybeSingle();
+
+  if (error) throw transactionManagementError(error);
+  if (!data) throw new Error("Movimentação importada não encontrada.");
+  return data as TxRow;
+}
+
+export async function deleteManualTransaction(householdId: string, transactionId: string) {
+  const { data, error } = await sb
+    .from("transactions")
+    .delete()
+    .eq("id", transactionId)
+    .eq("household_id", householdId)
+    .is("statement_import_id", null)
+    .select("id")
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) throw new Error("Lançamento manual não encontrado.");
+}
+
+export async function ignoreImportedTransaction(opts: {
+  householdId: string;
+  transactionId: string;
+  userId: string;
+}) {
+  const { data, error } = await sb
+    .from("transactions")
+    .update({ ignored_at: new Date().toISOString(), ignored_by: opts.userId })
+    .eq("id", opts.transactionId)
+    .eq("household_id", opts.householdId)
+    .not("statement_import_id", "is", null)
+    .is("ignored_at", null)
+    .select("id")
+    .maybeSingle();
+
+  if (error) throw transactionManagementError(error);
+  if (!data) throw new Error("Movimentação importada não encontrada.");
 }

@@ -12,6 +12,8 @@ export type ParsedCsvTx = {
   rawLine: number;
 };
 
+export type CsvBalanceConfidence = "confirmed" | "derived" | "unavailable";
+
 export type CsvParseResult = {
   rows: ParsedCsvTx[];
   errors: string[];
@@ -19,6 +21,7 @@ export type CsvParseResult = {
   rejectedRows: number;
   initialBalanceCents: number | null;
   finalBalanceCents: number | null;
+  finalBalanceConfidence: CsvBalanceConfidence;
   detectedBankId: BankId | null;
 };
 
@@ -182,6 +185,122 @@ function findColumns(headers: string[], names: string[]) {
     .filter((index) => index >= 0);
 }
 
+const explicitInitialBalanceLabels = [
+  "initialbalance",
+  "balanceinitial",
+  "openingbalance",
+  "beginningbalance",
+  "saldoinicial",
+  "saldoanterior",
+];
+
+const explicitFinalBalanceLabels = [
+  "finalbalance",
+  "balancefinal",
+  "closingbalance",
+  "endingbalance",
+  "saldofinal",
+  "saldodefechamento",
+];
+
+const postTransactionBalanceLabels = new Set([
+  "balance",
+  "balancers",
+  "partialbalance",
+  "runningbalance",
+  "accountbalance",
+  "saldo",
+  "saldor",
+  "saldors",
+  "saldoparcial",
+  "saldocorrente",
+  "saldoaposlancamento",
+]);
+
+const standaloneBalanceLabels = new Set([
+  "saldo",
+  "saldoatual",
+  "saldoconta",
+  "saldodisponivel",
+  "saldododia",
+]);
+
+function matchesBalanceLabel(value: string, labels: string[]) {
+  const normalized = normalizeHeader(value);
+  return labels.some((label) => normalized === label || normalized.startsWith(label));
+}
+
+function isExplicitInitialBalanceLabel(value: string) {
+  return matchesBalanceLabel(value, explicitInitialBalanceLabels);
+}
+
+function isExplicitFinalBalanceLabel(value: string) {
+  return matchesBalanceLabel(value, explicitFinalBalanceLabels);
+}
+
+function isPostTransactionBalanceHeader(value: string) {
+  const normalized = normalizeHeader(value);
+  if (isExplicitInitialBalanceLabel(normalized) || isExplicitFinalBalanceLabel(normalized)) return false;
+  return postTransactionBalanceLabels.has(normalized);
+}
+
+function isTransactionBalanceHeader(value: string) {
+  return isPostTransactionBalanceHeader(value) || isExplicitFinalBalanceLabel(value);
+}
+
+function isStandaloneBalanceLabel(value: string) {
+  return standaloneBalanceLabels.has(normalizeHeader(value));
+}
+
+function parseOptionalCents(value: string | undefined) {
+  if (!value || !/\d/.test(value)) return null;
+  return parseBRLToCents(value);
+}
+
+function parseOptionalSignedCents(cells: string[], amountIdx: number, creditIdx: number, debitIdx: number) {
+  if (amountIdx >= 0) return parseOptionalCents(cells[amountIdx]);
+
+  const credit = creditIdx >= 0 ? parseOptionalCents(cells[creditIdx]) : null;
+  const debit = debitIdx >= 0 ? parseOptionalCents(cells[debitIdx]) : null;
+
+  if (credit !== null && credit > 0) return credit;
+  if (debit !== null && debit > 0) return -debit;
+  if (credit === 0 || debit === 0) return 0;
+  return null;
+}
+
+function findExplicitBalanceSummary(lines: string[]) {
+  let initialBalanceCents: number | null = null;
+  let finalBalanceCents: number | null = null;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const delimiter = detectDelimiter(line);
+    const cells = splitCsvLine(line, delimiter);
+    const isDatedRow = cells.some((cell) => parseDate(cell) !== null);
+    if (isDatedRow || isHeaderInfo(getHeaderInfo(line))) continue;
+    const nextCells = lines[index + 1]
+      ? splitCsvLine(lines[index + 1], delimiter)
+      : [];
+
+    cells.forEach((cell, cellIndex) => {
+      const initialLabel = isExplicitInitialBalanceLabel(cell);
+      const finalLabel = isExplicitFinalBalanceLabel(cell);
+      if (!initialLabel && !finalLabel) return;
+
+      const inlineValue = parseOptionalCents(cells[cellIndex + 1]);
+      const columnValue = parseOptionalCents(nextCells[cellIndex]);
+      const value = inlineValue ?? columnValue;
+      if (value === null) return;
+
+      if (initialLabel) initialBalanceCents = value;
+      if (finalLabel) finalBalanceCents = value;
+    });
+  }
+
+  return { initialBalanceCents, finalBalanceCents };
+}
+
 function parseDate(value: string) {
   const raw = value.trim();
   const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|[ T])/);
@@ -227,24 +346,13 @@ function getHeaderInfo(line: string) {
   const amountIdx = findColumn(headers, ["valor", "amount", "quantia", "total"]);
   const creditIdx = findColumn(headers, ["credito", "creditor", "creditors", "credit", "entrada", "receita"]);
   const debitIdx = findColumn(headers, ["debito", "debitor", "debitors", "debit", "saida", "despesa"]);
-  const balanceIdx = findColumn(headers, ["saldo", "balance", "saldors"]);
+  const balanceIdx = headers.findIndex(isTransactionBalanceHeader);
 
   return { delimiter, headers, dateIdx, amountIdx, creditIdx, debitIdx, balanceIdx };
 }
 
 function isHeaderInfo(info: ReturnType<typeof getHeaderInfo>) {
   return info.dateIdx >= 0 && (info.amountIdx >= 0 || (info.creditIdx >= 0 && info.debitIdx >= 0));
-}
-
-function parseSignedCents(cells: string[], amountIdx: number, creditIdx: number, debitIdx: number) {
-  if (amountIdx >= 0) return parseBRLToCents(cells[amountIdx] ?? "");
-
-  const credit = creditIdx >= 0 ? parseBRLToCents(cells[creditIdx] ?? "") : 0;
-  const debit = debitIdx >= 0 ? parseBRLToCents(cells[debitIdx] ?? "") : 0;
-
-  if (credit > 0) return credit;
-  if (debit > 0) return -debit;
-  return 0;
 }
 
 export function parseCsv(content: string, options: { fileName?: string } = {}): CsvParseResult {
@@ -256,16 +364,27 @@ export function parseCsv(content: string, options: { fileName?: string } = {}): 
     .filter(Boolean);
 
   if (lines.length < 2) {
-    return { rows: [], errors: ["O arquivo precisa ter cabeçalho e pelo menos uma transação."], ignoredRows: 0, rejectedRows: 0, initialBalanceCents: null, finalBalanceCents: null, detectedBankId };
+    return {
+      rows: [],
+      errors: ["O arquivo precisa ter cabeçalho e pelo menos uma transação."],
+      ignoredRows: 0,
+      rejectedRows: 0,
+      initialBalanceCents: null,
+      finalBalanceCents: null,
+      finalBalanceConfidence: "unavailable",
+      detectedBankId,
+    };
   }
 
+  const explicitBalanceSummary = findExplicitBalanceSummary(lines);
   const errors: string[] = [];
   const rows: ParsedCsvTx[] = [];
-  const balanceRows: { occurred_on: string; rawLine: number; signedCents: number; balanceCents: number }[] = [];
+  const balanceRows: { occurred_on: string; rawLine: number; signedCents: number | null; balanceCents: number }[] = [];
   let ignoredRows = 0;
   let rejectedRows = 0;
-  let baselineBalanceCents: number | null = null;
-  let explicitFinalBalanceCents: number | null = null;
+  let baselineBalanceCents: number | null = explicitBalanceSummary.initialBalanceCents;
+  let explicitFinalBalanceCents: number | null = explicitBalanceSummary.finalBalanceCents;
+  let standaloneBalanceCents: number | null = null;
   let current:
     | (ReturnType<typeof getHeaderInfo> & {
         noteIndexes: number[];
@@ -304,7 +423,8 @@ export function parseCsv(content: string, options: { fileName?: string } = {}): 
 
     const cells = splitCsvLine(line, current.delimiter);
     const occurred_on = parseDate(cells[current.dateIdx] ?? "");
-    const signedCents = parseSignedCents(cells, current.amountIdx, current.creditIdx, current.debitIdx);
+    const optionalSignedCents = parseOptionalSignedCents(cells, current.amountIdx, current.creditIdx, current.debitIdx);
+    const signedCents = optionalSignedCents ?? 0;
     const type = parseType(cells[current.typeIdx] ?? "", signedCents);
     const amount_cents = Math.abs(signedCents);
     const note =
@@ -318,19 +438,41 @@ export function parseCsv(content: string, options: { fileName?: string } = {}): 
       normalizedNote.includes("bbrendefacil") ||
       normalizedNote.includes("rendefacil") ||
       normalizedNote.includes("rendefcil");
-    const isBalanceLine =
-      ["saldoanterior", "saldododia", "saldo"].includes(normalizedNote) ||
-      normalizedNote.startsWith("saldo") ||
-      normalizedNote.includes("saldododia");
+    const isExplicitInitialBalanceLine = isExplicitInitialBalanceLabel(normalizedNote);
+    const isExplicitFinalBalanceLine = isExplicitFinalBalanceLabel(normalizedNote);
+    const isBalanceLine = isStandaloneBalanceLabel(normalizedNote);
 
-    if (baselineBalanceCents === null && normalizedNote.includes("saldoanterior")) {
-      baselineBalanceCents = signedCents;
+    if (isExplicitInitialBalanceLine) {
+      if (baselineBalanceCents === null && optionalSignedCents !== null) {
+        baselineBalanceCents = optionalSignedCents;
+      }
+      return;
+    }
+
+    if (isExplicitFinalBalanceLine) {
+      if (optionalSignedCents !== null) explicitFinalBalanceCents = optionalSignedCents;
       return;
     }
 
     if (isBalanceLine) {
-      explicitFinalBalanceCents = signedCents;
+      if (optionalSignedCents !== null) standaloneBalanceCents = optionalSignedCents;
       return;
+    }
+
+    if (
+      occurred_on &&
+      current.balanceIdx >= 0 &&
+      isTransactionBalanceHeader(current.headers[current.balanceIdx] ?? "")
+    ) {
+      const balanceCents = parseOptionalCents(cells[current.balanceIdx]);
+      if (balanceCents !== null) {
+        balanceRows.push({
+          occurred_on,
+          rawLine: lineNumber,
+          signedCents: optionalSignedCents,
+          balanceCents,
+        });
+      }
     }
 
     if (isAutomaticInvestment) {
@@ -342,15 +484,6 @@ export function parseCsv(content: string, options: { fileName?: string } = {}): 
       rejectedRows += 1;
       errors.push(`Linha ${lineNumber}: data ausente, inválida ou não reconhecida.`);
       return;
-    }
-
-    if (current.balanceIdx >= 0) {
-      balanceRows.push({
-        occurred_on,
-        rawLine: lineNumber,
-        signedCents,
-        balanceCents: parseBRLToCents(cells[current.balanceIdx] ?? ""),
-      });
     }
 
     if (baselineBalanceCents === null && normalizedNote.includes("codlanc0") && signedCents === 0) {
@@ -383,6 +516,7 @@ export function parseCsv(content: string, options: { fileName?: string } = {}): 
       rejectedRows,
       initialBalanceCents: null,
       finalBalanceCents: null,
+      finalBalanceConfidence: "unavailable",
       detectedBankId,
     };
   }
@@ -390,15 +524,37 @@ export function parseCsv(content: string, options: { fileName?: string } = {}): 
   const sortedBalanceRows = balanceRows.sort((a, b) =>
     a.occurred_on === b.occurred_on ? a.rawLine - b.rawLine : a.occurred_on.localeCompare(b.occurred_on)
   );
-  const firstBalanceRow = sortedBalanceRows[0];
+  const firstBalanceRow = sortedBalanceRows.find((row) => row.signedCents !== null);
+  const lastBalanceRow = sortedBalanceRows.at(-1);
   const initialBalanceCents = baselineBalanceCents ?? (firstBalanceRow
     ? firstBalanceRow.signedCents === 0
       ? firstBalanceRow.balanceCents
-      : firstBalanceRow.balanceCents - firstBalanceRow.signedCents
+      : firstBalanceRow.balanceCents - (firstBalanceRow.signedCents ?? 0)
     : null);
-  const finalBalanceCents = explicitFinalBalanceCents;
+  const movementResultCents = rows.reduce(
+    (total, row) => total + (row.type === "income" ? row.amount_cents : -row.amount_cents),
+    0
+  );
+  const finalBalanceCents = explicitFinalBalanceCents
+    ?? standaloneBalanceCents
+    ?? lastBalanceRow?.balanceCents
+    ?? (initialBalanceCents === null ? null : initialBalanceCents + movementResultCents);
+  const finalBalanceConfidence: CsvBalanceConfidence = explicitFinalBalanceCents !== null
+    ? "confirmed"
+    : finalBalanceCents !== null
+      ? "derived"
+      : "unavailable";
 
-  return { rows, errors, ignoredRows, rejectedRows, initialBalanceCents, finalBalanceCents, detectedBankId };
+  return {
+    rows,
+    errors,
+    ignoredRows,
+    rejectedRows,
+    initialBalanceCents,
+    finalBalanceCents,
+    finalBalanceConfidence,
+    detectedBankId,
+  };
 }
 
 export function formatFileSize(size?: number | null) {

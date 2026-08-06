@@ -404,7 +404,7 @@ const styles = StyleSheet.create({
     paddingBottom: 30,
   },
   headerCard: {
-    minHeight: 166,
+    minHeight: 140,
     borderRadius: 22,
     padding: 20,
     paddingRight: 58,

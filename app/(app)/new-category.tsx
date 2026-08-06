@@ -33,7 +33,7 @@ export default function NewCategoryScreen() {
   const params = useLocalSearchParams<{ categoryId?: string; categoryName?: string; flow?: string; kind?: string }>();
   const { userId } = useSession();
   const { householdId, loading: householdLoading } = useHouseholdId(userId);
-  const { scrollRef, keyboardHeight, registerField, focusField } = useKeyboardAwareScroll<"category">();
+  const { scrollRef, keyboardInset, registerField, focusField, cancelPendingScroll } = useKeyboardAwareScroll<"category">();
   const flow: Flow = params.flow === "income" ? "income" : "expense";
   const kind: Kind = params.kind === "fixed" ? "fixed" : "variable";
   const editing = Boolean(params.categoryId);
@@ -111,10 +111,11 @@ export default function NewCategoryScreen() {
       <KeyboardAvoidingView enabled={Platform.OS === "ios"} behavior="padding" style={styles.root}>
         <ScrollView
           ref={scrollRef}
-          contentContainerStyle={[styles.scroll, keyboardHeight ? { paddingBottom: keyboardHeight + 28 } : null]}
+          contentContainerStyle={[styles.scroll, { paddingBottom: 28 + keyboardInset }]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
+          keyboardDismissMode="none"
+          onScrollBeginDrag={cancelPendingScroll}
         >
           <View style={styles.headerCard}>
             <Pressable onPress={() => router.back()} style={styles.backButton} hitSlop={12} accessibilityRole="button" accessibilityLabel="Voltar para categorias">
@@ -200,7 +201,7 @@ const styles = StyleSheet.create({
     paddingBottom: 28,
   },
   headerCard: {
-    minHeight: 154,
+    minHeight: 140,
     borderRadius: 22,
     padding: 20,
     paddingRight: 58,

@@ -56,7 +56,7 @@ function extensionFromMime(mimeType?: string | null) {
 
 export default function OnboardingProfileScreen() {
   const { session, userId, signOut } = useSession();
-  const { scrollRef, keyboardHeight, registerField, focusField } = useKeyboardAwareScroll<"personal" | "financial">();
+  const { scrollRef, keyboardInset, registerField, focusField, cancelPendingScroll } = useKeyboardAwareScroll<"personal" | "financial">();
   const userMeta = session?.user?.user_metadata as Record<string, any> | undefined;
   const email = session?.user?.email || "";
 
@@ -264,10 +264,11 @@ export default function OnboardingProfileScreen() {
 
         <ScrollView
           ref={scrollRef}
-          contentContainerStyle={[styles.scroll, keyboardHeight ? { paddingBottom: keyboardHeight + 28 } : null]}
+          contentContainerStyle={[styles.scroll, { paddingBottom: 28 + keyboardInset }]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
+          keyboardDismissMode="none"
+          onScrollBeginDrag={cancelPendingScroll}
         >
           <View style={styles.profileCard}>
             <Pressable onPress={pickAvatar} disabled={uploadingAvatar} style={styles.avatarWrap}>

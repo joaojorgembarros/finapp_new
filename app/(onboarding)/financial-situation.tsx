@@ -26,8 +26,10 @@ import { useSession } from "../../src/providers/SessionProvider";
 import { BANK_OPTIONS } from "../../src/lib/banks";
 import { formatBRLFromCents, formatBRLInputFromDigits, parseBRLToCents } from "../../src/lib/format";
 import { EmploymentType, expectedMonthlyIncomeCents, getProfile } from "../../src/lib/profile";
+import { BankLogo } from "../../src/ui/BankLogo";
 
 type Bank = {
+  id: string;
   name: string;
   shortName: string;
   color: string;
@@ -46,8 +48,8 @@ const NO_DEBTS = "Não tenho dívidas";
 const NO_BANK = "Não uso banco";
 
 const BANKS: Bank[] = [
-  ...BANK_OPTIONS.map(({ name, shortName, color }) => ({ name, shortName, color })),
-  { name: NO_BANK, shortName: "—", color: "#64748B" },
+  ...BANK_OPTIONS.map(({ id, name, shortName, color }) => ({ id, name, shortName, color })),
+  { id: "no-bank", name: NO_BANK, shortName: "—", color: "#64748B" },
 ];
 
 const EMPLOYMENT_TYPES: EmploymentType[] = ["CLT", "PJ", "Autônomo", "Estudante", "Outro"];
@@ -108,9 +110,7 @@ function BankCard({
       onPress={onPress}
       style={[styles.bankCard, selected && styles.bankCardSelected]}
     >
-      <View style={[styles.bankMark, { backgroundColor: bank.color }]}>
-        <Text style={styles.bankMarkText}>{bank.shortName}</Text>
-      </View>
+      <BankLogo bankId={bank.id} size={42} color={bank.color} shortName={bank.shortName} />
       <Text numberOfLines={2} style={styles.bankName}>{bank.name}</Text>
       <View style={[styles.selectionMark, selected && styles.selectionMarkSelected]}>
         {selected ? <Ionicons name="checkmark" size={13} color="#fff" /> : null}
@@ -124,6 +124,9 @@ export default function FinancialSituationScreen() {
   const { session, userId } = useSession();
   const metadata = session?.user.user_metadata;
   const listRef = useRef<ScrollView>(null);
+  const pendingScrollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const manualScrollRef = useRef(false);
+  const focusedIncomeField = useRef<"fixed" | "variable" | null>(null);
   const incomeFieldY = useRef<Record<"fixed" | "variable", number>>({ fixed: 0, variable: 0 });
 
   const dreams = useMemo(
@@ -159,34 +162,83 @@ export default function FinancialSituationScreen() {
   const [section, setSection] = useState<"income" | "debts" | "banks">("income");
   const [saving, setSaving] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [keyboardInset, setKeyboardInset] = useState(0);
+
+  const clearPendingScroll = useCallback(() => {
+    if (pendingScrollRef.current === null) return;
+    clearTimeout(pendingScrollRef.current);
+    pendingScrollRef.current = null;
+  }, []);
+
+  const cancelPendingScroll = useCallback(() => {
+    manualScrollRef.current = true;
+    clearPendingScroll();
+  }, [clearPendingScroll]);
 
   const scrollToIncomeField = useCallback((field: "fixed" | "variable", delay = 80) => {
-    setTimeout(() => {
+    clearPendingScroll();
+    if (manualScrollRef.current) return;
+    pendingScrollRef.current = setTimeout(() => {
+      pendingScrollRef.current = null;
       listRef.current?.scrollTo({
         y: Math.max(incomeFieldY.current[field] - 12, 0),
         animated: true,
       });
     }, delay);
-  }, []);
+  }, [clearPendingScroll]);
 
   useEffect(() => {
     const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
     const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
     const showSub = Keyboard.addListener(showEvent, (event) => {
       setKeyboardVisible(true);
-      setKeyboardHeight(Platform.OS === "android" ? event.endCoordinates.height : 0);
+
+      const applyInset = (inset: number) => {
+        setKeyboardInset(inset);
+        if (!manualScrollRef.current && focusedIncomeField.current) {
+          scrollToIncomeField(focusedIncomeField.current, 100);
+        }
+      };
+
+      if (Platform.OS === "ios") {
+        applyInset(0);
+        return;
+      }
+
+      const scrollView = listRef.current?.getNativeScrollRef();
+      if (!scrollView) {
+        applyInset(0);
+        return;
+      }
+
+      scrollView.measureInWindow((_x, y, _width, height) => {
+        const overlap = Math.max(
+          0,
+          Math.min(event.endCoordinates.height, y + height - event.endCoordinates.screenY)
+        );
+        applyInset(overlap);
+      });
     });
     const hideSub = Keyboard.addListener(hideEvent, () => {
       setKeyboardVisible(false);
-      setKeyboardHeight(0);
+      setKeyboardInset(0);
+      focusedIncomeField.current = null;
+      manualScrollRef.current = false;
+      clearPendingScroll();
     });
 
     return () => {
       showSub.remove();
       hideSub.remove();
+      clearPendingScroll();
     };
-  }, []);
+  }, [clearPendingScroll, scrollToIncomeField]);
+
+  function focusIncomeField(field: "fixed" | "variable") {
+    manualScrollRef.current = false;
+    focusedIncomeField.current = field;
+    scrollToIncomeField(field, keyboardVisible ? 40 : 220);
+  }
 
   useEffect(() => {
     let active = true;
@@ -376,11 +428,12 @@ export default function FinancialSituationScreen() {
             key={section}
             contentContainerStyle={[
               styles.content,
-              keyboardHeight ? { paddingBottom: keyboardHeight + 24 } : null,
+              { paddingBottom: 24 + keyboardInset },
             ]}
             showsVerticalScrollIndicator={section !== "debts"}
             keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="on-drag"
+            keyboardDismissMode="none"
+            onScrollBeginDrag={cancelPendingScroll}
           >
             {section === "income" ? (
               <View>
@@ -405,8 +458,8 @@ export default function FinancialSituationScreen() {
                     keyboardType="number-pad"
                     returnKeyType="done"
                     selectTextOnFocus
-                    onFocus={() => scrollToIncomeField("fixed", 220)}
-                    onPressIn={() => scrollToIncomeField("fixed", 220)}
+                    onFocus={() => focusIncomeField("fixed")}
+                    onPressIn={() => focusIncomeField("fixed")}
                     onSubmitEditing={Keyboard.dismiss}
                     style={styles.moneyInput}
                   />
@@ -424,8 +477,8 @@ export default function FinancialSituationScreen() {
                     keyboardType="number-pad"
                     returnKeyType="done"
                     selectTextOnFocus
-                    onFocus={() => scrollToIncomeField("variable", 220)}
-                    onPressIn={() => scrollToIncomeField("variable", 220)}
+                    onFocus={() => focusIncomeField("variable")}
+                    onPressIn={() => focusIncomeField("variable")}
                     onSubmitEditing={Keyboard.dismiss}
                     style={styles.moneyInput}
                   />
@@ -749,13 +802,16 @@ const styles = StyleSheet.create({
   bankGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 10,
+    justifyContent: "space-between",
+    rowGap: 10,
   },
   bankCard: {
     width: "48.4%",
     minHeight: 112,
     borderRadius: 20,
     padding: 14,
+    alignItems: "center",
+    justifyContent: "center",
     backgroundColor: "#fff",
     borderWidth: 1.5,
     borderColor: OB.supportSoft,
@@ -771,26 +827,15 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.14,
     elevation: 3,
   },
-  bankMark: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  bankMarkText: {
-    color: "#fff",
-    fontSize: 14,
-    fontWeight: "900",
-    textTransform: "uppercase",
-  },
   bankName: {
     color: OB.primary,
     fontSize: 13,
     lineHeight: 17,
     fontWeight: "900",
     marginTop: 9,
-    paddingRight: 22,
+    alignSelf: "stretch",
+    textAlign: "center",
+    paddingHorizontal: 4,
   },
   selectionMark: {
     position: "absolute",

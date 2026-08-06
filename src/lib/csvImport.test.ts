@@ -8,23 +8,25 @@ import { parseCsv } from "./csvImport";
 const fixtureDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "__fixtures__", "bank-statements");
 
 const fixtures = [
-  { fileName: "nubank-conta.csv", bankId: "nubank", rows: 2 },
-  { fileName: "inter-conta.csv", bankId: "inter", rows: 2 },
-  { fileName: "itau-conta.csv", bankId: "itau", rows: 2, initialBalanceCents: 100000 },
-  { fileName: "bradesco-conta.csv", bankId: "bradesco", rows: 2 },
-  { fileName: "santander-conta.csv", bankId: "santander", rows: 2 },
-  { fileName: "caixa-conta.csv", bankId: "caixa", rows: 2 },
-  { fileName: "banco-do-brasil-conta.csv", bankId: "banco-do-brasil", rows: 2, ignoredRows: 1, initialBalanceCents: 200000 },
-  { fileName: "c6-bank-conta.csv", bankId: "c6-bank", rows: 2 },
-  { fileName: "mercado-pago-conta.csv", bankId: "mercado-pago", rows: 2 },
-  { fileName: "mp-wallet.csv", bankId: "mercado-pago", rows: 2, initialBalanceCents: 10 },
-  { fileName: "picpay-conta.csv", bankId: "picpay", rows: 2 },
+  { fileName: "nubank-conta.csv", bankId: "nubank", rows: 2, finalBalanceCents: null, finalBalanceConfidence: "unavailable" },
+  { fileName: "inter-conta.csv", bankId: "inter", rows: 2, initialBalanceCents: 100000, finalBalanceCents: 132450, finalBalanceConfidence: "derived" },
+  { fileName: "itau-conta.csv", bankId: "itau", rows: 2, initialBalanceCents: 100000, finalBalanceCents: 122500, finalBalanceConfidence: "derived" },
+  { fileName: "bradesco-conta.csv", bankId: "bradesco", rows: 2, initialBalanceCents: 100000, finalBalanceCents: 138000, finalBalanceConfidence: "derived" },
+  { fileName: "santander-conta.csv", bankId: "santander", rows: 2, initialBalanceCents: 100000, finalBalanceCents: 123510, finalBalanceConfidence: "derived" },
+  { fileName: "caixa-conta.csv", bankId: "caixa", rows: 2, initialBalanceCents: 100000, finalBalanceCents: 292000, finalBalanceConfidence: "derived" },
+  { fileName: "banco-do-brasil-conta.csv", bankId: "banco-do-brasil", rows: 2, ignoredRows: 1, initialBalanceCents: 200000, finalBalanceCents: 118000, finalBalanceConfidence: "derived" },
+  { fileName: "c6-bank-conta.csv", bankId: "c6-bank", rows: 2, finalBalanceCents: null, finalBalanceConfidence: "unavailable" },
+  { fileName: "mercado-pago-conta.csv", bankId: "mercado-pago", rows: 2, finalBalanceCents: null, finalBalanceConfidence: "unavailable" },
+  { fileName: "mp-wallet.csv", bankId: "mercado-pago", rows: 2, initialBalanceCents: 10, finalBalanceCents: 15551, finalBalanceConfidence: "confirmed" },
+  { fileName: "picpay-conta.csv", bankId: "picpay", rows: 2, initialBalanceCents: 0, finalBalanceCents: 13410, finalBalanceConfidence: "derived" },
 ] satisfies {
   fileName: string;
   bankId: BankId;
   rows: number;
   ignoredRows?: number;
   initialBalanceCents?: number;
+  finalBalanceCents: number | null;
+  finalBalanceConfidence: "confirmed" | "derived" | "unavailable";
 }[];
 
 function loadFixture(fileName: string) {
@@ -46,6 +48,8 @@ describe("bank CSV fixtures", () => {
     if (fixture.initialBalanceCents !== undefined) {
       expect(result.initialBalanceCents).toBe(fixture.initialBalanceCents);
     }
+    expect(result.finalBalanceCents).toBe(fixture.finalBalanceCents);
+    expect(result.finalBalanceConfidence).toBe(fixture.finalBalanceConfidence);
   });
 
   it("uses the file name to identify the bank when the content has no signature", () => {
@@ -84,5 +88,71 @@ describe("bank CSV fixtures", () => {
       "Linha 5: valor ausente, zero ou inválido.",
       "Linha 6: data ausente, inválida ou não reconhecida.",
     ]);
+  });
+
+  it("uses an explicitly named final balance as confirmed evidence", () => {
+    const result = parseCsv([
+      "INITIAL_BALANCE;CREDITS;DEBITS;FINAL_BALANCE",
+      "1.000,00;500,00;-200,00;1.300,00",
+      "Data;Descrição;Valor",
+      "01/07/2026;Receita;500,00",
+      "02/07/2026;Despesa;-200,00",
+    ].join("\n"));
+
+    expect(result.initialBalanceCents).toBe(100000);
+    expect(result.finalBalanceCents).toBe(130000);
+    expect(result.finalBalanceConfidence).toBe("confirmed");
+  });
+
+  it("uses the chronologically latest running balance without calling it confirmed", () => {
+    const result = parseCsv([
+      "Data;Descrição;Valor;Saldo",
+      "03/07/2026;Receita;100,00;1.200,00",
+      "02/07/2026;Despesa;-50,00;1.100,00",
+    ].join("\n"));
+
+    expect(result.finalBalanceCents).toBe(120000);
+    expect(result.finalBalanceConfidence).toBe("derived");
+  });
+
+  it("does not confirm a FINAL_BALANCE column when it belongs to each transaction row", () => {
+    const result = parseCsv([
+      "Data;Descrição;Valor;FINAL_BALANCE",
+      "01/07/2026;Receita;100,00;1.100,00",
+      "02/07/2026;Despesa;-50,00;1.050,00",
+    ].join("\n"));
+
+    expect(result.finalBalanceCents).toBe(105000);
+    expect(result.finalBalanceConfidence).toBe("derived");
+  });
+
+  it("derives a final balance from the opening balance only when no ending balance is present", () => {
+    const result = parseCsv([
+      "Data;Descrição;Valor",
+      "01/07/2026;Saldo anterior;1.000,00",
+      "02/07/2026;Compra;-200,00",
+    ].join("\n"));
+
+    expect(result.initialBalanceCents).toBe(100000);
+    expect(result.finalBalanceCents).toBe(80000);
+    expect(result.finalBalanceConfidence).toBe("derived");
+  });
+
+  it("keeps a generic balance line derived and only confirms an explicit final label", () => {
+    const generic = parseCsv([
+      "Data;Descrição;Valor",
+      "01/07/2026;Receita;100,00",
+      "02/07/2026;Saldo;250,00",
+    ].join("\n"));
+    const explicit = parseCsv([
+      "Data;Descrição;Valor",
+      "01/07/2026;Receita;100,00",
+      "02/07/2026;Saldo final;250,00",
+    ].join("\n"));
+
+    expect(generic.finalBalanceCents).toBe(25000);
+    expect(generic.finalBalanceConfidence).toBe("derived");
+    expect(explicit.finalBalanceCents).toBe(25000);
+    expect(explicit.finalBalanceConfidence).toBe("confirmed");
   });
 });

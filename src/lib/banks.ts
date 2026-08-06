@@ -88,6 +88,7 @@ export const CASH_ACCOUNT = {
 export const BANK_OPTIONS = [...BANK_CATALOG, OTHER_BANK] as const;
 export const TRANSACTION_ACCOUNT_OPTIONS = [...BANK_OPTIONS, CASH_ACCOUNT] as const;
 
+export type CatalogBankId = (typeof BANK_CATALOG)[number]["id"];
 export type BankId = (typeof BANK_OPTIONS)[number]["id"];
 export type BankOption = (typeof BANK_OPTIONS)[number];
 export type TransactionAccountId = (typeof TRANSACTION_ACCOUNT_OPTIONS)[number]["id"];

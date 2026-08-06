@@ -1,9 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import {
   Alert,
-  Keyboard,
   KeyboardAvoidingView,
+  LayoutChangeEvent,
   Platform,
   ScrollView,
   StyleSheet,
@@ -22,6 +22,7 @@ import {
 import { formatBRLInputFromDigits, parseBRLToCents } from "../../src/lib/format";
 import { useSession } from "../../src/providers/SessionProvider";
 import { markNewOnboardingDone, saveNewOnboardingDraft } from "../../src/lib/newOnboarding";
+import { useKeyboardAwareScroll } from "../../src/hooks/useKeyboardAwareScroll";
 
 function readDreams(raw: string | string[] | undefined) {
   try {
@@ -57,20 +58,22 @@ function DreamValueCard({
   onChange,
   onFocus,
   onLayout,
+  inputRef,
 }: {
   index: number;
   label: string;
   value: string;
   onChange: (text: string) => void;
   onFocus: () => void;
-  onLayout: (y: number) => void;
+  onLayout: (event: LayoutChangeEvent) => void;
+  inputRef: (node: View | null) => void;
 }) {
   const cents = parseBRLToCents(value);
   const filled = cents > 0;
 
   return (
     <View
-      onLayout={(event) => onLayout(event.nativeEvent.layout.y)}
+      onLayout={onLayout}
       style={[styles.valueCard, filled && styles.valueCardFilled]}
     >
       <View style={styles.goalRow}>
@@ -88,7 +91,11 @@ function DreamValueCard({
       </View>
 
       <Text style={styles.inputLabel}>Valor do objetivo</Text>
-      <View style={[styles.inputBox, filled && styles.inputBoxFilled]}>
+      <View
+        ref={inputRef}
+        collapsable={false}
+        style={[styles.inputBox, filled && styles.inputBoxFilled]}
+      >
         <View style={styles.currencyBadge}>
           <Text style={styles.currency}>R$</Text>
         </View>
@@ -126,56 +133,29 @@ export default function DreamValuesScreen() {
     excludedDreams?: string;
   }>();
   const { userId } = useSession();
-  const listRef = useRef<ScrollView>(null);
-  const focusedIndex = useRef<number | null>(null);
-  const cardY = useRef<Record<number, number>>({});
+  const {
+    scrollRef: listRef,
+    keyboardVisible,
+    keyboardInset,
+    registerField,
+    registerFieldNode,
+    focusField,
+    cancelPendingScroll,
+    handleScroll,
+    handleContentSizeChange,
+  } = useKeyboardAwareScroll<string>(8, {
+    ensureFieldRunway: true,
+    keyboardClearance: 64,
+  });
   const dreams = useMemo(() => readDreams(params.dreams), [params.dreams]);
   const [values, setValues] = useState<Record<string, string>>(() =>
     readValues(params.values, dreams)
   );
   const [saving, setSaving] = useState(false);
-  const [keyboardVisible, setKeyboardVisible] = useState(false);
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   const filled = Object.values(values).filter((value) => parseBRLToCents(value) > 0).length;
   const canContinue = dreams.length > 0 && filled > 0;
   const progress = Math.round((filled / Math.max(dreams.length, 1)) * 100);
-
-  const scrollToDream = useCallback((index: number, delay = 60) => {
-    const y = cardY.current[index];
-    if (typeof y !== "number") return;
-
-    setTimeout(() => {
-      listRef.current?.scrollTo({ y: Math.max(y - 8, 0), animated: true });
-    }, delay);
-  }, []);
-
-  useEffect(() => {
-    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
-    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-    const showSub = Keyboard.addListener(showEvent, (event) => {
-      setKeyboardVisible(true);
-      setKeyboardHeight(Platform.OS === "android" ? event.endCoordinates.height : 0);
-      if (focusedIndex.current !== null) {
-        scrollToDream(focusedIndex.current, 100);
-      }
-    });
-    const hideSub = Keyboard.addListener(hideEvent, () => {
-      setKeyboardVisible(false);
-      setKeyboardHeight(0);
-      focusedIndex.current = null;
-    });
-
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
-  }, [scrollToDream]);
-
-  function focusDream(index: number) {
-    focusedIndex.current = index;
-    scrollToDream(index, keyboardVisible ? 40 : 240);
-  }
 
   function goBack() {
     router.replace({
@@ -274,12 +254,15 @@ export default function DreamValuesScreen() {
             contentContainerStyle={[
               styles.list,
               keyboardVisible && styles.listWithKeyboard,
-              keyboardHeight
-                ? { paddingBottom: keyboardHeight + 24 }
-                : null,
+              keyboardInset ? { paddingBottom: 28 + keyboardInset } : null,
             ]}
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="on-drag"
+            keyboardShouldPersistTaps="always"
+            keyboardDismissMode="none"
+            onScrollBeginDrag={cancelPendingScroll}
+            onScroll={handleScroll}
+            scrollEventThrottle={16}
+            onContentSizeChange={handleContentSizeChange}
+            removeClippedSubviews={false}
             showsVerticalScrollIndicator={false}
           >
             {dreams.map((dream, index) => (
@@ -291,10 +274,9 @@ export default function DreamValuesScreen() {
                 onChange={(value) =>
                   setValues((previous) => ({ ...previous, [dream]: value }))
                 }
-                onFocus={() => focusDream(index)}
-                onLayout={(y) => {
-                  cardY.current[index] = y;
-                }}
+                onFocus={() => focusField(String(index))}
+                onLayout={registerField(String(index))}
+                inputRef={registerFieldNode(String(index))}
               />
             ))}
           </ScrollView>

@@ -10,6 +10,7 @@ import { formatBRLFromCents, formatDateBRFromYMD } from "../../src/lib/format";
 import { CsvParseResult, formatFileSize, ParsedCsvTx, PickedCsvFile, parseCsv, readCsvText } from "../../src/lib/csvImport";
 import { BANK_OPTIONS, BankId, findBankById } from "../../src/lib/banks";
 import { Category, Kind, listCategories } from "../../src/lib/categories";
+import { BankLogo } from "../../src/ui/BankLogo";
 import {
   StatementCategorySuggestion,
   statementSimilarityKey,
@@ -26,6 +27,7 @@ import {
   hashStatementContent,
   importStatement,
   isDuplicateStatementError,
+  StatementBalanceConfidence,
   StatementImport,
 } from "../../src/lib/statementImports";
 
@@ -36,6 +38,7 @@ const emptyResult: CsvParseResult = {
   rejectedRows: 0,
   initialBalanceCents: null,
   finalBalanceCents: null,
+  finalBalanceConfidence: "unavailable",
   detectedBankId: null,
 };
 
@@ -45,7 +48,7 @@ function SummaryPill({ label, value, tone }: { label: string; value: string; ton
 
   return (
     <View style={[styles.summaryPill, { backgroundColor: bg }]}>
-      <Text style={styles.summaryLabel} numberOfLines={1}>{label}</Text>
+      <Text style={styles.summaryLabel} numberOfLines={2}>{label}</Text>
       <Text style={[styles.summaryValue, { color }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>
         {value}
       </Text>
@@ -202,7 +205,14 @@ export default function ImportCsvOnboarding() {
   const income = result.rows.filter((row) => row.type === "income").reduce((sum, row) => sum + row.amount_cents, 0);
   const expense = result.rows.filter((row) => row.type === "expense").reduce((sum, row) => sum + row.amount_cents, 0);
   const partial = income - expense;
-  const accountBalance = result.initialBalanceCents === null ? partial : result.initialBalanceCents + partial;
+  const balanceConfidence: StatementBalanceConfidence = result.finalBalanceConfidence;
+  const accountBalance = result.finalBalanceCents;
+  const balanceSummaryLabel = balanceConfidence === "confirmed"
+    ? "Saldo final confirmado"
+    : balanceConfidence === "derived"
+      ? "Saldo final estimado"
+      : "Resultado do arquivo";
+  const balanceSummaryValue = accountBalance ?? partial;
   const hasFile = Boolean(file);
   const conflictLineSet = useMemo(() => new Set(conflictLines), [conflictLines]);
   const categorySuggestions = useMemo(() => {
@@ -510,7 +520,8 @@ export default function ImportCsvOnboarding() {
         fileName: file.name,
         bankId: selectedBankId,
         initialBalanceCents: result.initialBalanceCents,
-        finalBalanceCents: result.finalBalanceCents ?? accountBalance,
+        finalBalanceCents: accountBalance,
+        balanceConfidence,
         rejectedCount: result.rejectedRows,
         rows: result.rows.map((row) => ({
           ...row,
@@ -535,15 +546,31 @@ export default function ImportCsvOnboarding() {
         completionParts.push(`${importResult.learned_rules_count} regra(s) foram lembradas`);
       }
 
+      const importCycleDate = importResult.imported_period_end ?? result.rows
+        .filter((row) => !conflictLineSet.has(row.rawLine))
+        .reduce(
+        (latest, row) => row.occurred_on > latest ? row.occurred_on : latest,
+        ""
+      );
+
       clearFile();
       Alert.alert(
         "Importação concluída",
         `${completionParts.join("; ")}.`,
         [
-          { text: "Concluir" },
           {
-            text: "Ver histórico",
-            onPress: () => router.replace("/(app)/import-history"),
+            text: "Ver movimentações",
+            onPress: () => router.replace({
+              pathname: "/(app)/transaction-history",
+              params: { importId: importResult.import_id },
+            }),
+          },
+          {
+            text: "Ir para Controle",
+            onPress: () => router.replace({
+              pathname: "/(app)/journey",
+              params: importCycleDate ? { tab: "controle", cycleDate: importCycleDate } : { tab: "controle" },
+            }),
           },
         ]
       );
@@ -633,9 +660,12 @@ export default function ImportCsvOnboarding() {
                 accessibilityRole="button"
                 accessibilityLabel="Escolher banco do extrato"
               >
-                <View style={[styles.bankSelectionMark, selectedBank && { backgroundColor: selectedBank.color }]}>
-                  <Text style={styles.bankSelectionMarkText}>{selectedBank?.shortName ?? "?"}</Text>
-                </View>
+                <BankLogo
+                  bankId={selectedBank?.id ?? "unknown"}
+                  size={42}
+                  color={selectedBank?.color ?? OB.support}
+                  shortName={selectedBank?.shortName ?? "?"}
+                />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.bankSelectionCaption}>{selectedBank ? "Banco confirmado" : "Selecione o banco"}</Text>
                   <Text style={styles.bankSelectionName}>{selectedBank?.name ?? "De qual banco é este CSV?"}</Text>
@@ -698,8 +728,20 @@ export default function ImportCsvOnboarding() {
                 <SummaryPill label="Válidas" value={String(result.rows.length)} tone="primary" />
                 <SummaryPill label="Entradas" value={formatBRLFromCents(income)} tone="good" />
                 <SummaryPill label="Saídas" value={formatBRLFromCents(expense)} tone="bad" />
-                <SummaryPill label="Saldo da conta" value={formatBRLFromCents(accountBalance)} tone={accountBalance < 0 ? "bad" : "good"} />
+                <SummaryPill
+                  label={balanceSummaryLabel}
+                  value={formatBRLFromCents(balanceSummaryValue)}
+                  tone={balanceSummaryValue < 0 ? "bad" : "good"}
+                />
               </View>
+
+              <Text style={styles.mutedText}>
+                {balanceConfidence === "confirmed"
+                  ? "O saldo final foi informado pelo próprio extrato."
+                  : balanceConfidence === "derived"
+                    ? "Saldo final identificado a partir do saldo após os lançamentos ou estimado pelas movimentações do arquivo."
+                    : "O resultado do arquivo é apenas a diferença entre entradas e saídas; não representa o saldo bancário da conta."}
+              </Text>
 
               {result.ignoredRows ? (
                 <Text style={styles.mutedText}>{result.ignoredRows} lançamento(s) BB Rende Fácil ignorado(s), pois são aplicação ou resgate automático.</Text>
@@ -943,9 +985,7 @@ export default function ImportCsvOnboarding() {
                         pressed && styles.categoryPickerOptionPressed,
                       ]}
                     >
-                      <View style={[styles.bankPickerMark, { backgroundColor: bank.color }]}>
-                        <Text style={styles.bankPickerMarkText}>{bank.shortName}</Text>
-                      </View>
+                      <BankLogo bankId={bank.id} size={42} color={bank.color} shortName={bank.shortName} />
                       <View style={{ flex: 1 }}>
                         <Text style={styles.bankPickerName}>{bank.name}</Text>
                         <View style={styles.bankPickerBadges}>
@@ -973,7 +1013,7 @@ const styles = StyleSheet.create({
     paddingBottom: 28,
   },
   headerCard: {
-    minHeight: 154,
+    minHeight: 140,
     borderRadius: 22,
     padding: 20,
     paddingRight: 58,
@@ -1178,19 +1218,6 @@ const styles = StyleSheet.create({
     backgroundColor: OB.offWhite,
     borderColor: OB.supportSoft,
   },
-  bankSelectionMark: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: OB.support,
-  },
-  bankSelectionMarkText: {
-    color: "#fff",
-    fontSize: 12,
-    fontWeight: "900",
-  },
   bankSelectionCaption: {
     color: OB.support,
     fontSize: 9,
@@ -1237,9 +1264,11 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   summaryLabel: {
+    minHeight: 28,
     color: OB.support,
     fontSize: 11,
     fontWeight: "900",
+    lineHeight: 14,
   },
   summaryValue: {
     fontSize: 15,
@@ -1705,18 +1734,6 @@ const styles = StyleSheet.create({
     backgroundColor: OB.offWhite,
     borderWidth: 1.5,
     borderColor: OB.supportSoft,
-  },
-  bankPickerMark: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  bankPickerMarkText: {
-    color: "#fff",
-    fontSize: 12,
-    fontWeight: "900",
   },
   bankPickerName: {
     color: OB.primary,

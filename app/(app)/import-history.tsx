@@ -20,6 +20,7 @@ import {
   StatementImport,
 } from "../../src/lib/statementImports";
 import { useSession } from "../../src/providers/SessionProvider";
+import { BankLogo } from "../../src/ui/BankLogo";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
 
 function formatImportedAt(value: string) {
@@ -219,12 +220,13 @@ export default function ImportHistoryScreen() {
   const busy = loading || householdLoading;
   const totalTransactions = imports.reduce((sum, item) => sum + item.transaction_count, 0);
   const bankSummaries = useMemo(() => {
-    const totals = new Map<string, { name: string; shortName: string; color: string; files: number; transactions: number }>();
+    const totals = new Map<string, { bankId: string; name: string; shortName: string; color: string; files: number; transactions: number }>();
 
     for (const statementImport of imports) {
       const bank = findBankById(statementImport.bank_id);
-      const key = bank?.id ?? "nao-informado";
+      const key = bank?.id ?? "unknown";
       const current = totals.get(key) ?? {
+        bankId: key,
         name: bank?.name ?? "Banco não informado",
         shortName: bank?.shortName ?? "?",
         color: bank?.color ?? OB.support,
@@ -295,10 +297,13 @@ export default function ImportHistoryScreen() {
               </View>
               <View style={styles.bankSummaryList}>
                 {bankSummaries.map((summary) => (
-                  <View key={summary.name} style={styles.bankSummaryRow}>
-                    <View style={[styles.bankSummaryMark, { backgroundColor: summary.color }]}>
-                      <Text style={styles.bankSummaryMarkText}>{summary.shortName}</Text>
-                    </View>
+                  <View key={summary.bankId} style={styles.bankSummaryRow}>
+                    <BankLogo
+                      bankId={summary.bankId}
+                      size={38}
+                      color={summary.color}
+                      shortName={summary.shortName}
+                    />
                     <View style={{ flex: 1 }}>
                       <Text style={styles.bankSummaryName}>{summary.name}</Text>
                       <Text style={styles.bankSummaryFiles}>
@@ -380,7 +385,7 @@ const styles = StyleSheet.create({
     paddingBottom: 28,
   },
   headerCard: {
-    minHeight: 154,
+    minHeight: 140,
     borderRadius: 22,
     padding: 20,
     paddingRight: 58,
@@ -482,18 +487,6 @@ const styles = StyleSheet.create({
     backgroundColor: OB.offWhite,
     borderWidth: 1,
     borderColor: OB.supportSoft,
-  },
-  bankSummaryMark: {
-    width: 38,
-    height: 38,
-    borderRadius: 13,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  bankSummaryMarkText: {
-    color: "#fff",
-    fontSize: 11,
-    fontWeight: "900",
   },
   bankSummaryName: {
     color: OB.primary,
