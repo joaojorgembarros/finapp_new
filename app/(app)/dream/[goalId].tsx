@@ -33,6 +33,7 @@ import {
 import { supabase } from "../../../src/lib/supabase";
 import { useSession } from "../../../src/providers/SessionProvider";
 import { OB, OnboardingShell } from "../../../src/ui/OnboardingKit";
+import { ScreenHeaderCard } from "../../../src/ui/ScreenHeaderCard";
 
 const WEEKDAYS = ["D", "S", "T", "Q", "Q", "S", "S"];
 const MONTHS = [
@@ -355,14 +356,16 @@ export default function DreamDetailsScreen() {
           onScrollBeginDrag={cancelPendingScroll}
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.headerCard}>
-            <Pressable onPress={() => router.back()} style={styles.backButton} hitSlop={12} accessibilityRole="button" accessibilityLabel="Voltar">
-              <Ionicons name="arrow-back" size={19} color="#fff" />
-            </Pressable>
-            <Text style={styles.headerEyebrow}>Detalhes do sonho</Text>
-            <Text style={styles.headerTitle} numberOfLines={2}>{goal.title}</Text>
-            <Text style={styles.headerSubtitle}>{completed ? "Uma conquista para celebrar e lembrar." : "Transforme motivação em um plano possível."}</Text>
-          </View>
+          <ScreenHeaderCard
+            onBack={() => router.back()}
+            backAccessibilityLabel="Voltar"
+            eyebrow="Detalhes do sonho"
+            title={goal.title}
+            titleNumberOfLines={3}
+            subtitle={completed
+              ? "Uma conquista para celebrar e lembrar."
+              : "Transforme motivação em um plano possível."}
+          />
 
           <View style={styles.heroCard}>
             <Pressable onPress={() => void pickPhoto()} disabled={uploadingPhoto} style={({ pressed }) => [styles.polaroid, pressed && styles.pressed]}>
@@ -533,11 +536,6 @@ const styles = StyleSheet.create({
   loadingText: { color: OB.support, fontSize: 13, fontWeight: "800" },
   simpleBackButton: { borderRadius: 14, paddingHorizontal: 18, paddingVertical: 11, backgroundColor: OB.primary },
   simpleBackText: { color: "#fff", fontWeight: "900" },
-  headerCard: { minHeight: 140, borderRadius: 24, padding: 20, paddingRight: 60, justifyContent: "flex-end", backgroundColor: OB.primary },
-  backButton: { position: "absolute", right: 14, top: 14, width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.14)", borderWidth: 1, borderColor: "rgba(255,255,255,0.20)" },
-  headerEyebrow: { color: OB.textOnDarkMid, fontSize: 10, fontWeight: "900", letterSpacing: 2, textTransform: "uppercase" },
-  headerTitle: { color: "#fff", fontSize: 25, fontWeight: "900", lineHeight: 30, marginTop: 8 },
-  headerSubtitle: { color: OB.textOnDarkMid, fontSize: 13, fontWeight: "700", lineHeight: 19, marginTop: 6 },
   heroCard: { borderRadius: 22, padding: 16, flexDirection: "row", alignItems: "center", gap: 18, backgroundColor: "#fff", borderWidth: 1, borderColor: OB.supportSoft },
   polaroid: { width: 124, borderRadius: 20, padding: 8, paddingBottom: 11, backgroundColor: "#fff", borderWidth: 1, borderColor: OB.supportSoft, transform: [{ rotate: "-2deg" }], shadowColor: "#061936", shadowOpacity: 0.16, shadowRadius: 10, shadowOffset: { width: 0, height: 5 }, elevation: 5 },
   polaroidPhotoArea: { height: 104, borderRadius: 15, overflow: "hidden", backgroundColor: "#E9EEF5" },

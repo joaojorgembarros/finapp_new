@@ -28,6 +28,7 @@ import {
 } from "../../src/lib/statementCategoryRules";
 import { useSession } from "../../src/providers/SessionProvider";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
+import { ScreenHeaderCard } from "../../src/ui/ScreenHeaderCard";
 
 function ImportedTransactionCategoryRow({
   transaction,
@@ -313,16 +314,12 @@ export default function ImportCategoriesScreen() {
   return (
     <OnboardingShell light>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <View style={styles.headerCard}>
-          <Pressable onPress={() => router.back()} style={styles.backButton} hitSlop={12}>
-            <Ionicons name="arrow-back" size={18} color="#fff" />
-          </Pressable>
-          <Text style={styles.headerEyebrow}>Histórico de importações</Text>
-          <Text style={styles.headerTitle}>Revisar categorias</Text>
-          <Text style={styles.headerSubtitle}>
-            Organize movimentações antigas e ensine o app para as próximas importações.
-          </Text>
-        </View>
+        <ScreenHeaderCard
+          eyebrow="Histórico de importações"
+          title="Revisar categorias"
+          subtitle="Organize movimentações antigas e ensine o app para as próximas importações."
+          onBack={() => router.back()}
+        />
 
         {busy ? (
           <View style={styles.stateCard}>
@@ -402,47 +399,6 @@ const styles = StyleSheet.create({
     padding: 20,
     gap: 14,
     paddingBottom: 30,
-  },
-  headerCard: {
-    minHeight: 140,
-    borderRadius: 22,
-    padding: 20,
-    paddingRight: 58,
-    justifyContent: "flex-end",
-    backgroundColor: OB.primary,
-  },
-  backButton: {
-    position: "absolute",
-    right: 14,
-    top: 14,
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.14)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.20)",
-  },
-  headerEyebrow: {
-    color: OB.textOnDarkMid,
-    fontSize: 10,
-    fontWeight: "900",
-    letterSpacing: 2,
-    textTransform: "uppercase",
-  },
-  headerTitle: {
-    color: OB.textOnDark,
-    fontSize: 25,
-    fontWeight: "900",
-    marginTop: 8,
-  },
-  headerSubtitle: {
-    color: OB.textOnDarkMid,
-    fontSize: 13,
-    fontWeight: "700",
-    lineHeight: 20,
-    marginTop: 6,
   },
   summaryCard: {
     borderRadius: 18,

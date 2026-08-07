@@ -1,7 +1,7 @@
 import React from "react";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
-import { Pressable, StyleSheet, Text, View, ViewStyle } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, View, ViewStyle } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Svg, {
   Circle,
@@ -73,8 +73,13 @@ export function OnboardingShell({ children, light = false }: { children: React.R
 
 export function BackButton({ onPress }: { onPress: () => void }) {
   return (
-    <Pressable onPress={onPress} hitSlop={12} style={styles.backButton}>
-      <Ionicons name="chevron-back" size={20} color={OB.textOnDark} />
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [styles.backButton, pressed && styles.backButtonPressed]}
+      accessibilityRole="button"
+      accessibilityLabel="Voltar"
+    >
+      <Ionicons name={Platform.OS === "ios" ? "chevron-back" : "arrow-back"} size={20} color={OB.textOnDark} />
     </Pressable>
   );
 }
@@ -184,7 +189,7 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
   },
   introTopRow: {
-    minHeight: 38,
+    minHeight: 44,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -194,16 +199,17 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   backButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
+    width: 44,
+    height: 44,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.10)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.15)",
+  },
+  backButtonPressed: {
+    opacity: 0.72,
   },
   stepBadge: {
+    maxWidth: "75%",
+    flexShrink: 1,
     minHeight: 34,
     borderRadius: 999,
     paddingHorizontal: 12,
@@ -227,6 +233,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
   },
   stepText: {
+    flexShrink: 1,
     color: OB.textOnDarkMid,
     fontSize: 9,
     fontWeight: "900",

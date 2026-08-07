@@ -22,6 +22,7 @@ import {
 import { useSession } from "../../src/providers/SessionProvider";
 import { BankLogo } from "../../src/ui/BankLogo";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
+import { ScreenHeaderCard } from "../../src/ui/ScreenHeaderCard";
 
 function formatImportedAt(value: string) {
   const date = new Date(value);
@@ -255,22 +256,13 @@ export default function ImportHistoryScreen() {
           />
         }
       >
-        <View style={styles.headerCard}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Voltar"
-            onPress={() => router.back()}
-            style={styles.backButton}
-            hitSlop={12}
-          >
-            <Ionicons name="arrow-back" size={18} color="#fff" />
-          </Pressable>
-          <Text style={styles.headerEyebrow}>Importar extrato</Text>
-          <Text style={styles.headerTitle}>Histórico</Text>
-          <Text style={styles.headerSubtitle}>
-            Consulte os arquivos importados e corrija uma importação feita por engano.
-          </Text>
-        </View>
+        <ScreenHeaderCard
+          eyebrow="Importar extrato"
+          title="Histórico"
+          subtitle="Consulte os arquivos importados e corrija uma importação feita por engano."
+          onBack={() => router.back()}
+          backAccessibilityLabel="Voltar"
+        />
 
         {!busy && imports.length ? (
           <>
@@ -383,47 +375,6 @@ const styles = StyleSheet.create({
     padding: 20,
     gap: 16,
     paddingBottom: 28,
-  },
-  headerCard: {
-    minHeight: 140,
-    borderRadius: 22,
-    padding: 20,
-    paddingRight: 58,
-    justifyContent: "flex-end",
-    backgroundColor: OB.primary,
-  },
-  backButton: {
-    position: "absolute",
-    right: 14,
-    top: 14,
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.14)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.20)",
-  },
-  headerEyebrow: {
-    color: OB.textOnDarkMid,
-    fontSize: 10,
-    fontWeight: "900",
-    letterSpacing: 2,
-    textTransform: "uppercase",
-  },
-  headerTitle: {
-    color: OB.textOnDark,
-    fontSize: 25,
-    fontWeight: "900",
-    marginTop: 8,
-  },
-  headerSubtitle: {
-    color: OB.textOnDarkMid,
-    fontSize: 13,
-    fontWeight: "700",
-    lineHeight: 20,
-    marginTop: 6,
   },
   summaryCard: {
     borderRadius: 18,

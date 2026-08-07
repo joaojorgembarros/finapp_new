@@ -3,6 +3,7 @@ import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-nati
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
+import { ScreenHeaderCard } from "../../src/ui/ScreenHeaderCard";
 
 type FormatOption = {
   title: string;
@@ -65,14 +66,12 @@ export default function ImportExtractOnboarding() {
   return (
     <OnboardingShell light>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <View style={styles.headerCard}>
-          <Pressable onPress={() => router.back()} style={styles.backButton} hitSlop={12}>
-            <Ionicons name="arrow-back" size={18} color="#fff" />
-          </Pressable>
-          <Text style={styles.headerEyebrow}>Controle financeiro</Text>
-          <Text style={styles.headerTitle}>Importar extrato</Text>
-          <Text style={styles.headerSubtitle}>Escolha o formato do arquivo e revise tudo antes de salvar.</Text>
-        </View>
+        <ScreenHeaderCard
+          eyebrow="Controle financeiro"
+          title="Importar extrato"
+          subtitle="Escolha o formato do arquivo e revise tudo antes de salvar."
+          onBack={() => router.back()}
+        />
 
         <Pressable
           onPress={() => router.push("/(app)/import-history")}
@@ -112,47 +111,6 @@ const styles = StyleSheet.create({
     padding: 20,
     gap: 16,
     paddingBottom: 28,
-  },
-  headerCard: {
-    minHeight: 140,
-    borderRadius: 22,
-    padding: 20,
-    paddingRight: 58,
-    justifyContent: "flex-end",
-    backgroundColor: OB.primary,
-  },
-  backButton: {
-    position: "absolute",
-    right: 14,
-    top: 14,
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.14)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.20)",
-  },
-  headerEyebrow: {
-    color: OB.textOnDarkMid,
-    fontSize: 10,
-    fontWeight: "900",
-    letterSpacing: 2,
-    textTransform: "uppercase",
-  },
-  headerTitle: {
-    color: OB.textOnDark,
-    fontSize: 25,
-    fontWeight: "900",
-    marginTop: 8,
-  },
-  headerSubtitle: {
-    color: OB.textOnDarkMid,
-    fontSize: 13,
-    fontWeight: "700",
-    lineHeight: 20,
-    marginTop: 6,
   },
   card: {
     borderRadius: 20,

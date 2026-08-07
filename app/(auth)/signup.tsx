@@ -241,8 +241,13 @@ export default function SignupScreen() {
             showsVerticalScrollIndicator={false}
           >
             <View style={styles.topBar}>
-              <Pressable onPress={() => router.replace("/(auth)/login")} style={styles.backButton} hitSlop={12}>
-                <Ionicons name="arrow-back" size={18} color="#fff" />
+              <Pressable
+                onPress={() => router.replace("/(auth)/login")}
+                style={({ pressed }) => [styles.backButton, pressed && styles.backButtonPressed]}
+                accessibilityRole="button"
+                accessibilityLabel="Voltar para entrar"
+              >
+                <Ionicons name={Platform.OS === "ios" ? "chevron-back" : "arrow-back"} size={20} color="#fff" />
               </Pressable>
               <Text style={styles.brandName}>FinApp</Text>
             </View>
@@ -384,14 +389,13 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   backButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
+    width: 44,
+    height: 44,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.12)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.18)",
+  },
+  backButtonPressed: {
+    opacity: 0.72,
   },
   brandName: {
     color: OB.textOnDark,

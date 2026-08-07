@@ -293,7 +293,7 @@ const styles = StyleSheet.create({
   headerCopy: { flex: 1 },
   eyebrow: { color: OB.support, fontSize: 10, fontWeight: "900", letterSpacing: 1.2, textTransform: "uppercase" },
   title: { color: OB.primary, fontSize: 22, fontWeight: "900", marginTop: 4 },
-  closeButton: { width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: OB.offWhite },
+  closeButton: { width: 44, height: 44, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: OB.offWhite },
   content: { padding: 20, paddingBottom: 36 },
   readOnlyCard: { padding: 16, borderRadius: 18, flexDirection: "row", justifyContent: "space-between", backgroundColor: "rgba(55,110,165,0.10)", borderWidth: 1, borderColor: "rgba(55,110,165,0.18)", marginBottom: 18 },
   readOnlyLabel: { color: OB.support, fontSize: 9, fontWeight: "900", textTransform: "uppercase" },

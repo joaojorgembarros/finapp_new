@@ -4,6 +4,7 @@ import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -24,6 +25,7 @@ import {
 import { formatBRLFromCents, formatDateBRFromYMD } from "../../src/lib/format";
 import { useSession } from "../../src/providers/SessionProvider";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
+import { ScreenHeaderCard } from "../../src/ui/ScreenHeaderCard";
 
 type CandidateTransaction = FinancialOverviewTransaction & {
   exactAmount: boolean;
@@ -88,6 +90,7 @@ export default function LinkCommitmentScreen() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [actionError, setActionError] = useState("");
 
   const cycle = useMemo<FinancialCycle>(() => ({
     key: cycleKey,
@@ -210,6 +213,7 @@ export default function LinkCommitmentScreen() {
     if (!data || !selectedTransaction || !householdId || !userId || saving) return;
     try {
       setSaving(true);
+      setActionError("");
       const latestPayments = await listCommitmentPayments(householdId, cycle.key);
       const alreadyLinked = latestPayments.some(
         (payment) =>
@@ -217,12 +221,11 @@ export default function LinkCommitmentScreen() {
           payment.transaction_id === selectedTransaction.id
       );
       if (alreadyLinked) {
-        Alert.alert(
-          "Despesa já vinculada",
-          "Outra conta acabou de usar esta despesa. Atualizamos a lista para você escolher outra."
-        );
+        const message = "Outra conta acabou de usar esta despesa. Atualizamos a lista para você escolher outra.";
         setSelectedTransactionId(null);
         await load();
+        if (Platform.OS === "web") setActionError(message);
+        else Alert.alert("Despesa já vinculada", message);
         return;
       }
 
@@ -236,16 +239,15 @@ export default function LinkCommitmentScreen() {
         paidOn: selectedTransaction.occurred_on,
         transactionId: selectedTransaction.id,
       });
-      returnToControl();
+      goBack();
     } catch (saveError: any) {
-      Alert.alert(
-        "Não foi possível vincular",
-        saveError?.message ?? "Confira a despesa selecionada e tente novamente."
-      );
+      const message = saveError?.message ?? "Confira a despesa selecionada e tente novamente.";
+      if (Platform.OS === "web") setActionError(message);
+      else Alert.alert("Não foi possível vincular", message);
     } finally {
       setSaving(false);
     }
-  }, [cycle.key, data, householdId, load, returnToControl, saving, selectedTransaction, userId]);
+  }, [cycle.key, data, goBack, householdId, load, saving, selectedTransaction, userId]);
 
   const busy = loading || householdLoading;
 
@@ -260,24 +262,12 @@ export default function LinkCommitmentScreen() {
           showsVerticalScrollIndicator={false}
         >
           <View style={[styles.contentInner, compact && styles.contentInnerCompact]}>
-            <View style={[styles.headerCard, compact && styles.headerCardCompact]}>
-              <Pressable
-                onPress={goBack}
-                hitSlop={12}
-                style={styles.backButton}
-                accessibilityRole="button"
-                accessibilityLabel="Voltar"
-              >
-                <Ionicons name="arrow-back" size={19} color="#fff" />
-              </Pressable>
-              <Text style={styles.headerEyebrow}>Conferência do ciclo</Text>
-              <Text style={[styles.headerTitle, compact && styles.headerTitleCompact]}>
-                Vincule a conta à despesa real
-              </Text>
-              <Text style={styles.headerSubtitle}>
-                Escolha o lançamento que corresponde ao pagamento deste compromisso.
-              </Text>
-            </View>
+            <ScreenHeaderCard
+              onBack={goBack}
+              eyebrow="Conferência do ciclo"
+              title="Vincule a conta à despesa real"
+              subtitle="Escolha o lançamento que corresponde ao pagamento deste compromisso."
+            />
 
             {!validParams ? (
               <StateCard
@@ -359,7 +349,10 @@ export default function LinkCommitmentScreen() {
                       return (
                         <Pressable
                           key={transaction.id}
-                          onPress={() => setSelectedTransactionId(transaction.id)}
+                          onPress={() => {
+                            setActionError("");
+                            setSelectedTransactionId(transaction.id);
+                          }}
                           style={({ pressed }) => [
                             styles.transactionCard,
                             selected && styles.transactionCardSelected,
@@ -473,6 +466,13 @@ export default function LinkCommitmentScreen() {
                     <Text style={styles.selectHint}>Selecione uma despesa acima para liberar a confirmação.</Text>
                   )}
 
+                  {actionError ? (
+                    <View style={styles.actionError} accessibilityRole="alert">
+                      <Ionicons name="alert-circle-outline" size={18} color="#A33F3F" />
+                      <Text style={styles.actionErrorText}>{actionError}</Text>
+                    </View>
+                  ) : null}
+
                   <Pressable
                     onPress={() => void confirmLink()}
                     disabled={!selectedTransaction || saving}
@@ -535,39 +535,6 @@ const styles = StyleSheet.create({
   contentInner: { width: "100%", maxWidth: 680, alignSelf: "center", gap: 14 },
   contentInnerCompact: { gap: 11 },
   flex: { flex: 1, minWidth: 0 },
-  headerCard: {
-    minHeight: 164,
-    borderRadius: 23,
-    padding: 20,
-    paddingLeft: 64,
-    justifyContent: "flex-end",
-    backgroundColor: OB.primary,
-    overflow: "hidden",
-  },
-  headerCardCompact: { minHeight: 154, paddingRight: 15, paddingBottom: 16 },
-  backButton: {
-    position: "absolute",
-    left: 14,
-    top: 14,
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.14)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.20)",
-  },
-  headerEyebrow: {
-    color: OB.textOnDarkMid,
-    fontSize: 10,
-    fontWeight: "900",
-    letterSpacing: 1.8,
-    textTransform: "uppercase",
-  },
-  headerTitle: { color: OB.textOnDark, fontSize: 24, lineHeight: 29, fontWeight: "900", marginTop: 8 },
-  headerTitleCompact: { fontSize: 21, lineHeight: 26 },
-  headerSubtitle: { color: OB.textOnDarkMid, fontSize: 12, lineHeight: 18, fontWeight: "700", marginTop: 6 },
   commitmentCard: {
     borderRadius: 20,
     padding: 16,
@@ -697,6 +664,25 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderWidth: 1,
     borderColor: OB.supportSoft,
+  },
+  actionError: {
+    minHeight: 48,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+    backgroundColor: "#FFF2F2",
+    borderWidth: 1,
+    borderColor: "rgba(163,63,63,0.22)",
+  },
+  actionErrorText: {
+    flex: 1,
+    color: "#7F3030",
+    fontSize: 11,
+    fontWeight: "800",
+    lineHeight: 16,
   },
   confirmSummary: { flexDirection: "row", alignItems: "center", gap: 11 },
   confirmIcon: {

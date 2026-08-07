@@ -6,6 +6,7 @@ import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
 import { useSession } from "../../src/providers/SessionProvider";
 import { useHouseholdId } from "../../src/hooks/useHousehold";
 import { Category, deleteCategory, Flow, Kind, listCategories } from "../../src/lib/categories";
+import { ScreenHeaderCard } from "../../src/ui/ScreenHeaderCard";
 
 type CategoryGroup = `${Flow}/${Kind}`;
 
@@ -159,14 +160,12 @@ export default function OnboardingCategories() {
     <OnboardingShell light>
       <View style={styles.root}>
         <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-          <View style={styles.headerCard}>
-            <Pressable onPress={() => router.replace("/(app)/journey")} style={styles.backButton} hitSlop={12}>
-              <Ionicons name="arrow-back" size={18} color="#fff" />
-            </Pressable>
-            <Text style={styles.headerEyebrow}>Controle financeiro</Text>
-            <Text style={styles.headerTitle}>Categorias</Text>
-            <Text style={styles.headerSubtitle}>Crie categorias do seu jeito para organizar seus lançamentos.</Text>
-          </View>
+          <ScreenHeaderCard
+            onBack={() => router.replace("/(app)/journey")}
+            eyebrow="Controle financeiro"
+            title="Categorias"
+            subtitle="Crie categorias do seu jeito para organizar seus lançamentos."
+          />
 
           <View style={styles.card}>
             <View style={styles.cardHeading}>
@@ -272,47 +271,6 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: OB.offWhite,
-  },
-  headerCard: {
-    minHeight: 140,
-    borderRadius: 22,
-    padding: 20,
-    paddingRight: 58,
-    justifyContent: "flex-end",
-    backgroundColor: OB.primary,
-  },
-  backButton: {
-    position: "absolute",
-    right: 14,
-    top: 14,
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.14)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.20)",
-  },
-  headerEyebrow: {
-    color: OB.textOnDarkMid,
-    fontSize: 10,
-    fontWeight: "900",
-    letterSpacing: 2,
-    textTransform: "uppercase",
-  },
-  headerTitle: {
-    color: OB.textOnDark,
-    fontSize: 25,
-    fontWeight: "900",
-    marginTop: 8,
-  },
-  headerSubtitle: {
-    color: OB.textOnDarkMid,
-    fontSize: 13,
-    fontWeight: "700",
-    lineHeight: 20,
-    marginTop: 6,
   },
   scroll: {
     padding: 20,

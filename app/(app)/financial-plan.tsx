@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { router, useFocusEffect } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -33,6 +33,7 @@ import {
 import { formatBRLFromCents, formatBRLInputFromDigits, parseBRLToCents } from "../../src/lib/format";
 import { useSession } from "../../src/providers/SessionProvider";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
+import { ScreenHeaderCard } from "../../src/ui/ScreenHeaderCard";
 
 type SettingsField = "payday" | "reserve";
 type CommitmentField = "name" | "amount" | "due" | "start" | "installments";
@@ -94,6 +95,9 @@ function kindLabel(kind: CommitmentKind) {
 }
 
 export default function FinancialPlanScreen() {
+  const params = useLocalSearchParams<{ guided?: string }>();
+  const requestedGuided = Array.isArray(params.guided) ? params.guided[0] : params.guided;
+  const guided = requestedGuided === "1";
   const insets = useSafeAreaInsets();
   const { userId } = useSession();
   const { householdId, loading: householdLoading } = useHouseholdId(userId);
@@ -108,6 +112,9 @@ export default function FinancialPlanScreen() {
   const [savingSettings, setSavingSettings] = useState(false);
   const [savingCommitment, setSavingCommitment] = useState(false);
   const [loadError, setLoadError] = useState("");
+  const [settingsSaveError, setSettingsSaveError] = useState("");
+  const [commitmentSaveError, setCommitmentSaveError] = useState("");
+  const [guidedStep, setGuidedStep] = useState<1 | 2>(1);
   const [modalVisible, setModalVisible] = useState(false);
   const [editing, setEditing] = useState<FinancialCommitment | null>(null);
   const [draft, setDraft] = useState<CommitmentDraft>(emptyDraft);
@@ -138,12 +145,13 @@ export default function FinancialPlanScreen() {
       ]);
       applySettings(settings);
       setCommitments(rows);
+      if (guided && settings.updated_by !== null) setGuidedStep(2);
     } catch (error: any) {
       setLoadError(error?.message ?? "Não foi possível carregar seu planejamento.");
     } finally {
       setLoading(false);
     }
-  }, [applySettings, householdId, householdLoading]);
+  }, [applySettings, guided, householdId, householdLoading]);
 
   useFocusEffect(
     useCallback(() => {
@@ -177,6 +185,7 @@ export default function FinancialPlanScreen() {
     if (!householdId || !userId || !settingsValid || savingSettings) return;
     try {
       setSavingSettings(true);
+      setSettingsSaveError("");
       const saved = await saveFinancialSettings({
         householdId,
         userId,
@@ -185,9 +194,17 @@ export default function FinancialPlanScreen() {
         reserveCents: parseBRLToCents(minimumReserve),
       });
       applySettings(saved);
-      Alert.alert("Planejamento salvo", "Seu ciclo e sua reserva mínima foram atualizados.");
+      if (guided) {
+        Keyboard.dismiss();
+        setGuidedStep(2);
+        requestAnimationFrame(() => settingsKeyboard.scrollRef.current?.scrollTo({ y: 0, animated: true }));
+      } else {
+        Alert.alert("Planejamento salvo", "Seu ciclo e sua reserva mínima foram atualizados.");
+      }
     } catch (error: any) {
-      Alert.alert("Não foi possível salvar", error?.message ?? "Tente novamente.");
+      const message = error?.message ?? "Tente novamente.";
+      setSettingsSaveError(message);
+      if (!guided && Platform.OS !== "web") Alert.alert("Não foi possível salvar", message);
     } finally {
       setSavingSettings(false);
     }
@@ -195,6 +212,7 @@ export default function FinancialPlanScreen() {
 
   function openNewCommitment() {
     Keyboard.dismiss();
+    setCommitmentSaveError("");
     setEditing(null);
     setDraft(emptyDraft());
     setModalVisible(true);
@@ -202,6 +220,7 @@ export default function FinancialPlanScreen() {
 
   function openEditCommitment(commitment: FinancialCommitment) {
     Keyboard.dismiss();
+    setCommitmentSaveError("");
     setEditing(commitment);
     setDraft({
       name: commitment.name,
@@ -218,6 +237,7 @@ export default function FinancialPlanScreen() {
 
   function closeModal() {
     Keyboard.dismiss();
+    setCommitmentSaveError("");
     setModalVisible(false);
     setEditing(null);
   }
@@ -238,6 +258,7 @@ export default function FinancialPlanScreen() {
 
     try {
       setSavingCommitment(true);
+      setCommitmentSaveError("");
       if (editing) {
         await updateCommitment({ ...values, commitmentId: editing.id });
       } else {
@@ -247,13 +268,36 @@ export default function FinancialPlanScreen() {
       setCommitments(rows);
       closeModal();
     } catch (error: any) {
-      Alert.alert("Não foi possível salvar", error?.message ?? "Confira os dados e tente novamente.");
+      const message = error?.message ?? "Confira os dados e tente novamente.";
+      setCommitmentSaveError(message);
+      if (Platform.OS !== "web") Alert.alert("Não foi possível salvar", message);
     } finally {
       setSavingCommitment(false);
     }
   }
 
   function confirmArchive(commitment: FinancialCommitment) {
+    const persist = async () => {
+      if (!householdId) return;
+      try {
+        setCommitmentSaveError("");
+        await archiveCommitment(householdId, commitment.id);
+        setCommitments((current) => current.filter((item) => item.id !== commitment.id));
+      } catch (error: any) {
+        const message = error?.message ?? "Tente novamente.";
+        if (Platform.OS === "web") setCommitmentSaveError(message);
+        else Alert.alert("Não foi possível arquivar", message);
+      }
+    };
+
+    if (Platform.OS === "web") {
+      const confirmed = typeof globalThis.confirm === "function"
+        ? globalThis.confirm(`Arquivar ${commitment.name}? Esse compromisso deixará de entrar nos próximos cálculos.`)
+        : false;
+      if (confirmed) void persist();
+      return;
+    }
+
     Alert.alert(
       "Arquivar compromisso?",
       `${commitment.name} deixará de entrar nos próximos cálculos.`,
@@ -262,15 +306,7 @@ export default function FinancialPlanScreen() {
         {
           text: "Arquivar",
           style: "destructive",
-          onPress: async () => {
-            if (!householdId) return;
-            try {
-              await archiveCommitment(householdId, commitment.id);
-              setCommitments((current) => current.filter((item) => item.id !== commitment.id));
-            } catch (error: any) {
-              Alert.alert("Não foi possível arquivar", error?.message ?? "Tente novamente.");
-            }
-          },
+          onPress: () => void persist(),
         },
       ]
     );
@@ -292,22 +328,18 @@ export default function FinancialPlanScreen() {
           onScrollBeginDrag={settingsKeyboard.cancelPendingScroll}
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.headerCard}>
-            <Pressable
-              onPress={() => router.back()}
-              hitSlop={12}
-              style={styles.backButton}
-              accessibilityRole="button"
-              accessibilityLabel="Voltar"
-            >
-              <Ionicons name="arrow-back" size={19} color="#fff" />
-            </Pressable>
-            <Text style={styles.headerEyebrow}>Seu plano financeiro</Text>
-            <Text style={styles.headerTitle}>Organize o seu ciclo</Text>
-            <Text style={styles.headerSubtitle}>
-              Diga quando seu dinheiro se renova e o que já está comprometido.
-            </Text>
-          </View>
+          <ScreenHeaderCard
+            onBack={() => router.back()}
+            eyebrow={guided ? `Etapa ${guidedStep} de 2` : "Seu plano financeiro"}
+            title={guided
+              ? guidedStep === 1 ? "Defina seu período e proteção" : "Informe o que ainda falta pagar"
+              : "Organize o seu ciclo"}
+            subtitle={guided
+              ? guidedStep === 1
+                ? "Escolha como seu período funciona e quanto deseja manter na conta."
+                : "Adicione somente contas, dívidas ou parcelas que ainda precisam ser pagas."
+              : "Diga quando seu dinheiro se renova e o que já está comprometido."}
+          />
 
           {busy ? (
             <View style={styles.stateCard}>
@@ -325,7 +357,8 @@ export default function FinancialPlanScreen() {
             </View>
           ) : (
             <>
-              <View style={styles.card}>
+              {!guided || guidedStep === 1 ? (
+                <View style={styles.card}>
                 <View style={styles.sectionHeading}>
                   <View style={styles.sectionIcon}>
                     <Ionicons name="calendar-outline" size={20} color={OB.primary} />
@@ -399,7 +432,7 @@ export default function FinancialPlanScreen() {
                 ) : null}
 
                 <View onLayout={settingsKeyboard.registerField("reserve")}>
-                  <Text style={styles.label}>Reserva mínima</Text>
+                  <Text style={styles.label}>{guided ? "Quanto quer manter na conta?" : "Reserva mínima"}</Text>
                   <TextInput
                     value={minimumReserve}
                     onChangeText={(value) => setMinimumReserve(formatBRLInputFromDigits(value))}
@@ -414,9 +447,16 @@ export default function FinancialPlanScreen() {
                     accessibilityLabel="Valor da reserva mínima"
                   />
                   <Text style={styles.helper}>
-                    Esse valor fica protegido antes de sugerirmos dinheiro para seus sonhos.
+                    Esse valor será descontado antes de mostrarmos o que pode ir para seus sonhos.
                   </Text>
                 </View>
+
+                {settingsSaveError ? (
+                  <View style={styles.inlineError} accessibilityRole="alert">
+                    <Ionicons name="alert-circle-outline" size={18} color="#A33F3F" />
+                    <Text style={styles.inlineErrorText}>{settingsSaveError}</Text>
+                  </View>
+                ) : null}
 
                 <Pressable
                   onPress={() => void saveSettings()}
@@ -426,82 +466,107 @@ export default function FinancialPlanScreen() {
                   accessibilityState={{ disabled: !settingsValid || savingSettings }}
                 >
                   {savingSettings ? <ActivityIndicator color="#fff" /> : (
-                    <Text style={styles.primaryButtonText}>Salvar configurações</Text>
+                    <Text style={styles.primaryButtonText}>
+                      {guided ? "Salvar e continuar" : "Salvar configurações"}
+                    </Text>
                   )}
                 </Pressable>
-              </View>
-
-              <View style={styles.commitmentHeader}>
-                <View style={styles.flex}>
-                  <Text style={styles.sectionTitle}>Compromissos ativos</Text>
-                  <Text style={styles.sectionSubtitle}>
-                    Contas, dívidas e parcelas que reduzem sua margem segura.
-                  </Text>
                 </View>
-                <Pressable
-                  onPress={openNewCommitment}
-                  style={styles.addButton}
-                  accessibilityRole="button"
-                  accessibilityLabel="Adicionar compromisso"
-                >
-                  <Ionicons name="add" size={22} color="#fff" />
-                </Pressable>
-              </View>
+              ) : null}
 
-              {commitments.length ? commitments.map((commitment) => (
-                <View key={commitment.id} style={styles.commitmentCard}>
-                  <View style={styles.commitmentIcon}>
-                    <Ionicons
-                      name={KIND_OPTIONS.find((option) => option.value === commitment.kind)?.icon ?? "receipt-outline"}
-                      size={20}
-                      color={OB.primary}
-                    />
-                  </View>
-                  <View style={styles.flex}>
-                    <Text style={styles.commitmentName} numberOfLines={2}>{commitment.name}</Text>
-                    <Text style={styles.commitmentMeta}>
-                      {kindLabel(commitment.kind)} · vence dia {commitment.due_day}
-                    </Text>
-                    {commitment.installments_total ? (
-                      <Text style={styles.installmentText}>{commitment.installments_total} parcelas cadastradas</Text>
-                    ) : null}
-                    <Text style={styles.commitmentAmount}>{formatBRLFromCents(commitment.amount_cents)}</Text>
-                  </View>
-                  <View style={styles.cardActions}>
+              {!guided || guidedStep === 2 ? (
+                <>
+                  <View style={styles.commitmentHeader}>
+                    <View style={styles.flex}>
+                      <Text style={styles.sectionTitle}>O que ainda falta pagar?</Text>
+                      <Text style={styles.sectionSubtitle}>
+                        Adicione somente contas, dívidas ou parcelas que não aparecem como pagas no extrato.
+                      </Text>
+                    </View>
                     <Pressable
-                      onPress={() => openEditCommitment(commitment)}
-                      hitSlop={8}
-                      style={styles.iconButton}
+                      onPress={openNewCommitment}
+                      style={styles.addButton}
                       accessibilityRole="button"
-                      accessibilityLabel={`Editar ${commitment.name}`}
+                      accessibilityLabel="Adicionar compromisso"
                     >
-                      <Ionicons name="pencil-outline" size={17} color={OB.primary} />
-                    </Pressable>
-                    <Pressable
-                      onPress={() => confirmArchive(commitment)}
-                      hitSlop={8}
-                      style={styles.iconButton}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Arquivar ${commitment.name}`}
-                    >
-                      <Ionicons name="archive-outline" size={17} color="#B94A4A" />
+                      <Ionicons name="add" size={22} color="#fff" />
                     </Pressable>
                   </View>
-                </View>
-              )) : (
-                <View style={styles.emptyCard}>
-                  <View style={styles.emptyIcon}>
-                    <Ionicons name="shield-checkmark-outline" size={26} color={OB.primary} />
-                  </View>
-                  <Text style={styles.emptyTitle}>Nenhum compromisso cadastrado</Text>
-                  <Text style={styles.emptyText}>
-                    Adicione o que ainda precisa ser pago para deixar as sugestões mais seguras.
-                  </Text>
-                  <Pressable onPress={openNewCommitment} style={styles.secondaryButton} accessibilityRole="button">
-                    <Text style={styles.secondaryButtonText}>Adicionar compromisso</Text>
-                  </Pressable>
-                </View>
-              )}
+
+                  {commitmentSaveError && !modalVisible ? (
+                    <View style={styles.inlineError} accessibilityRole="alert">
+                      <Ionicons name="alert-circle-outline" size={18} color="#A33F3F" />
+                      <Text style={styles.inlineErrorText}>{commitmentSaveError}</Text>
+                    </View>
+                  ) : null}
+
+                  {commitments.length ? commitments.map((commitment) => (
+                    <View key={commitment.id} style={styles.commitmentCard}>
+                      <View style={styles.commitmentIcon}>
+                        <Ionicons
+                          name={KIND_OPTIONS.find((option) => option.value === commitment.kind)?.icon ?? "receipt-outline"}
+                          size={20}
+                          color={OB.primary}
+                        />
+                      </View>
+                      <View style={styles.flex}>
+                        <Text style={styles.commitmentName} numberOfLines={2}>{commitment.name}</Text>
+                        <Text style={styles.commitmentMeta}>
+                          {kindLabel(commitment.kind)} · vence dia {commitment.due_day}
+                        </Text>
+                        {commitment.installments_total ? (
+                          <Text style={styles.installmentText}>{commitment.installments_total} parcelas cadastradas</Text>
+                        ) : null}
+                        <Text style={styles.commitmentAmount}>{formatBRLFromCents(commitment.amount_cents)}</Text>
+                      </View>
+                      <View style={styles.cardActions}>
+                        <Pressable
+                          onPress={() => openEditCommitment(commitment)}
+                          hitSlop={8}
+                          style={styles.iconButton}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Editar ${commitment.name}`}
+                        >
+                          <Ionicons name="pencil-outline" size={17} color={OB.primary} />
+                        </Pressable>
+                        <Pressable
+                          onPress={() => confirmArchive(commitment)}
+                          hitSlop={8}
+                          style={styles.iconButton}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Arquivar ${commitment.name}`}
+                        >
+                          <Ionicons name="archive-outline" size={17} color="#B94A4A" />
+                        </Pressable>
+                      </View>
+                    </View>
+                  )) : (
+                    <View style={styles.emptyCard}>
+                      <View style={styles.emptyIcon}>
+                        <Ionicons name="shield-checkmark-outline" size={26} color={OB.primary} />
+                      </View>
+                      <Text style={styles.emptyTitle}>Nenhuma conta futura cadastrada</Text>
+                      <Text style={styles.emptyText}>
+                        Se não há mais nada para pagar neste período, pode concluir agora.
+                      </Text>
+                      <Pressable onPress={openNewCommitment} style={styles.secondaryButton} accessibilityRole="button">
+                        <Text style={styles.secondaryButtonText}>Adicionar uma conta</Text>
+                      </Pressable>
+                    </View>
+                  )}
+
+                  {guided ? (
+                    <Pressable
+                      onPress={() => router.dismissTo({ pathname: "/(app)/journey", params: { tab: "controle" } })}
+                      style={styles.primaryButton}
+                      accessibilityRole="button"
+                      accessibilityLabel="Concluir e voltar ao Controle"
+                    >
+                      <Text style={styles.primaryButtonText}>Concluir e voltar ao Controle</Text>
+                    </Pressable>
+                  ) : null}
+                </>
+              ) : null}
             </>
           )}
         </ScrollView>
@@ -529,7 +594,6 @@ export default function FinancialPlanScreen() {
                 </View>
                 <Pressable
                   onPress={closeModal}
-                  hitSlop={10}
                   style={styles.modalClose}
                   accessibilityRole="button"
                   accessibilityLabel="Fechar"
@@ -668,6 +732,13 @@ export default function FinancialPlanScreen() {
                 </View>
                 ) : null}
 
+                {commitmentSaveError ? (
+                  <View style={styles.inlineError} accessibilityRole="alert">
+                    <Ionicons name="alert-circle-outline" size={18} color="#A33F3F" />
+                    <Text style={styles.inlineErrorText}>{commitmentSaveError}</Text>
+                  </View>
+                ) : null}
+
                 <Pressable
                   onPress={() => void saveCommitment()}
                   disabled={!commitmentValid || savingCommitment}
@@ -692,42 +763,6 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: OB.offWhite },
   content: { padding: 20, gap: 14, paddingBottom: 32 },
   flex: { flex: 1 },
-  headerCard: {
-    minHeight: 154,
-    borderRadius: 22,
-    padding: 20,
-    paddingLeft: 62,
-    justifyContent: "flex-end",
-    backgroundColor: OB.primary,
-  },
-  backButton: {
-    position: "absolute",
-    left: 14,
-    top: 14,
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.14)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.20)",
-  },
-  headerEyebrow: {
-    color: OB.textOnDarkMid,
-    fontSize: 10,
-    fontWeight: "900",
-    letterSpacing: 2,
-    textTransform: "uppercase",
-  },
-  headerTitle: { color: OB.textOnDark, fontSize: 25, fontWeight: "900", marginTop: 8 },
-  headerSubtitle: {
-    color: OB.textOnDarkMid,
-    fontSize: 13,
-    fontWeight: "700",
-    lineHeight: 20,
-    marginTop: 6,
-  },
   card: {
     borderRadius: 20,
     padding: 16,
@@ -898,6 +933,25 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   retryText: { color: OB.primary, fontSize: 11, fontWeight: "900" },
+  inlineError: {
+    minHeight: 48,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+    backgroundColor: "#FFF2F2",
+    borderWidth: 1,
+    borderColor: "rgba(163,63,63,0.22)",
+  },
+  inlineErrorText: {
+    flex: 1,
+    color: "#7F3030",
+    fontSize: 11,
+    fontWeight: "800",
+    lineHeight: 16,
+  },
   modalBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(6,21,46,0.54)" },
   modalKeyboard: { flex: 1, justifyContent: "flex-end" },
   modalSheet: {
@@ -927,8 +981,8 @@ const styles = StyleSheet.create({
   },
   modalTitle: { color: OB.primary, fontSize: 21, fontWeight: "900", marginTop: 4 },
   modalClose: {
-    width: 40,
-    height: 40,
+    width: 44,
+    height: 44,
     borderRadius: 13,
     alignItems: "center",
     justifyContent: "center",

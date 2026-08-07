@@ -252,13 +252,20 @@ export default function OnboardingProfileScreen() {
     <OnboardingShell light>
       <KeyboardAvoidingView enabled={Platform.OS === "ios"} behavior="padding" style={styles.root}>
         <View style={styles.header}>
-          <Pressable onPress={() => router.replace("/(app)/journey")} style={styles.backButton} hitSlop={12}>
-            <Ionicons name="arrow-back" size={18} color="#fff" />
-          </Pressable>
-          <View style={styles.headerContent}>
-            <Text style={styles.headerEyebrow}>Perfil</Text>
-            <Text style={styles.headerTitle}>Editar perfil</Text>
-            <Text style={styles.headerSubtitle}>Atualize seus dados, contato e preferências da sua jornada.</Text>
+          <Text style={styles.headerEyebrow}>Perfil</Text>
+          <View style={styles.headerHeadingRow}>
+            <Pressable
+              onPress={() => router.replace("/(app)/journey")}
+              style={({ pressed }) => [styles.backButton, pressed && styles.backButtonPressed]}
+              accessibilityRole="button"
+              accessibilityLabel="Voltar"
+            >
+              <Ionicons name={Platform.OS === "ios" ? "chevron-back" : "arrow-back"} size={20} color="#fff" />
+            </Pressable>
+            <View style={styles.headerContent}>
+              <Text style={styles.headerTitle} accessibilityRole="header">Editar perfil</Text>
+              <Text style={styles.headerSubtitle}>Atualize seus dados, contato e preferências da sua jornada.</Text>
+            </View>
           </View>
         </View>
 
@@ -433,29 +440,28 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 22,
     backgroundColor: OB.primary,
-    alignItems: "center",
+    alignItems: "stretch",
+    gap: 12,
+  },
+  headerHeadingRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
   },
   backButton: {
-    position: "absolute",
-    left: 18,
-    top: 12,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 44,
+    height: 44,
     alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.14)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.24)",
-    shadowColor: "#000",
-    shadowOpacity: 0.12,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
+    justifyContent: "flex-start",
+    paddingTop: 5,
+  },
+  backButtonPressed: {
+    opacity: 0.72,
   },
   headerContent: {
-    alignItems: "center",
-    paddingHorizontal: 42,
+    flex: 1,
+    minWidth: 0,
+    alignItems: "flex-start",
   },
   headerEyebrow: {
     color: OB.textOnDarkMid,
@@ -468,8 +474,7 @@ const styles = StyleSheet.create({
     color: OB.textOnDark,
     fontSize: 25,
     fontWeight: "900",
-    marginTop: 8,
-    textAlign: "center",
+    textAlign: "left",
   },
   headerSubtitle: {
     color: OB.textOnDarkMid,
@@ -477,7 +482,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     lineHeight: 20,
     marginTop: 6,
-    textAlign: "center",
+    textAlign: "left",
   },
   scroll: {
     padding: 16,

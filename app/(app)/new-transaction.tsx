@@ -11,6 +11,7 @@ import { addTransaction } from "../../src/lib/transactions";
 import { useSession } from "../../src/providers/SessionProvider";
 import { BankLogo } from "../../src/ui/BankLogo";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
+import { ScreenHeaderCard } from "../../src/ui/ScreenHeaderCard";
 
 type TxType = "Receita" | "Despesa";
 
@@ -117,14 +118,14 @@ export default function NewTransactionScreen() {
           keyboardShouldPersistTaps="handled"
           onScrollBeginDrag={cancelPendingScroll}
         >
-          <View style={styles.headerCard}>
-            <Pressable onPress={() => router.back()} hitSlop={12} style={styles.closeButton} accessibilityRole="button" accessibilityLabel="Fechar">
-              <Ionicons name="close" size={21} color="#fff" />
-            </Pressable>
-            <Text style={styles.headerEyebrow}>Controle financeiro</Text>
-            <Text style={styles.headerTitle}>Novo lançamento</Text>
-            <Text style={styles.headerSubtitle}>Registre entradas e saídas com clareza.</Text>
-          </View>
+          <ScreenHeaderCard
+            onBack={() => router.back()}
+            backAccessibilityLabel="Fechar"
+            navigationVariant="close"
+            eyebrow="Controle financeiro"
+            title="Novo lançamento"
+            subtitle="Registre entradas e saídas com clareza."
+          />
 
           <Pressable onPress={() => router.push("/(app)/import-extract")} style={styles.importButton}>
             <View style={styles.importIcon}><Ionicons name="cloud-upload-outline" size={18} color={OB.primary} /></View>
@@ -187,11 +188,6 @@ export default function NewTransactionScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: OB.offWhite },
   content: { padding: 20, gap: 14, paddingBottom: 32 },
-  headerCard: { minHeight: 140, borderRadius: 22, padding: 20, paddingRight: 62, justifyContent: "flex-end", backgroundColor: OB.primary },
-  closeButton: { position: "absolute", right: 14, top: 14, width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.14)", borderWidth: 1, borderColor: "rgba(255,255,255,0.20)" },
-  headerEyebrow: { color: OB.textOnDarkMid, fontSize: 10, fontWeight: "900", letterSpacing: 2, textTransform: "uppercase" },
-  headerTitle: { color: OB.textOnDark, fontSize: 25, fontWeight: "900", marginTop: 8 },
-  headerSubtitle: { color: OB.textOnDarkMid, fontSize: 13, fontWeight: "700", lineHeight: 20, marginTop: 6 },
   importButton: { minHeight: 66, borderRadius: 18, padding: 12, flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: "#fff", borderWidth: 1, borderColor: OB.supportSoft },
   importIcon: { width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: OB.offWhite },
   flex: { flex: 1 },

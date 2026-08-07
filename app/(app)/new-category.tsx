@@ -7,6 +7,7 @@ import { useKeyboardAwareScroll } from "../../src/hooks/useKeyboardAwareScroll";
 import { Category, createCategory, Flow, Kind, listCategories, updateCategoryName } from "../../src/lib/categories";
 import { useSession } from "../../src/providers/SessionProvider";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
+import { ScreenHeaderCard } from "../../src/ui/ScreenHeaderCard";
 
 const ICON_OPTIONS: { label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { label: "Mercado", icon: "cart-outline" },
@@ -117,16 +118,15 @@ export default function NewCategoryScreen() {
           keyboardDismissMode="none"
           onScrollBeginDrag={cancelPendingScroll}
         >
-          <View style={styles.headerCard}>
-            <Pressable onPress={() => router.back()} style={styles.backButton} hitSlop={12} accessibilityRole="button" accessibilityLabel="Voltar para categorias">
-              <Ionicons name="arrow-back" size={18} color="#fff" />
-            </Pressable>
-            <Text style={styles.headerEyebrow}>Categorias</Text>
-            <Text style={styles.headerTitle}>{editing ? "Alterar categoria" : "Nova categoria"}</Text>
-            <Text style={styles.headerSubtitle}>
-              {editing ? "Atualize o nome desta categoria." : `Crie uma categoria em ${selectedGroup.toLocaleLowerCase("pt-BR")}.`}
-            </Text>
-          </View>
+          <ScreenHeaderCard
+            onBack={() => router.back()}
+            backAccessibilityLabel="Voltar para categorias"
+            eyebrow="Categorias"
+            title={editing ? "Alterar categoria" : "Nova categoria"}
+            subtitle={editing
+              ? "Atualize o nome desta categoria."
+              : `Crie uma categoria em ${selectedGroup.toLocaleLowerCase("pt-BR")}.`}
+          />
 
           <View style={styles.card} onLayout={registerField("category")}>
             <View style={styles.groupBadge}>
@@ -199,47 +199,6 @@ const styles = StyleSheet.create({
     padding: 20,
     gap: 18,
     paddingBottom: 28,
-  },
-  headerCard: {
-    minHeight: 140,
-    borderRadius: 22,
-    padding: 20,
-    paddingRight: 58,
-    justifyContent: "flex-end",
-    backgroundColor: OB.primary,
-  },
-  backButton: {
-    position: "absolute",
-    right: 14,
-    top: 14,
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.14)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.20)",
-  },
-  headerEyebrow: {
-    color: OB.textOnDarkMid,
-    fontSize: 10,
-    fontWeight: "900",
-    letterSpacing: 2,
-    textTransform: "uppercase",
-  },
-  headerTitle: {
-    color: OB.textOnDark,
-    fontSize: 25,
-    fontWeight: "900",
-    marginTop: 8,
-  },
-  headerSubtitle: {
-    color: OB.textOnDarkMid,
-    fontSize: 13,
-    fontWeight: "700",
-    lineHeight: 20,
-    marginTop: 6,
   },
   card: {
     borderRadius: 20,

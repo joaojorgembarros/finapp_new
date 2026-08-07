@@ -21,6 +21,7 @@ import { formatBRLFromCents, formatBRLInputFromDigits, parseBRLToCents } from ".
 import { GoalProgress, listGoalsWithProgress } from "../../src/lib/goals";
 import { useSession } from "../../src/providers/SessionProvider";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
+import { ScreenHeaderCard } from "../../src/ui/ScreenHeaderCard";
 
 type FormField = "amount" | "note";
 
@@ -200,22 +201,12 @@ export default function AllocateSurplusScreen() {
           onScrollBeginDrag={cancelPendingScroll}
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.headerCard}>
-            <Pressable
-              onPress={() => router.back()}
-              hitSlop={12}
-              style={styles.backButton}
-              accessibilityRole="button"
-              accessibilityLabel="Voltar"
-            >
-              <Ionicons name="arrow-back" size={19} color="#fff" />
-            </Pressable>
-            <Text style={styles.headerEyebrow}>Fechamento do ciclo</Text>
-            <Text style={styles.headerTitle}>Transforme a sobra em progresso</Text>
-            <Text style={styles.headerSubtitle}>
-              Escolha um sonho para receber o valor que você realmente separou.
-            </Text>
-          </View>
+          <ScreenHeaderCard
+            onBack={() => router.back()}
+            eyebrow="Fechamento do ciclo"
+            title="Transforme a sobra em progresso"
+            subtitle="Escolha um sonho para receber o valor que você realmente separou."
+          />
 
           <View style={styles.availableCard}>
             <View style={styles.availableIcon}>
@@ -389,36 +380,6 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: OB.offWhite },
   content: { padding: 20, gap: 14, paddingBottom: 34 },
   flex: { flex: 1 },
-  headerCard: {
-    minHeight: 158,
-    borderRadius: 22,
-    padding: 20,
-    paddingLeft: 62,
-    justifyContent: "flex-end",
-    backgroundColor: OB.primary,
-  },
-  backButton: {
-    position: "absolute",
-    left: 14,
-    top: 14,
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.14)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.20)",
-  },
-  headerEyebrow: {
-    color: OB.textOnDarkMid,
-    fontSize: 10,
-    fontWeight: "900",
-    letterSpacing: 2,
-    textTransform: "uppercase",
-  },
-  headerTitle: { color: OB.textOnDark, fontSize: 24, lineHeight: 29, fontWeight: "900", marginTop: 8 },
-  headerSubtitle: { color: OB.textOnDarkMid, fontSize: 12, lineHeight: 19, fontWeight: "700", marginTop: 6 },
   availableCard: {
     borderRadius: 20,
     padding: 16,

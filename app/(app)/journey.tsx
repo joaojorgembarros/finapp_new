@@ -109,41 +109,116 @@ function ProgressCard({ goal, icon, onOpen }: { goal: GoalProgress; icon: string
     </Pressable>
   );
 }
-function SummaryCard({
+function MoneySummaryRow({
   label,
   value,
   icon,
   color,
-  wide = false,
 }: {
   label: string;
   value: number;
-  icon: string;
+  icon: MenuIcon;
   color: string;
-  wide?: boolean;
 }) {
   return (
-    <View style={[styles.summaryCard, wide && styles.summaryCardWide]}>
-      <View style={[styles.summaryAccent, { backgroundColor: color }]} />
-      <View style={[styles.summaryIcon, { backgroundColor: `${color}1A` }]}>
-        <Ionicons name={icon as any} size={17} color={color} />
+    <View style={styles.moneySummaryRow}>
+      <View style={[styles.moneySummaryIcon, { backgroundColor: `${color}16` }]}>
+        <Ionicons name={icon} size={18} color={color} />
       </View>
-      <Text style={[styles.summaryLabel, wide && styles.summaryTextWide]}>{label}</Text>
-      <Text
-        style={[styles.summaryValue, wide && styles.summaryTextWide]}
-        numberOfLines={1}
-        adjustsFontSizeToFit
-        minimumFontScale={0.72}
+      <View style={styles.moneySummaryCopy}>
+        <Text style={styles.moneySummaryLabel}>{label}</Text>
+        <Text
+          style={[styles.moneySummaryValue, { color }]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.72}
+        >
+          {formatBRLFromCents(value)}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+function ControlDisclosure({
+  title,
+  description,
+  icon,
+  open,
+  onToggle,
+  children,
+}: {
+  title: string;
+  description: string;
+  icon: MenuIcon;
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <View style={styles.disclosureCard}>
+      <Pressable
+        onPress={onToggle}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        accessibilityLabel={`${title}. ${description}`}
+        style={({ pressed }) => [styles.disclosureHeader, pressed && styles.disclosureHeaderPressed]}
       >
-        {formatBRLFromCents(value)}
-      </Text>
+        <View style={styles.disclosureIcon}>
+          <Ionicons name={icon} size={19} color={OB.primary} />
+        </View>
+        <View style={styles.disclosureCopy}>
+          <Text style={styles.disclosureTitle}>{title}</Text>
+          <Text style={styles.disclosureDescription}>{description}</Text>
+        </View>
+        <View style={styles.disclosureChevron}>
+          <Ionicons name={open ? "chevron-up" : "chevron-down"} size={18} color={OB.support} />
+        </View>
+      </Pressable>
+      {open ? <View style={styles.disclosureBody}>{children}</View> : null}
+    </View>
+  );
+}
+
+function ControlQuickActions({ disabled, addLabel, onAdd }: { disabled: boolean; addLabel: string; onAdd: () => void }) {
+  return (
+    <View style={styles.quickActionsCard}>
+      <Pressable
+        onPress={onAdd}
+        disabled={disabled}
+        accessibilityRole="button"
+        accessibilityLabel={addLabel}
+        style={({ pressed }) => [styles.quickActionPrimary, disabled && styles.newButtonUnavailable, pressed && styles.newButtonPressed]}
+      >
+        <View style={styles.quickActionPrimaryIcon}><Ionicons name="add" size={20} color="#fff" /></View>
+        <View style={styles.quickActionCopy}>
+          <Text style={styles.quickActionPrimaryTitle}>{addLabel}</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.74)" />
+      </Pressable>
+
+      <Pressable
+        onPress={() => router.push("/(app)/import-csv")}
+        disabled={disabled}
+        accessibilityRole="button"
+        accessibilityLabel="Importar extrato do banco"
+        style={({ pressed }) => [styles.quickActionSecondary, disabled && styles.newButtonUnavailable, pressed && styles.newButtonPressed]}
+      >
+        <View style={styles.quickActionSecondaryIcon}><Ionicons name="document-text-outline" size={19} color={OB.primary} /></View>
+        <View style={styles.quickActionCopy}>
+          <Text style={styles.quickActionSecondaryTitle}>Importar extrato</Text>
+          <Text style={styles.quickActionSecondaryText}>Use o arquivo do seu banco</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={18} color={OB.support} />
+      </Pressable>
     </View>
   );
 }
 
 function TxRow({ tx }: { tx: Tx }) {
-  const color = tx.type === "Receita" ? "#22a96b" : "#e05252";
+  const color = tx.type === "Receita" ? "#168A59" : "#C94949";
   const sign = tx.type === "Receita" ? "+" : "-";
+  const displayType = tx.type === "Receita" ? "Entrada" : "Gasto";
 
   return (
     <View style={styles.txRow}>
@@ -153,10 +228,10 @@ function TxRow({ tx }: { tx: Tx }) {
       <View style={styles.txInfo}>
         <Text style={styles.txDesc} numberOfLines={1}>{tx.description}</Text>
         <Text style={styles.txMeta}>{tx.category} · {tx.account} · {formatDate(tx.date)}</Text>
-      </View>
-      <View style={styles.txAmountWrap}>
-        <Text style={[styles.txAmount, { color }]}>{sign}{formatBRLFromCents(tx.amount)}</Text>
-        <Text style={[styles.txType, { color, backgroundColor: `${color}1A` }]}>{tx.type}</Text>
+        <View style={styles.txValueRow}>
+          <Text style={[styles.txAmount, { color }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>{sign}{formatBRLFromCents(tx.amount)}</Text>
+          <Text style={[styles.txType, { color, backgroundColor: `${color}1A` }]}>{displayType}</Text>
+        </View>
       </View>
     </View>
   );
@@ -251,7 +326,7 @@ export function AddModal({
             ]}
           >
             <View style={styles.sheetHero}>
-              <Pressable onPress={onClose} hitSlop={12} style={styles.sheetClose}>
+              <Pressable onPress={onClose} style={styles.sheetClose} accessibilityRole="button" accessibilityLabel="Fechar">
                 <Ionicons name="close" size={21} color="#fff" />
               </Pressable>
               <Text style={styles.sheetEyebrow}>Controle financeiro</Text>
@@ -379,6 +454,10 @@ function previousDate(ymd: string) {
   return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
 }
 
+function localDateYmd(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
 function PlanningMetric({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.planningMetric}>
@@ -394,18 +473,29 @@ function ControlPanel({
   householdLoading,
   cycleDate,
   onCycleDateChange,
+  postImportId,
+  onPostImportHandled,
 }: {
   householdId: string | null;
   userId: string | null;
   householdLoading: boolean;
   cycleDate?: string;
   onCycleDateChange: (cycleDate: string) => void;
+  postImportId?: string;
+  onPostImportHandled: () => void;
 }) {
   const [overview, setOverview] = useState<FinancialOverview | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("Todos");
   const [cycleOffset, setCycleOffset] = useState(0);
   const [reference, setReference] = useState(() => routeCycleReference(cycleDate));
+  const [calculationOpen, setCalculationOpen] = useState(false);
+  const [commitmentsOpen, setCommitmentsOpen] = useState(false);
+  const [confirmedCommitmentsOpen, setConfirmedCommitmentsOpen] = useState(false);
+  const [transactionsOpen, setTransactionsOpen] = useState(false);
+  const [setupGuideDismissed, setSetupGuideDismissed] = useState(false);
+  const [planningGuideStarted, setPlanningGuideStarted] = useState(false);
   const [updatingCommitmentId, setUpdatingCommitmentId] = useState<string | null>(null);
   const loadTokenRef = useRef(0);
   const cycleDateRef = useRef(cycleDate);
@@ -421,26 +511,30 @@ function ControlPanel({
     const loadToken = ++loadTokenRef.current;
     if (!householdId || !userId) {
       setOverview(null);
+      setLoadError(null);
       setLoading(false);
       return;
     }
     try {
       setLoading(true);
+      setLoadError(null);
       const settings = await getFinancialSettings(householdId);
       const cycle = getCycleForOffset(settings, cycleOffset, reference);
       const nextOverview = await getFinancialOverview({ householdId, userId, cycle });
       if (loadToken === loadTokenRef.current) {
         setOverview(nextOverview);
-        onCycleDateChange(nextOverview.cycle.start);
+        if (!postImportId) onCycleDateChange(nextOverview.cycle.start);
       }
     } catch (error: any) {
       if (loadToken === loadTokenRef.current) {
-        Alert.alert("Controle financeiro", error?.message ?? "Não foi possível carregar seu planejamento.");
+        const message = "Tente novamente em alguns instantes.";
+        setLoadError(message);
+        if (Platform.OS !== "web") Alert.alert("Não foi possível carregar seus valores", error?.message ?? message);
       }
     } finally {
       if (loadToken === loadTokenRef.current) setLoading(false);
     }
-  }, [cycleOffset, householdId, onCycleDateChange, reference, userId]);
+  }, [cycleOffset, householdId, onCycleDateChange, postImportId, reference, userId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -450,13 +544,56 @@ function ControlPanel({
 
   const txs = useMemo(() => overview?.transactions.map(mapOverviewTx) ?? [], [overview]);
   const filtered = filter === "Todos" ? txs : txs.filter((tx) => tx.type === filter);
+  const pendingCommitments = useMemo(() => overview?.commitments.filter((item) => item.pending_cents > 0) ?? [], [overview]);
+  const confirmedCommitments = useMemo(() => overview?.commitments.filter((item) => item.pending_cents <= 0) ?? [], [overview]);
+  const visibleTransactions = filtered.slice(0, 5);
+  const postImportMatchesCycle = Boolean(overview && postImportId && overview.transactions.some((transaction) => transaction.statement_import_id === postImportId));
+  const needsPlanningSetup = Boolean(overview && overview.settings.updated_by === null);
+  const needsPlanningFlow = needsPlanningSetup || planningGuideStarted;
+  const showPlanningGuide = postImportMatchesCycle && !setupGuideDismissed;
+  const postImportModeActive = Boolean(postImportId && !setupGuideDismissed);
+  const isEmptyCycle = Boolean(overview && !txs.length && overview.balance.total_cents === null);
   const busy = loading || householdLoading;
-  const emptyStyle = { color: OB.support, fontSize: 14, fontWeight: "700" as const, paddingVertical: 24, textAlign: "center" as const };
+  const emptyStyle = { color: "#5E7591", fontSize: 14, fontWeight: "700" as const, paddingVertical: 24, textAlign: "center" as const };
+  const todayYmd = localDateYmd();
+  const viewingCurrentCycle = overview ? overview.cycle.start <= todayYmd && overview.cycle.end > todayYmd : cycleOffset === 0;
+
+  useEffect(() => {
+    setFilter("Todos");
+    setSetupGuideDismissed(false);
+  }, [overview?.cycle.key]);
+
+  useEffect(() => {
+    setPlanningGuideStarted(false);
+  }, [postImportId]);
+
+  useEffect(() => {
+    if (overview && postImportId && !postImportMatchesCycle) onPostImportHandled();
+  }, [onPostImportHandled, overview, postImportId, postImportMatchesCycle]);
+
+  const changeCycle = useCallback((offset: number) => {
+    loadTokenRef.current += 1;
+    setLoading(true);
+    setOverview(null);
+    setLoadError(null);
+    setCycleOffset((value) => value + offset);
+  }, []);
 
   const showToday = useCallback(() => {
-    setReference(new Date());
+    const today = new Date();
+    loadTokenRef.current += 1;
+    setLoading(true);
+    setOverview(null);
+    setLoadError(null);
+    setReference(today);
     setCycleOffset(0);
-  }, []);
+    onCycleDateChange(localDateYmd(today));
+  }, [onCycleDateChange]);
+
+  const openNewTransaction = useCallback(() => {
+    if (!overview || !viewingCurrentCycle) showToday();
+    router.push("/(app)/new-transaction");
+  }, [overview, showToday, viewingCurrentCycle]);
 
   const toggleCommitment = useCallback(async (commitment: FinancialOverviewCommitment) => {
     if (!householdId || !userId || !overview) return;
@@ -489,13 +626,30 @@ function ControlPanel({
         });
         await load();
       } catch (error: any) {
-        Alert.alert("Compromisso", error?.message ?? "Não foi possível atualizar este compromisso.");
+        const message = error?.message ?? "Não foi possível atualizar este pagamento.";
+        if (Platform.OS === "web") setLoadError(message);
+        else Alert.alert("Pagamento", message);
       } finally {
         setUpdatingCommitmentId(null);
       }
     };
 
-    await persist();
+    if (Platform.OS === "web") {
+      const confirmed = typeof globalThis.confirm === "function"
+        ? globalThis.confirm("Desfazer a confirmação? Esta conta voltará a aparecer como pendente neste período.")
+        : false;
+      if (confirmed) await persist();
+      return;
+    }
+
+    Alert.alert(
+      "Desfazer confirmação?",
+      "Esta conta voltará a aparecer como pendente neste período.",
+      [
+        { text: "Cancelar", style: "cancel" },
+        { text: "Desfazer", style: "destructive", onPress: () => void persist() },
+      ]
+    );
   }, [householdId, load, overview, userId]);
 
   const openAllocation = useCallback(() => {
@@ -512,169 +666,414 @@ function ControlPanel({
     });
   }, [overview]);
 
-  return (
-    <>
-      <ScrollView contentContainerStyle={styles.controlScroll} showsVerticalScrollIndicator={false}>
-        <View style={styles.controlHeader}>
-          <Text style={styles.controlEyebrow}>Controle financeiro</Text>
-          <Text style={styles.controlTitle}>Liberdade financeira</Text>
-          <Text style={styles.controlSubtitle}>Veja o que aconteceu no ciclo, o que ainda está comprometido e quanto pode seguir para seus sonhos.</Text>
-        </View>
+  const finishPostImportGuide = useCallback(() => {
+    setSetupGuideDismissed(true);
+    onPostImportHandled();
+  }, [onPostImportHandled]);
 
+  const continuePostImportGuide = useCallback(() => {
+    if (busy) return;
+    if (needsPlanningFlow) {
+      setPlanningGuideStarted(true);
+      router.push({ pathname: "/(app)/financial-plan", params: { guided: "1" } });
+      return;
+    }
+    const nextCommitment = pendingCommitments[0];
+    if (nextCommitment) {
+      void toggleCommitment(nextCommitment);
+      return;
+    }
+    finishPostImportGuide();
+  }, [busy, finishPostImportGuide, needsPlanningFlow, pendingCommitments, toggleCommitment]);
+
+  const openImportedTransactions = useCallback(() => {
+    if (!postImportId) return;
+    router.push({
+      pathname: "/(app)/transaction-history",
+      params: { importId: postImportId },
+    });
+  }, [postImportId]);
+
+  const availabilityMessage = !overview
+    ? ""
+    : overview.availableCents > 0
+      ? "Depois das contas, do valor que você quer manter e do que já guardou."
+      : overview.resultCents < 0
+        ? `Neste período, saiu ${formatBRLFromCents(Math.abs(overview.resultCents))} a mais do que entrou.`
+        : overview.pendingCommitmentsCents > 0
+          ? `Há ${formatBRLFromCents(overview.pendingCommitmentsCents)} em contas que ainda faltam conferir.`
+          : "Ainda não há uma sobra livre neste período.";
+
+  const commitmentsDescription = !overview
+    ? ""
+    : !overview.commitments.length
+      ? "Nenhuma conta cadastrada neste período"
+      : pendingCommitments.length
+        ? `${pendingCommitments.length} ${pendingCommitments.length === 1 ? "pagamento ainda não foi confirmado" : "pagamentos ainda não foram confirmados"} · ${formatBRLFromCents(overview.pendingCommitmentsCents)}`
+        : "Todas as contas cadastradas foram conferidas";
+
+  const transactionsDescription = txs.length
+    ? `${txs.length} ${txs.length === 1 ? "movimentação" : "movimentações"} neste período`
+    : "Nenhuma entrada ou gasto neste período";
+
+  function renderCommitment(commitment: FinancialOverviewCommitment) {
+    const isPaid = commitment.pending_cents <= 0;
+    const hasPartialPayment = !isPaid && commitment.paid_cents > 0;
+    const updating = updatingCommitmentId === commitment.id;
+    return (
+      <View key={commitment.id} style={styles.commitmentRow}>
+        <View style={styles.commitmentMainRow}>
+          <View style={[styles.commitmentCheck, isPaid && styles.commitmentCheckPaid]}>
+            <Ionicons name={isPaid ? "checkmark" : "receipt-outline"} size={17} color={isPaid ? "#fff" : OB.primary} />
+          </View>
+          <View style={styles.commitmentInfo}>
+            <Text style={[styles.commitmentName, isPaid && styles.commitmentNamePaid]} numberOfLines={1}>{commitment.name}</Text>
+            <Text style={styles.commitmentMeta}>
+              {commitment.installment_number && commitment.installments_total
+                ? `Parcela ${commitment.installment_number}/${commitment.installments_total} · `
+                : ""}
+              Vence em {formatDate(commitment.due_on)} · {hasPartialPayment
+                ? `Faltam ${formatBRLFromCents(commitment.pending_cents)} de ${formatBRLFromCents(commitment.amount_cents)}`
+                : formatBRLFromCents(commitment.amount_cents)}
+            </Text>
+          </View>
+        </View>
+        <Pressable
+          onPress={() => void toggleCommitment(commitment)}
+          disabled={updating}
+          accessibilityRole="button"
+          accessibilityLabel={isPaid ? `Pagamento de ${commitment.name} confirmado. Desfazer confirmação` : `Confirmar pagamento de ${commitment.name}`}
+          style={[styles.commitmentToggle, isPaid && styles.commitmentTogglePaid]}
+        >
+          {updating ? (
+            <ActivityIndicator size="small" color={isPaid ? "#fff" : OB.primary} />
+          ) : (
+            <Text style={[styles.commitmentToggleText, isPaid && styles.commitmentToggleTextPaid]}>{isPaid ? "Desfazer" : "Confirmar pagamento"}</Text>
+          )}
+        </Pressable>
+      </View>
+    );
+  }
+
+  return (
+    <ScrollView contentContainerStyle={styles.controlScroll} showsVerticalScrollIndicator={false}>
+      <View style={styles.controlHeader}>
+        <Text style={styles.controlTitle}>Seu dinheiro</Text>
+      </View>
+
+      {!postImportModeActive ? (
         <View style={styles.cycleNavigator}>
-          <Pressable onPress={() => setCycleOffset((value) => value - 1)} accessibilityLabel="Ciclo anterior" style={styles.cycleArrow}>
+          <Pressable onPress={() => changeCycle(-1)} accessibilityRole="button" accessibilityLabel="Período anterior" style={styles.cycleArrow}>
             <Ionicons name="chevron-back" size={20} color={OB.primary} />
           </Pressable>
           <View style={styles.cycleLabelWrap}>
-            <Text style={styles.cycleEyebrow}>Ciclo selecionado</Text>
-            <Text style={styles.cycleLabel}>{overview?.cycle.label ?? "Carregando..."}</Text>
+            <Text style={styles.cycleEyebrow}>Período</Text>
+            <Text style={styles.cycleLabel}>{overview?.cycle.label ?? (loadError ? "Valores indisponíveis" : "Carregando...")}</Text>
             {overview ? <Text style={styles.cycleRange}>{formatDate(overview.cycle.start)} a {formatDate(previousDate(overview.cycle.end))}</Text> : null}
           </View>
-          <Pressable onPress={() => setCycleOffset((value) => value + 1)} accessibilityLabel="Próximo ciclo" style={styles.cycleArrow}>
+          <Pressable onPress={() => changeCycle(1)} accessibilityRole="button" accessibilityLabel="Próximo período" style={styles.cycleArrow}>
             <Ionicons name="chevron-forward" size={20} color={OB.primary} />
           </Pressable>
         </View>
-        <Pressable onPress={showToday} style={styles.todayButton}>
-          <Ionicons name="today-outline" size={15} color={OB.primary} />
-          <Text style={styles.todayButtonText}>Ir para o ciclo de hoje</Text>
+      ) : null}
+
+      {!postImportModeActive && !viewingCurrentCycle ? (
+        <Pressable onPress={showToday} accessibilityRole="button" style={styles.todayButton}>
+          <Ionicons name="today-outline" size={16} color={OB.primary} />
+          <Text style={styles.todayButtonText}>Voltar para o período atual</Text>
         </Pressable>
+      ) : null}
 
-        {busy && !overview ? (
-          <View style={styles.controlLoading}><ActivityIndicator color={OB.primary} /><Text style={styles.controlLoadingText}>Organizando seu ciclo...</Text></View>
-        ) : overview ? (
-          <>
-            <View style={styles.summaryGrid}>
-              <View style={styles.summaryExpectedRow}>
-                <SummaryCard label="Renda prevista" value={overview.expectedIncomeCents} color="#527BA7" icon="calendar-outline" />
+      {loading && overview ? (
+        <View style={styles.refreshHint}>
+          <ActivityIndicator size="small" color={OB.primary} />
+          <Text style={styles.refreshHintText}>Atualizando os valores...</Text>
+        </View>
+      ) : null}
+
+      {loadError ? (
+        <View style={styles.loadErrorCard} accessibilityRole="alert">
+          <Ionicons name="alert-circle-outline" size={22} color="#A33F3F" />
+          <View style={styles.loadErrorCopy}>
+            <Text style={styles.loadErrorTitle}>Não foi possível atualizar os valores</Text>
+            <Text style={styles.loadErrorText}>{loadError}</Text>
+          </View>
+          <Pressable onPress={() => void load()} accessibilityRole="button" style={styles.loadErrorButton}>
+            <Text style={styles.loadErrorButtonText}>Tentar novamente</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {busy && !overview ? (
+        <View style={styles.controlLoading}>
+          <ActivityIndicator color={OB.primary} />
+          <Text style={styles.controlLoadingText}>Organizando seu período...</Text>
+        </View>
+      ) : overview ? (
+        <>
+          {showPlanningGuide ? (
+            <View style={styles.postImportCard}>
+              <View style={styles.postImportSuccessIcon}>
+                <Ionicons name="checkmark" size={25} color="#fff" />
               </View>
-              <SummaryCard label="Receitas realizadas" value={overview.realizedIncomeCents} color="#22a96b" icon="trending-up-outline" />
-              <SummaryCard label="Despesas realizadas" value={overview.realizedExpenseCents} color="#e05252" icon="trending-down-outline" />
-              <SummaryCard label="Resultado do ciclo" value={overview.resultCents} color={overview.resultCents >= 0 ? OB.primary : "#e05252"} icon="analytics-outline" wide />
-            </View>
+              <Text style={styles.postImportTitle}>Extrato importado</Text>
+              <Text style={styles.postImportText}>Suas entradas e gastos estão no app.</Text>
 
-            <View style={styles.planningCard}>
-              <View style={styles.planningHeader}>
-                <View style={styles.planningTitleWrap}>
-                  <Text style={styles.planningEyebrow}>Planejamento</Text>
-                  <Text style={styles.planningTitle}>Sua sobra possível</Text>
+              <View style={styles.postImportNextStep}>
+                <Text style={styles.postImportNextEyebrow}>Próximo passo</Text>
+                <Text style={styles.postImportNextTitle}>
+                  {needsPlanningFlow
+                    ? "Falta preparar seu resumo"
+                    : pendingCommitments.length
+                      ? `${pendingCommitments.length} ${pendingCommitments.length === 1 ? "conta precisa" : "contas precisam"} ser conferida${pendingCommitments.length === 1 ? "" : "s"}`
+                      : "Tudo pronto"}
+                </Text>
+                <Text style={styles.postImportNextText}>
+                  {needsPlanningFlow
+                    ? "Escolha seu período, quanto quer manter na conta e o que ainda precisa pagar."
+                    : pendingCommitments.length
+                      ? "Veja se essas contas já aparecem nos gastos importados."
+                      : "Não há contas pendentes para conferir."}
+                </Text>
+              </View>
+
+              <Pressable
+                onPress={continuePostImportGuide}
+                disabled={busy}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: busy }}
+                style={({ pressed }) => [styles.postImportPrimaryButton, busy && styles.newButtonUnavailable, pressed && !busy && styles.newButtonPressed]}
+              >
+                {busy ? (
+                  <>
+                    <ActivityIndicator size="small" color="#fff" />
+                    <Text style={styles.postImportPrimaryButtonText}>Atualizando...</Text>
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.postImportPrimaryButtonText}>
+                      {needsPlanningFlow
+                        ? planningGuideStarted && !needsPlanningSetup ? "Continuar meu resumo" : "Preparar meu resumo"
+                        : pendingCommitments.length ? "Conferir próxima conta" : "Ver meu resumo"}
+                    </Text>
+                    <Ionicons name="arrow-forward" size={19} color="#fff" />
+                  </>
+                )}
+              </Pressable>
+
+              <Pressable
+                onPress={openImportedTransactions}
+                accessibilityRole="button"
+                style={styles.postImportSecondaryButton}
+              >
+                <Text style={styles.postImportLinkText}>Ver o que foi importado</Text>
+              </Pressable>
+
+              <Pressable
+                onPress={finishPostImportGuide}
+                accessibilityRole="button"
+                style={styles.postImportSecondaryButton}
+              >
+                <Text style={styles.postImportSecondaryButtonText}>Agora não</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <>
+          {isEmptyCycle ? (
+            <View style={styles.emptyCycleCard}>
+              <View style={styles.emptyCycleIcon}><Ionicons name="wallet-outline" size={24} color={OB.primary} /></View>
+              <Text style={styles.emptyCycleTitle}>Não há entradas ou gastos neste período</Text>
+              <Text style={styles.emptyCycleText}>{viewingCurrentCycle ? "Adicione uma entrada ou um gasto, ou importe o extrato do seu banco." : "Você está vendo um período sem movimentações registradas."}</Text>
+            </View>
+          ) : (
+            <View style={styles.availableHero}>
+              <View style={styles.availableHeroTop}>
+                <View style={styles.availableHeroIcon}><Ionicons name="sparkles-outline" size={20} color="#fff" /></View>
+                <Text style={styles.availableLabel}>{overview.availableCents <= 0 ? "Disponível para seus sonhos" : overview.confidence.status === "reliable" ? "Pode guardar para seus sonhos" : "Estimativa para seus sonhos"}</Text>
+              </View>
+              <Text style={styles.availableValue} maxFontSizeMultiplier={1.25} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.58}>{formatBRLFromCents(overview.availableCents)}</Text>
+              <Text style={styles.availableExplanation}>{availabilityMessage}</Text>
+
+              {overview.confidence.status !== "reliable" ? (
+                <View style={styles.estimateNotice}>
+                  <Ionicons name="information-circle-outline" size={18} color="#fff" />
+                  <Text style={styles.estimateNoticeText}>
+                    {overview.balance.total_cents === null
+                      ? "Estimativa sem o saldo do banco. Use Importar extrato logo abaixo para conferir."
+                      : overview.balance.status !== "reliable"
+                        ? `Os saldos dos extratos disponíveis${overview.balance.as_of ? `, com atualização mais recente em ${formatDate(overview.balance.as_of)},` : ""} ainda são uma estimativa.`
+                        : "Confira sua renda, o valor que quer manter e suas contas para melhorar esta estimativa."
+                    }
+                  </Text>
                 </View>
-                <Pressable onPress={() => router.push("/(app)/financial-plan")} style={styles.configureButton}>
-                  <Ionicons name="options-outline" size={17} color={OB.primary} />
-                  <Text style={styles.configureButtonText}>Configurar</Text>
+              ) : null}
+
+              {overview.availableCents > 0 ? (
+                <Pressable onPress={openAllocation} accessibilityRole="button" style={({ pressed }) => [styles.allocateButton, pressed && styles.newButtonPressed]}>
+                  <Ionicons name="heart-outline" size={19} color={OB.primary} />
+                  <Text style={styles.allocateButtonText}>Guardar para um sonho</Text>
                 </Pressable>
+              ) : null}
+            </View>
+          )}
+
+          <ControlQuickActions
+            disabled={!householdId}
+            addLabel={viewingCurrentCycle ? "Adicionar entrada ou gasto" : "Adicionar entrada ou gasto de hoje"}
+            onAdd={openNewTransaction}
+          />
+
+          {isEmptyCycle && viewingCurrentCycle ? (
+            <Pressable onPress={() => router.push("/(app)/financial-plan")} accessibilityRole="button" style={styles.emptyCyclePlanButton}>
+              <Ionicons name="options-outline" size={17} color={OB.primary} />
+              <Text style={styles.emptyCyclePlanButtonText}>Configurar planejamento</Text>
+            </Pressable>
+          ) : null}
+
+          {!isEmptyCycle ? <View style={styles.simpleSummaryCard}>
+            <Text style={styles.sectionEyebrow}>Visão rápida</Text>
+            <Text style={styles.controlSectionTitle}>Resumo do período</Text>
+            <Text style={styles.sectionHelper}>Os números que mostram o que já aconteceu.</Text>
+            <View style={styles.moneySummaryList}>
+              <MoneySummaryRow label="Já entrou" value={overview.realizedIncomeCents} color="#168A59" icon="arrow-down-circle-outline" />
+              <MoneySummaryRow label="Já saiu" value={overview.realizedExpenseCents} color="#C94949" icon="arrow-up-circle-outline" />
+              <MoneySummaryRow label="Contas sem pagamento confirmado" value={overview.pendingCommitmentsCents} color={OB.primary} icon="receipt-outline" />
+            </View>
+            <View style={[styles.resultSummary, overview.resultCents < 0 && styles.resultSummaryNegative, overview.resultCents === 0 && styles.resultSummaryNeutral]}>
+              <View style={styles.resultSummaryCopy}>
+                <Text style={styles.resultSummaryLabel}>{overview.resultCents < 0 ? "Saiu a mais" : overview.resultCents > 0 ? "Entrou a mais" : "Entrou o mesmo que saiu"}</Text>
+                <Text style={styles.resultSummaryHelper}>Este valor ainda não desconta contas futuras nem sua reserva.</Text>
+              </View>
+              <Text style={[styles.resultSummaryValue, overview.resultCents < 0 && styles.resultSummaryValueNegative, overview.resultCents === 0 && styles.resultSummaryValueNeutral]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+                {formatBRLFromCents(Math.abs(overview.resultCents))}
+              </Text>
+            </View>
+          </View> : null}
+
+          {!isEmptyCycle || overview.commitments.length ? (
+            <ControlDisclosure
+              title="Contas para conferir"
+              description={commitmentsDescription}
+              icon="receipt-outline"
+              open={commitmentsOpen}
+              onToggle={() => setCommitmentsOpen((open) => !open)}
+            >
+              <Text style={styles.commitmentsHelper}>Confirme quando encontrar esse pagamento na lista de gastos. Assim, o mesmo valor não será contado duas vezes.</Text>
+              {pendingCommitments.length ? pendingCommitments.map(renderCommitment) : (
+                <View style={styles.noCommitments}>
+                  <Ionicons name="checkmark-circle-outline" size={24} color="#168A59" />
+                  <Text style={styles.noCommitmentsText}>{overview.commitments.length ? "Tudo conferido neste período." : "Você ainda não cadastrou contas fixas ou parcelas."}</Text>
+                </View>
+              )}
+
+              {confirmedCommitments.length ? (
+                <View style={styles.confirmedCommitments}>
+                  <Pressable
+                    onPress={() => setConfirmedCommitmentsOpen((open) => !open)}
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: confirmedCommitmentsOpen }}
+                    accessibilityLabel={`Pagamentos confirmados: ${confirmedCommitments.length}`}
+                    style={styles.confirmedCommitmentsHeader}
+                  >
+                    <Text style={styles.confirmedCommitmentsTitle}>Pagamentos confirmados ({confirmedCommitments.length})</Text>
+                    <Ionicons name={confirmedCommitmentsOpen ? "chevron-up" : "chevron-down"} size={17} color={OB.support} />
+                  </Pressable>
+                  {confirmedCommitmentsOpen ? confirmedCommitments.map(renderCommitment) : null}
+                </View>
+              ) : null}
+
+              <Pressable onPress={() => router.push("/(app)/financial-plan")} accessibilityRole="button" style={styles.manageCommitmentsButton}>
+                <Text style={styles.manageCommitmentsText}>{overview.commitments.length ? "Editar contas e parcelas" : "Adicionar contas e parcelas"}</Text>
+                <Ionicons name="chevron-forward" size={18} color={OB.primary} />
+              </Pressable>
+            </ControlDisclosure>
+          ) : null}
+
+          {!isEmptyCycle ? (
+            <ControlDisclosure
+              title="Últimas entradas e gastos"
+              description={transactionsDescription}
+              icon="swap-vertical-outline"
+              open={transactionsOpen}
+              onToggle={() => setTransactionsOpen((open) => !open)}
+            >
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
+                {(["Todos", "Receita", "Despesa"] as Filter[]).map((item) => {
+                  const active = item === filter;
+                  const label = item === "Todos" ? "Todas" : item === "Receita" ? "Entradas" : "Gastos";
+                  return (
+                    <Pressable
+                      key={item}
+                      onPress={() => setFilter(item)}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: active }}
+                      accessibilityLabel={`Mostrar ${label.toLocaleLowerCase("pt-BR")}`}
+                      style={[styles.filter, active && styles.filterActive]}
+                    >
+                      <Text style={[styles.filterText, active && styles.filterTextActive]}>{label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+              <View style={styles.txList}>
+                {visibleTransactions.length ? visibleTransactions.map((tx) => <TxRow key={tx.id} tx={tx} />) : <Text style={emptyStyle}>Nenhuma entrada ou gasto aqui.</Text>}
+              </View>
+              {txs.length ? (
+                <Pressable onPress={() => router.push("/(app)/transaction-history")} accessibilityRole="button" style={styles.manageCommitmentsButton}>
+                  <Text style={styles.manageCommitmentsText}>Ver histórico completo</Text>
+                  <Ionicons name="chevron-forward" size={18} color={OB.primary} />
+                </Pressable>
+              ) : null}
+            </ControlDisclosure>
+          ) : null}
+
+          {!isEmptyCycle ? (
+            <ControlDisclosure
+              title="Como calculamos esse valor"
+              description="Veja os saldos, o valor que você quer manter e os outros descontos"
+              icon="calculator-outline"
+              open={calculationOpen}
+              onToggle={() => setCalculationOpen((open) => !open)}
+            >
+              <Text style={styles.calculationHelper}>A renda prevista serve apenas para comparação. A sobra usa o dinheiro que já entrou e saiu.</Text>
+              <View style={styles.planningMetrics}>
+                <PlanningMetric label="Renda que você informou" value={formatBRLFromCents(overview.expectedIncomeCents)} />
+                <PlanningMetric label="Entrou menos saiu" value={formatBRLFromCents(overview.resultCents)} />
+                <PlanningMetric label="Pagamentos ainda não confirmados" value={formatBRLFromCents(overview.pendingCommitmentsCents)} />
+                <PlanningMetric label="Valor que você quer manter" value={formatBRLFromCents(overview.reserveCents)} />
+                <PlanningMetric label="Já guardado nos sonhos" value={formatBRLFromCents(overview.allocatedCents)} />
               </View>
 
               <View style={styles.balanceSnapshot}>
                 <View style={styles.balanceSnapshotIcon}><Ionicons name="business-outline" size={20} color={OB.primary} /></View>
                 <View style={styles.balanceSnapshotCopy}>
-                  <Text style={styles.balanceSnapshotLabel}>Saldo conhecido nos extratos</Text>
-                  <Text style={styles.balanceSnapshotValue}>{overview.balance.total_cents === null ? "Indisponível" : formatBRLFromCents(overview.balance.total_cents)}</Text>
+                  <Text style={styles.balanceSnapshotLabel}>Total conhecido nos extratos</Text>
+                  <Text style={styles.balanceSnapshotValue}>{overview.balance.total_cents === null ? "Não informado" : formatBRLFromCents(overview.balance.total_cents)}</Text>
                   <Text style={styles.balanceSnapshotMeta}>
                     {overview.balance.total_cents === null
-                      ? "Importe um extrato com saldo final para aumentar a precisão."
-                      : `${overview.balance.status === "reliable" ? "Confirmado" : "Estimado"}${overview.balance.as_of ? ` até ${formatDate(overview.balance.as_of)}` : ""}.`}
+                      ? "Importe um extrato com saldo final para melhorar a estimativa."
+                      : overview.balance.status === "reliable"
+                        ? `Soma dos saldos mais recentes das suas contas${overview.balance.as_of ? `. Atualização mais recente em ${formatDate(overview.balance.as_of)}` : ""}.`
+                        : `Estimativa com os extratos disponíveis${overview.balance.as_of ? `. Atualização mais recente em ${formatDate(overview.balance.as_of)}` : ""}.`}
                   </Text>
                 </View>
               </View>
 
-              <View style={styles.planningMetrics}>
-                <PlanningMetric label="Compromissos pendentes" value={formatBRLFromCents(overview.pendingCommitmentsCents)} />
-                <PlanningMetric label="Reserva mínima" value={formatBRLFromCents(overview.reserveCents)} />
-                <PlanningMetric label="Já destinado neste ciclo" value={formatBRLFromCents(overview.allocatedCents)} />
-              </View>
-
-              <View style={styles.availableCard}>
-                <Text style={styles.availableLabel}>Disponível para sonhos</Text>
-                <Text style={styles.availableValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>{formatBRLFromCents(overview.availableCents)}</Text>
-                <Text style={styles.availableExplanation}>Estimativa conservadora: parte do resultado positivo, respeita o saldo conhecido e desconta compromissos, reserva e valores já destinados.</Text>
-              </View>
-
-              <Pressable
-                onPress={openAllocation}
-                disabled={overview.availableCents <= 0}
-                style={({ pressed }) => [styles.allocateButton, overview.availableCents <= 0 && styles.allocateButtonDisabled, pressed && styles.newButtonPressed]}
-              >
-                <Ionicons name="sparkles-outline" size={18} color={overview.availableCents > 0 ? "#fff" : OB.support} />
-                <Text style={[styles.allocateButtonText, overview.availableCents <= 0 && styles.allocateButtonTextDisabled]}>{overview.availableCents > 0 ? "Destinar sobra para um sonho" : "Sem sobra disponível neste ciclo"}</Text>
+              <Pressable onPress={() => router.push("/(app)/financial-plan")} accessibilityRole="button" style={styles.manageCommitmentsButton}>
+                <Text style={styles.manageCommitmentsText}>Ajustar período, valor mantido e contas</Text>
+                <Ionicons name="chevron-forward" size={18} color={OB.primary} />
               </Pressable>
-            </View>
-
-            <View style={styles.commitmentsCard}>
-              <View style={styles.commitmentsHeader}>
-                <View>
-                  <Text style={styles.commitmentsEyebrow}>Contas, dívidas e parcelas</Text>
-                  <Text style={styles.commitmentsTitle}>Compromissos do ciclo</Text>
-                </View>
-                <Text style={styles.commitmentsCount}>{overview.commitments.length}</Text>
-              </View>
-              <Text style={styles.commitmentsHelper}>Marque quando a conta já aparecer nas despesas do ciclo; isso evita descontar o mesmo valor duas vezes.</Text>
-              {overview.commitments.length ? overview.commitments.map((commitment) => {
-                const isPaid = commitment.pending_cents <= 0;
-                const updating = updatingCommitmentId === commitment.id;
-                return (
-                  <View key={commitment.id} style={styles.commitmentRow}>
-                    <View style={[styles.commitmentCheck, isPaid && styles.commitmentCheckPaid]}>
-                      <Ionicons name={isPaid ? "checkmark" : "receipt-outline"} size={17} color={isPaid ? "#fff" : OB.primary} />
-                    </View>
-                    <View style={styles.commitmentInfo}>
-                      <Text style={[styles.commitmentName, isPaid && styles.commitmentNamePaid]} numberOfLines={1}>{commitment.name}</Text>
-                      <Text style={styles.commitmentMeta}>
-                        {commitment.installment_number && commitment.installments_total
-                          ? `Parcela ${commitment.installment_number}/${commitment.installments_total} · `
-                          : ""}
-                        Vence em {formatDate(commitment.due_on)} · {formatBRLFromCents(commitment.amount_cents)}
-                      </Text>
-                    </View>
-                    <Pressable onPress={() => void toggleCommitment(commitment)} disabled={updating} style={[styles.commitmentToggle, isPaid && styles.commitmentTogglePaid]}>
-                      {updating ? <ActivityIndicator size="small" color={isPaid ? "#fff" : OB.primary} /> : <Text style={[styles.commitmentToggleText, isPaid && styles.commitmentToggleTextPaid]}>{isPaid ? "Contabilizado" : "Já apareceu?"}</Text>}
-                    </Pressable>
-                  </View>
-                );
-              }) : (
-                <View style={styles.noCommitments}>
-                  <Ionicons name="checkmark-circle-outline" size={22} color="#22a96b" />
-                  <Text style={styles.noCommitmentsText}>Nenhum compromisso configurado para este ciclo.</Text>
-                </View>
-              )}
-              <Pressable onPress={() => router.push("/(app)/financial-plan")} style={styles.manageCommitmentsButton}>
-                <Text style={styles.manageCommitmentsText}>Configurar planejamento e compromissos</Text>
-                <Ionicons name="chevron-forward" size={17} color={OB.primary} />
-              </Pressable>
-            </View>
-          </>
-        ) : !householdId ? (
-          <Text style={emptyStyle}>Conclua o onboarding para criar sua estrutura financeira.</Text>
-        ) : null}
-
-        <View style={styles.controlActions}>
-          <Pressable onPress={() => router.push("/(app)/new-transaction")} disabled={!householdId} accessibilityRole="button" accessibilityLabel="Criar novo lançamento" style={({ pressed }) => [styles.controlActionButton, !householdId && styles.newButtonUnavailable, pressed && styles.newButtonPressed]}>
-            <View style={styles.controlActionIcon}><Ionicons name="add" size={19} color="#fff" /></View>
-            <Text style={styles.controlActionText}>Novo lançamento</Text>
-          </Pressable>
-          <Pressable onPress={() => router.push("/(app)/import-csv")} disabled={!householdId} accessibilityRole="button" accessibilityLabel="Importar extrato" style={({ pressed }) => [styles.controlActionButtonSecondary, !householdId && styles.newButtonUnavailable, pressed && styles.newButtonPressed]}>
-            <View style={styles.controlActionIconSecondary}><Ionicons name="document-text-outline" size={18} color={OB.primary} /></View>
-            <Text style={styles.controlActionTextSecondary}>Importar extrato</Text>
-          </Pressable>
-        </View>
-
-        <View style={styles.transactionsHeader}>
-          <View>
-            <Text style={styles.transactionsEyebrow}>Movimentações</Text>
-            <Text style={styles.transactionsTitle}>Lançamentos do ciclo</Text>
-          </View>
-          {loading && overview ? <ActivityIndicator size="small" color={OB.primary} /> : null}
-        </View>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
-          {(["Todos", "Receita", "Despesa"] as Filter[]).map((item) => {
-            const active = item === filter;
-            return <Pressable key={item} onPress={() => setFilter(item)} style={[styles.filter, active && styles.filterActive]}><Text style={[styles.filterText, active && styles.filterTextActive]}>{item}</Text></Pressable>;
-          })}
-        </ScrollView>
-        <View style={styles.txList}>
-          {busy && !overview ? <ActivityIndicator color={OB.primary} /> : !householdId ? <Text style={emptyStyle}>Conclua o onboarding para criar sua estrutura financeira.</Text> : filtered.length ? filtered.map((tx) => <TxRow key={tx.id} tx={tx} />) : <Text style={emptyStyle}>Nenhum lançamento neste ciclo.</Text>}
-        </View>
-      </ScrollView>
-    </>
+            </ControlDisclosure>
+          ) : null}
+            </>
+          )}
+        </>
+      ) : !householdId ? (
+        <Text style={emptyStyle}>Conclua as primeiras etapas para criar sua estrutura financeira.</Text>
+      ) : (
+        <ControlQuickActions disabled={false} addLabel="Adicionar entrada ou gasto" onAdd={openNewTransaction} />
+      )}
+    </ScrollView>
   );
 }
 function DrawerButton({
@@ -751,7 +1150,7 @@ function JourneyDrawer({
       </Pressable>
       <View style={styles.drawerPanel}>
         <View style={styles.drawerHero}>
-          <Pressable onPress={onClose} style={styles.drawerClose} hitSlop={12}>
+          <Pressable onPress={onClose} style={styles.drawerClose} accessibilityRole="button" accessibilityLabel="Fechar menu">
             <Ionicons name="close" size={21} color="#fff" />
           </Pressable>
           <View style={styles.drawerProfile}>
@@ -790,14 +1189,17 @@ function JourneyDrawer({
 }
 
 export default function JourneyScreen() {
-  const params = useLocalSearchParams<{ dreams?: string; values?: string; tab?: string; cycleDate?: string }>();
+  const params = useLocalSearchParams<{ dreams?: string; values?: string; tab?: string; cycleDate?: string; postImport?: string; importId?: string }>();
   const { session } = useSession();
   const userId = session?.user?.id ?? null;
   const { householdId, loading: householdLoading } = useHouseholdId(userId);
   const requestedTab = Array.isArray(params.tab) ? params.tab[0] : params.tab;
   const requestedCycleDate = Array.isArray(params.cycleDate) ? params.cycleDate[0] : params.cycleDate;
+  const requestedPostImport = Array.isArray(params.postImport) ? params.postImport[0] : params.postImport;
+  const requestedImportId = Array.isArray(params.importId) ? params.importId[0] : params.importId;
   const [tab, setTab] = useState<Tab>(requestedTab === "controle" ? "controle" : "jornada");
   const [controlCycleDate, setControlCycleDate] = useState(requestedCycleDate);
+  const [postImportId, setPostImportId] = useState(requestedPostImport === "1" ? requestedImportId : undefined);
   const [menuOpen, setMenuOpen] = useState(false);
   const [goals, setGoals] = useState<GoalProgress[]>([]);
   const [journeyLoading, setJourneyLoading] = useState(true);
@@ -824,9 +1226,22 @@ export default function JourneyScreen() {
     if (requestedCycleDate) setControlCycleDate(requestedCycleDate);
   }, [requestedCycleDate]);
 
+  useEffect(() => {
+    setPostImportId(requestedPostImport === "1" && requestedImportId ? requestedImportId : undefined);
+  }, [requestedImportId, requestedPostImport]);
+
   const rememberControlCycle = useCallback((nextCycleDate: string) => {
     setControlCycleDate(nextCycleDate);
   }, []);
+
+  const finishPostImport = useCallback(() => {
+    setPostImportId(undefined);
+    router.setParams({ postImport: undefined, importId: undefined });
+  }, []);
+
+  const activePostImportId = requestedPostImport === "1" && requestedImportId === postImportId
+    ? postImportId
+    : undefined;
 
   const loadJourney = useCallback(async () => {
     if (!householdId || !userId) { setGoals([]); setJourneyLoading(false); return; }
@@ -956,7 +1371,7 @@ export default function JourneyScreen() {
     <OnboardingShell light>
       <View style={styles.root}>
         <View style={styles.content}>
-          {tab === "controle" ? <ControlPanel householdId={householdId} userId={userId} householdLoading={householdLoading} cycleDate={controlCycleDate} onCycleDateChange={rememberControlCycle} /> : tab === "jornada" ? (
+          {tab === "controle" ? <ControlPanel key={activePostImportId ? `post-import:${activePostImportId}` : "control"} householdId={householdId} userId={userId} householdLoading={householdLoading} cycleDate={controlCycleDate} onCycleDateChange={rememberControlCycle} postImportId={activePostImportId} onPostImportHandled={finishPostImport} /> : tab === "jornada" ? (
             <>
               <MountainHero progress={journeyProgress} />
               <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
@@ -1234,41 +1649,24 @@ const styles = StyleSheet.create({
   },
   controlScroll: {
     padding: 16,
-    paddingTop: 14,
-    paddingBottom: 24,
-    gap: 16,
+    paddingTop: 12,
+    paddingBottom: 28,
+    gap: 14,
   },
   controlHeader: {
-    borderRadius: 22,
-    padding: 20,
-    backgroundColor: OB.primary,
-    overflow: "hidden",
-  },
-  controlEyebrow: {
-    color: OB.textOnDarkMid,
-    fontSize: 10,
-    fontWeight: "900",
-    letterSpacing: 2,
-    textTransform: "uppercase",
+    paddingHorizontal: 2,
+    paddingTop: 2,
   },
   controlTitle: {
-    color: OB.textOnDark,
-    fontSize: 25,
+    color: OB.primary,
+    fontSize: 26,
     fontWeight: "900",
-    marginTop: 8,
-  },
-  controlSubtitle: {
-    color: OB.textOnDarkMid,
-    fontSize: 13,
-    fontWeight: "700",
-    lineHeight: 20,
-    marginTop: 6,
   },
   cycleNavigator: {
-    minHeight: 82,
-    borderRadius: 20,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
+    minHeight: 64,
+    borderRadius: 18,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#fff",
@@ -1276,8 +1674,8 @@ const styles = StyleSheet.create({
     borderColor: OB.supportSoft,
   },
   cycleArrow: {
-    width: 42,
-    height: 42,
+    width: 44,
+    height: 44,
     borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
@@ -1289,8 +1687,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   cycleEyebrow: {
-    color: OB.support,
-    fontSize: 9,
+    color: "#5E7591",
+    fontSize: 10,
     fontWeight: "900",
     letterSpacing: 1.2,
     textTransform: "uppercase",
@@ -1303,15 +1701,15 @@ const styles = StyleSheet.create({
     marginTop: 3,
   },
   cycleRange: {
-    color: OB.support,
-    fontSize: 10,
+    color: "#5E7591",
+    fontSize: 11,
     fontWeight: "700",
     marginTop: 2,
   },
   todayButton: {
     alignSelf: "center",
-    minHeight: 34,
-    paddingHorizontal: 12,
+    minHeight: 44,
+    paddingHorizontal: 14,
     borderRadius: 99,
     flexDirection: "row",
     alignItems: "center",
@@ -1319,9 +1717,23 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(123,160,200,0.13)",
   },
   todayButtonText: {
+    flexShrink: 1,
     color: OB.primary,
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "900",
+  },
+  refreshHint: {
+    alignSelf: "center",
+    minHeight: 36,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 12,
+  },
+  refreshHintText: {
+    color: "#5E7591",
+    fontSize: 12,
+    fontWeight: "800",
   },
   controlLoading: {
     minHeight: 150,
@@ -1332,114 +1744,534 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
   },
   controlLoadingText: {
-    color: OB.support,
-    fontSize: 12,
+    color: "#5E7591",
+    fontSize: 13,
     fontWeight: "800",
   },
-  summaryGrid: {
+  loadErrorCard: {
+    borderRadius: 18,
+    padding: 14,
     flexDirection: "row",
     flexWrap: "wrap",
-    justifyContent: "space-between",
-    rowGap: 10,
-  },
-  summaryExpectedRow: {
-    width: "100%",
     alignItems: "center",
-  },
-  summaryCard: {
-    width: "48.5%",
-    minHeight: 112,
-    borderRadius: 18,
-    backgroundColor: "#fff",
+    gap: 10,
+    backgroundColor: "#FFF5F5",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.85)",
-    padding: 14,
-    overflow: "hidden",
-    shadowColor: OB.primary,
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 2,
+    borderColor: "rgba(163,63,63,0.22)",
   },
-  summaryCardWide: {
-    width: "100%",
-    minHeight: 118,
-    alignItems: "center",
+  loadErrorCopy: {
+    flex: 1,
+    minWidth: 180,
   },
-  summaryTextWide: {
-    textAlign: "center",
+  loadErrorTitle: {
+    color: "#7F3030",
+    fontSize: 13,
+    fontWeight: "900",
   },
-  summaryAccent: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 3,
+  loadErrorText: {
+    color: "#734C4C",
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 17,
+    marginTop: 2,
   },
-  summaryIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 11,
+  loadErrorButton: {
+    minHeight: 44,
+    paddingHorizontal: 12,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 10,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "rgba(163,63,63,0.26)",
   },
-  summaryLabel: {
-    color: OB.support,
-    fontSize: 11,
-    fontWeight: "800",
-  },
-  summaryValue: {
-    color: OB.primary,
-    fontSize: 15,
+  loadErrorButtonText: {
+    color: "#7F3030",
+    fontSize: 12,
     fontWeight: "900",
-    marginTop: 4,
   },
-  planningCard: {
-    borderRadius: 22,
-    padding: 16,
-    gap: 14,
+  postImportCard: {
+    borderRadius: 24,
+    padding: 20,
+    alignItems: "center",
     backgroundColor: "#fff",
     borderWidth: 1,
     borderColor: OB.supportSoft,
   },
-  planningHeader: {
-    flexDirection: "row",
+  postImportSuccessIcon: {
+    width: 50,
+    height: 50,
+    borderRadius: 17,
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: 10,
+    justifyContent: "center",
+    backgroundColor: "#168A59",
   },
-  planningTitleWrap: {
-    flex: 1,
-  },
-  planningEyebrow: {
-    color: OB.support,
-    fontSize: 9,
+  postImportTitle: {
+    color: OB.primary,
+    fontSize: 19,
     fontWeight: "900",
-    letterSpacing: 1.4,
+    lineHeight: 25,
+    textAlign: "center",
+    marginTop: 12,
+  },
+  postImportText: {
+    color: "#5E7591",
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 19,
+    textAlign: "center",
+    marginTop: 6,
+  },
+  postImportNextStep: {
+    alignSelf: "stretch",
+    borderRadius: 18,
+    padding: 15,
+    backgroundColor: OB.offWhite,
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+    marginTop: 18,
+  },
+  postImportNextEyebrow: {
+    color: "#5E7591",
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 1.2,
     textTransform: "uppercase",
   },
-  planningTitle: {
+  postImportNextTitle: {
     color: OB.primary,
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: "900",
-    marginTop: 3,
+    lineHeight: 22,
+    marginTop: 5,
   },
-  configureButton: {
-    minHeight: 38,
-    paddingHorizontal: 10,
-    borderRadius: 12,
+  postImportNextText: {
+    color: "#5E7591",
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 19,
+    marginTop: 5,
+  },
+  postImportPrimaryButton: {
+    alignSelf: "stretch",
+    minHeight: 54,
+    borderRadius: 16,
+    paddingHorizontal: 16,
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
+    justifyContent: "center",
+    gap: 9,
+    backgroundColor: OB.primary,
+    marginTop: 14,
+  },
+  postImportPrimaryButtonText: {
+    flexShrink: 1,
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  postImportSecondaryButton: {
+    minHeight: 46,
+    paddingHorizontal: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 5,
+  },
+  postImportSecondaryButtonText: {
+    color: "#5E7591",
+    fontSize: 12,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  postImportLinkText: {
+    color: OB.primary,
+    fontSize: 12,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  emptyCycleCard: {
+    borderRadius: 22,
+    padding: 18,
+    alignItems: "center",
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  emptyCycleIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(123,160,200,0.15)",
+  },
+  emptyCycleTitle: {
+    color: OB.primary,
+    fontSize: 17,
+    fontWeight: "900",
+    textAlign: "center",
+    marginTop: 12,
+  },
+  emptyCycleText: {
+    color: "#5E7591",
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 19,
+    textAlign: "center",
+    marginTop: 5,
+  },
+  emptyCyclePlanButton: {
+    alignSelf: "center",
+    minHeight: 44,
+    marginTop: 14,
+    paddingHorizontal: 13,
+    borderRadius: 13,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
     backgroundColor: OB.offWhite,
     borderWidth: 1,
     borderColor: OB.supportSoft,
   },
-  configureButtonText: {
+  emptyCyclePlanButtonText: {
+    flexShrink: 1,
     color: OB.primary,
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "900",
+    textAlign: "center",
+  },
+  availableHero: {
+    borderRadius: 24,
+    padding: 20,
+    gap: 10,
+    backgroundColor: OB.primary,
+    overflow: "hidden",
+    shadowColor: OB.primary,
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 4,
+  },
+  availableHeroTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  availableHeroIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.13)",
+  },
+  availableLabel: {
+    flex: 1,
+    color: OB.textOnDark,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  availableValue: {
+    color: "#fff",
+    fontSize: 30,
+    fontWeight: "900",
+    marginTop: 2,
+  },
+  availableExplanation: {
+    color: "rgba(255,255,255,0.78)",
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 20,
+  },
+  estimateNotice: {
+    minHeight: 48,
+    borderRadius: 15,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+    backgroundColor: "rgba(255,255,255,0.1)",
+  },
+  estimateNoticeText: {
+    flex: 1,
+    color: "rgba(255,255,255,0.86)",
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 17,
+  },
+  allocateButton: {
+    minHeight: 52,
+    marginTop: 2,
+    borderRadius: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingHorizontal: 14,
+    backgroundColor: "#fff",
+  },
+  allocateButtonText: {
+    flexShrink: 1,
+    color: OB.primary,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  quickActionsCard: {
+    borderRadius: 20,
+    padding: 12,
+    gap: 10,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  sectionEyebrow: {
+    color: "#5E7591",
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 1.3,
+    textTransform: "uppercase",
+  },
+  controlSectionTitle: {
+    color: OB.primary,
+    fontSize: 18,
+    fontWeight: "900",
+    marginTop: 1,
+  },
+  sectionHelper: {
+    color: "#5E7591",
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 18,
+    marginBottom: 2,
+  },
+  quickActionPrimary: {
+    minHeight: 60,
+    borderRadius: 17,
+    paddingHorizontal: 13,
+    paddingVertical: 11,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 11,
+    backgroundColor: OB.primary,
+  },
+  quickActionSecondary: {
+    minHeight: 60,
+    borderRadius: 17,
+    paddingHorizontal: 13,
+    paddingVertical: 11,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 11,
+    backgroundColor: OB.offWhite,
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  quickActionPrimaryIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.13)",
+  },
+  quickActionSecondaryIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(123,160,200,0.16)",
+  },
+  quickActionCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  quickActionPrimaryTitle: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  quickActionSecondaryTitle: {
+    color: OB.primary,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  quickActionSecondaryText: {
+    color: "#5E7591",
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 17,
+    marginTop: 2,
+  },
+  simpleSummaryCard: {
+    borderRadius: 22,
+    padding: 16,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  moneySummaryList: {
+    marginTop: 10,
+  },
+  moneySummaryRow: {
+    minHeight: 58,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: OB.supportSoft,
+  },
+  moneySummaryIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  moneySummaryCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  moneySummaryLabel: {
+    color: OB.primary,
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  moneySummaryValue: {
+    fontSize: 15,
+    fontWeight: "900",
+    marginTop: 3,
+  },
+  resultSummary: {
+    minHeight: 70,
+    marginTop: 12,
+    borderRadius: 17,
+    padding: 13,
+    backgroundColor: "rgba(22,138,89,0.09)",
+  },
+  resultSummaryNegative: {
+    backgroundColor: "rgba(201,73,73,0.09)",
+  },
+  resultSummaryNeutral: {
+    backgroundColor: OB.offWhite,
+  },
+  resultSummaryCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  resultSummaryLabel: {
+    color: OB.primary,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  resultSummaryHelper: {
+    color: "#5E7591",
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 17,
+    marginTop: 3,
+  },
+  resultSummaryValue: {
+    color: "#168A59",
+    fontSize: 17,
+    fontWeight: "900",
+    marginTop: 7,
+  },
+  resultSummaryValueNegative: {
+    color: "#C94949",
+  },
+  resultSummaryValueNeutral: {
+    color: OB.primary,
+  },
+  disclosureCard: {
+    borderRadius: 20,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+    overflow: "hidden",
+  },
+  disclosureHeader: {
+    minHeight: 82,
+    padding: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 11,
+  },
+  disclosureHeaderPressed: {
+    backgroundColor: OB.offWhite,
+  },
+  disclosureIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(123,160,200,0.15)",
+  },
+  disclosureCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  disclosureTitle: {
+    color: OB.primary,
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  disclosureDescription: {
+    color: "#5E7591",
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 17,
+    marginTop: 3,
+  },
+  disclosureChevron: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: OB.offWhite,
+  },
+  disclosureBody: {
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 16,
+    borderTopWidth: 1,
+    borderTopColor: OB.supportSoft,
+  },
+  calculationHelper: {
+    color: "#5E7591",
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 18,
+    padding: 12,
+    borderRadius: 14,
+    backgroundColor: OB.offWhite,
+  },
+  planningMetrics: {
+    gap: 0,
+  },
+  planningMetric: {
+    minHeight: 58,
+    justifyContent: "center",
+    paddingHorizontal: 2,
+    borderBottomWidth: 1,
+    borderBottomColor: OB.supportSoft,
+  },
+  planningMetricLabel: {
+    color: "#5E7591",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  planningMetricValue: {
+    color: OB.primary,
+    fontSize: 14,
+    fontWeight: "900",
+    marginTop: 4,
   },
   balanceSnapshot: {
     borderRadius: 17,
@@ -1450,8 +2282,8 @@ const styles = StyleSheet.create({
     backgroundColor: OB.offWhite,
   },
   balanceSnapshotIcon: {
-    width: 40,
-    height: 40,
+    width: 42,
+    height: 42,
     borderRadius: 13,
     alignItems: "center",
     justifyContent: "center",
@@ -1459,10 +2291,11 @@ const styles = StyleSheet.create({
   },
   balanceSnapshotCopy: {
     flex: 1,
+    minWidth: 0,
   },
   balanceSnapshotLabel: {
-    color: OB.support,
-    fontSize: 10,
+    color: "#5E7591",
+    fontSize: 12,
     fontWeight: "800",
   },
   balanceSnapshotValue: {
@@ -1472,149 +2305,40 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   balanceSnapshotMeta: {
-    color: OB.support,
-    fontSize: 9,
+    color: "#5E7591",
+    fontSize: 12,
     fontWeight: "700",
-    lineHeight: 13,
+    lineHeight: 17,
     marginTop: 3,
   },
-  planningMetrics: {
-    gap: 8,
+  commitmentsHelper: {
+    color: "#5E7591",
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: "700",
+    marginBottom: 2,
   },
-  planningMetric: {
-    minHeight: 38,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 10,
-    paddingHorizontal: 2,
+  commitmentRow: {
+    minHeight: 104,
+    paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: OB.supportSoft,
   },
-  planningMetricLabel: {
-    flex: 1,
-    color: OB.support,
-    fontSize: 11,
-    fontWeight: "800",
-  },
-  planningMetricValue: {
-    maxWidth: "45%",
-    color: OB.primary,
-    fontSize: 13,
-    fontWeight: "900",
-    textAlign: "right",
-  },
-  availableCard: {
-    borderRadius: 19,
-    padding: 17,
-    alignItems: "center",
-    backgroundColor: OB.primary,
-  },
-  availableLabel: {
-    color: OB.textOnDarkMid,
-    fontSize: 11,
-    fontWeight: "900",
-    letterSpacing: 0.6,
-    textTransform: "uppercase",
-  },
-  availableValue: {
-    color: "#fff",
-    fontSize: 27,
-    fontWeight: "900",
-    marginTop: 6,
-  },
-  availableExplanation: {
-    color: OB.textOnDarkMid,
-    fontSize: 10,
-    fontWeight: "700",
-    lineHeight: 15,
-    textAlign: "center",
-    marginTop: 7,
-  },
-  allocateButton: {
-    minHeight: 52,
-    borderRadius: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    backgroundColor: "#22A96B",
-  },
-  allocateButtonDisabled: {
-    backgroundColor: "rgba(123,160,200,0.18)",
-  },
-  allocateButtonText: {
-    color: "#fff",
-    fontSize: 13,
-    fontWeight: "900",
-  },
-  allocateButtonTextDisabled: {
-    color: OB.support,
-  },
-  commitmentsCard: {
-    borderRadius: 22,
-    padding: 16,
-    gap: 5,
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: OB.supportSoft,
-  },
-  commitmentsHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 6,
-  },
-  commitmentsHelper: {
-    color: OB.support,
-    fontSize: 9,
-    lineHeight: 14,
-    fontWeight: "700",
-    marginBottom: 4,
-  },
-  commitmentsEyebrow: {
-    color: OB.support,
-    fontSize: 9,
-    fontWeight: "900",
-    letterSpacing: 1.2,
-    textTransform: "uppercase",
-  },
-  commitmentsTitle: {
-    color: OB.primary,
-    fontSize: 17,
-    fontWeight: "900",
-    marginTop: 3,
-  },
-  commitmentsCount: {
-    minWidth: 30,
-    height: 30,
-    borderRadius: 15,
-    textAlign: "center",
-    textAlignVertical: "center",
-    color: OB.primary,
-    fontSize: 12,
-    fontWeight: "900",
-    backgroundColor: OB.offWhite,
-  },
-  commitmentRow: {
-    minHeight: 65,
+  commitmentMainRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 9,
-    paddingVertical: 9,
-    borderBottomWidth: 1,
-    borderBottomColor: OB.supportSoft,
   },
   commitmentCheck: {
-    width: 35,
-    height: 35,
+    width: 40,
+    height: 40,
     borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: OB.offWhite,
   },
   commitmentCheckPaid: {
-    backgroundColor: "#22A96B",
+    backgroundColor: "#168A59",
   },
   commitmentInfo: {
     flex: 1,
@@ -1622,7 +2346,7 @@ const styles = StyleSheet.create({
   },
   commitmentName: {
     color: OB.primary,
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "900",
   },
   commitmentNamePaid: {
@@ -1630,16 +2354,18 @@ const styles = StyleSheet.create({
     textDecorationLine: "line-through",
   },
   commitmentMeta: {
-    color: OB.support,
-    fontSize: 9,
+    color: "#5E7591",
+    fontSize: 12,
     fontWeight: "700",
+    lineHeight: 17,
     marginTop: 3,
   },
   commitmentToggle: {
-    minHeight: 34,
-    maxWidth: 92,
-    paddingHorizontal: 9,
-    borderRadius: 11,
+    minHeight: 44,
+    alignSelf: "stretch",
+    marginTop: 8,
+    paddingHorizontal: 10,
+    borderRadius: 13,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: OB.offWhite,
@@ -1647,12 +2373,13 @@ const styles = StyleSheet.create({
     borderColor: OB.supportSoft,
   },
   commitmentTogglePaid: {
-    backgroundColor: "#22A96B",
-    borderColor: "#22A96B",
+    backgroundColor: "#168A59",
+    borderColor: "#168A59",
   },
   commitmentToggleText: {
+    flexShrink: 1,
     color: OB.primary,
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: "900",
     textAlign: "center",
   },
@@ -1660,25 +2387,44 @@ const styles = StyleSheet.create({
     color: "#fff",
   },
   noCommitments: {
-    minHeight: 64,
+    minHeight: 68,
     flexDirection: "row",
     alignItems: "center",
     gap: 9,
   },
   noCommitmentsText: {
     flex: 1,
-    color: OB.support,
-    fontSize: 11,
+    color: "#5E7591",
+    fontSize: 12,
     fontWeight: "700",
-    lineHeight: 16,
+    lineHeight: 18,
   },
-  manageCommitmentsButton: {
-    minHeight: 42,
+  confirmedCommitments: {
+    borderRadius: 15,
+    backgroundColor: OB.offWhite,
+    overflow: "hidden",
+  },
+  confirmedCommitmentsHeader: {
+    minHeight: 48,
+    paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 8,
-    marginTop: 8,
+  },
+  confirmedCommitmentsTitle: {
+    flex: 1,
+    color: OB.primary,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  manageCommitmentsButton: {
+    minHeight: 48,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    marginTop: 2,
     paddingHorizontal: 12,
     borderRadius: 13,
     backgroundColor: OB.offWhite,
@@ -1686,115 +2432,38 @@ const styles = StyleSheet.create({
   manageCommitmentsText: {
     flex: 1,
     color: OB.primary,
-    fontSize: 11,
-    fontWeight: "900",
-  },
-  controlActions: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  controlActionButton: {
-    flex: 1,
-    minHeight: 78,
-    borderRadius: 18,
-    padding: 12,
-    justifyContent: "space-between",
-    backgroundColor: OB.primary,
-  },
-  controlActionButtonSecondary: {
-    flex: 1,
-    minHeight: 78,
-    borderRadius: 18,
-    padding: 12,
-    justifyContent: "space-between",
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: OB.supportSoft,
-  },
-  controlActionIcon: {
-    width: 29,
-    height: 29,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.14)",
-  },
-  controlActionIconSecondary: {
-    width: 29,
-    height: 29,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: OB.offWhite,
-  },
-  controlActionText: {
-    color: "#fff",
     fontSize: 12,
     fontWeight: "900",
-  },
-  controlActionTextSecondary: {
-    color: OB.primary,
-    fontSize: 12,
-    fontWeight: "900",
-  },
-  transactionsHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginTop: 4,
-  },
-  transactionsEyebrow: {
-    color: OB.support,
-    fontSize: 9,
-    fontWeight: "900",
-    letterSpacing: 1.2,
-    textTransform: "uppercase",
-  },
-  transactionsTitle: {
-    color: OB.primary,
-    fontSize: 17,
-    fontWeight: "900",
-    marginTop: 3,
-  },
-  newButton: {
-    minHeight: 54,
-    borderRadius: 16,
-    backgroundColor: OB.primary,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
   },
   newButtonUnavailable: { opacity: 0.4 },
   newButtonPressed: { opacity: 0.78, transform: [{ scale: 0.99 }] },
-  newText: {
-    color: "#fff",
-    fontSize: 15,
-    fontWeight: "900",
-  },
   filters: {
     gap: 8,
   },
   filter: {
+    minHeight: 44,
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingVertical: 10,
     borderRadius: 99,
-    backgroundColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: OB.offWhite,
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
   },
   filterActive: {
     backgroundColor: OB.primary,
+    borderColor: OB.primary,
   },
   filterText: {
-    color: OB.support,
-    fontSize: 13,
+    color: "#5E7591",
+    fontSize: 12,
     fontWeight: "900",
   },
   filterTextActive: {
     color: "#fff",
   },
   txList: {
-    borderRadius: 20,
-    paddingHorizontal: 16,
     backgroundColor: "#fff",
   },
   txRow: {
@@ -1818,6 +2487,7 @@ const styles = StyleSheet.create({
   },
   txInfo: {
     flex: 1,
+    minWidth: 0,
   },
   txDesc: {
     color: OB.primary,
@@ -1825,25 +2495,30 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   txMeta: {
-    color: OB.support,
-    fontSize: 11,
+    color: "#5E7591",
+    fontSize: 12,
     fontWeight: "700",
+    lineHeight: 17,
     marginTop: 2,
   },
-  txAmountWrap: {
-    alignItems: "flex-end",
+  txValueRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 7,
+    marginTop: 6,
   },
   txAmount: {
+    flexShrink: 1,
     fontSize: 13,
     fontWeight: "900",
   },
   txType: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: "900",
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 6,
-    marginTop: 3,
   },
   modalShade: {
     flex: 1,
@@ -1893,8 +2568,8 @@ const styles = StyleSheet.create({
     position: "absolute",
     right: 14,
     top: 14,
-    width: 42,
-    height: 42,
+    width: 44,
+    height: 44,
     borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
@@ -2191,9 +2866,9 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: 14,
     right: 12,
-    width: 30,
-    height: 30,
-    borderRadius: 10,
+    width: 44,
+    height: 44,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "rgba(255,255,255,0.12)",

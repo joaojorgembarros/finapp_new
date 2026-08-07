@@ -23,6 +23,7 @@ import { listTransactionHistory, TxRow } from "../../src/lib/transactions";
 import { useSession } from "../../src/providers/SessionProvider";
 import { BankLogo } from "../../src/ui/BankLogo";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
+import { ScreenHeaderCard } from "../../src/ui/ScreenHeaderCard";
 import { TransactionEditorModal } from "../../src/ui/TransactionEditorModal";
 
 type FlowFilter = "all" | "income" | "expense";
@@ -172,14 +173,13 @@ export default function TransactionHistoryScreen() {
           onScrollBeginDrag={cancelPendingScroll}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} tintColor={OB.primary} />}
         >
-        <View style={styles.headerCard}>
-          <Pressable onPress={() => router.back()} style={styles.backButton} hitSlop={12} accessibilityRole="button" accessibilityLabel="Voltar">
-            <Ionicons name="arrow-back" size={20} color="#fff" />
-          </Pressable>
-          <Text style={styles.headerEyebrow}>Controle financeiro</Text>
-          <Text style={styles.headerTitle}>Histórico de movimentações</Text>
-          <Text style={styles.headerSubtitle}>Consulte tudo o que entrou e saiu, manualmente ou por CSV.</Text>
-        </View>
+        <ScreenHeaderCard
+          onBack={() => router.back()}
+          backAccessibilityLabel="Voltar"
+          eyebrow="Controle financeiro"
+          title="Histórico de movimentações"
+          subtitle="Consulte tudo o que entrou e saiu, manualmente ou por CSV."
+        />
 
         <View style={styles.searchBox} onLayout={registerField("search")}>
           <Ionicons name="search-outline" size={19} color={OB.support} />
@@ -264,11 +264,6 @@ export default function TransactionHistoryScreen() {
 const styles = StyleSheet.create({
   keyboard: { flex: 1 },
   scroll: { padding: 18, gap: 14, paddingBottom: 34 },
-  headerCard: { minHeight: 140, borderRadius: 24, padding: 20, paddingRight: 64, justifyContent: "flex-end", backgroundColor: OB.primary },
-  backButton: { position: "absolute", right: 14, top: 14, width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.14)", borderWidth: 1, borderColor: "rgba(255,255,255,0.20)" },
-  headerEyebrow: { color: OB.textOnDarkMid, fontSize: 10, fontWeight: "900", letterSpacing: 2, textTransform: "uppercase" },
-  headerTitle: { color: "#fff", fontSize: 24, fontWeight: "900", lineHeight: 29, marginTop: 8 },
-  headerSubtitle: { color: OB.textOnDarkMid, fontSize: 12, fontWeight: "700", lineHeight: 18, marginTop: 6 },
   searchBox: { minHeight: 54, borderRadius: 17, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "#fff", borderWidth: 1, borderColor: OB.supportSoft },
   searchInput: { flex: 1, color: OB.primary, fontSize: 13, fontWeight: "700" },
   importFilterCard: { minHeight: 64, borderRadius: 16, padding: 13, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "rgba(55,110,165,0.10)", borderWidth: 1, borderColor: "rgba(55,110,165,0.22)" },

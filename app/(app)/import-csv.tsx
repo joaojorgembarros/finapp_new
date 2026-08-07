@@ -11,6 +11,7 @@ import { CsvParseResult, formatFileSize, ParsedCsvTx, PickedCsvFile, parseCsv, r
 import { BANK_OPTIONS, BankId, findBankById } from "../../src/lib/banks";
 import { Category, Kind, listCategories } from "../../src/lib/categories";
 import { BankLogo } from "../../src/ui/BankLogo";
+import { ScreenHeaderCard } from "../../src/ui/ScreenHeaderCard";
 import {
   StatementCategorySuggestion,
   statementSimilarityKey,
@@ -530,22 +531,6 @@ export default function ImportCsvOnboarding() {
         categoryRules: Object.values(pendingCategoryRules),
       });
 
-      const completionParts = [
-        `${importResult.imported_count} movimentação(ões) do ${selectedBank?.name ?? "banco selecionado"} foram salvas`,
-      ];
-      if (importResult.skipped_count) {
-        completionParts.push(`${importResult.skipped_count} repetida(s) foram ignoradas`);
-      }
-      if (importResult.rejected_count) {
-        completionParts.push(`${importResult.rejected_count} linha(s) inválida(s) foram rejeitadas`);
-      }
-      if (importResult.categorized_count) {
-        completionParts.push(`${importResult.categorized_count} movimentação(ões) foram categorizadas`);
-      }
-      if (importResult.learned_rules_count) {
-        completionParts.push(`${importResult.learned_rules_count} regra(s) foram lembradas`);
-      }
-
       const importCycleDate = importResult.imported_period_end ?? result.rows
         .filter((row) => !conflictLineSet.has(row.rawLine))
         .reduce(
@@ -554,26 +539,15 @@ export default function ImportCsvOnboarding() {
       );
 
       clearFile();
-      Alert.alert(
-        "Importação concluída",
-        `${completionParts.join("; ")}.`,
-        [
-          {
-            text: "Ver movimentações",
-            onPress: () => router.replace({
-              pathname: "/(app)/transaction-history",
-              params: { importId: importResult.import_id },
-            }),
-          },
-          {
-            text: "Ir para Controle",
-            onPress: () => router.replace({
-              pathname: "/(app)/journey",
-              params: importCycleDate ? { tab: "controle", cycleDate: importCycleDate } : { tab: "controle" },
-            }),
-          },
-        ]
-      );
+      router.dismissTo({
+        pathname: "/(app)/journey",
+        params: {
+          tab: "controle",
+          postImport: "1",
+          importId: importResult.import_id,
+          ...(importCycleDate ? { cycleDate: importCycleDate } : {}),
+        },
+      });
     } catch (error: any) {
       if (isDuplicateStatementError(error)) {
         const existingImport = await findStatementImportByHash(householdId, fileHash).catch(() => null);
@@ -596,14 +570,12 @@ export default function ImportCsvOnboarding() {
     <OnboardingShell light>
       <>
         <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <View style={styles.headerCard}>
-          <Pressable onPress={() => router.back()} style={styles.backButton} hitSlop={12}>
-            <Ionicons name="arrow-back" size={18} color="#fff" />
-          </Pressable>
-          <Text style={styles.headerEyebrow}>Importar extrato</Text>
-          <Text style={styles.headerTitle}>CSV</Text>
-          <Text style={styles.headerSubtitle}>Selecione o arquivo do banco e confira a prévia antes de salvar.</Text>
-        </View>
+        <ScreenHeaderCard
+          eyebrow="Importar extrato"
+          title="CSV"
+          subtitle="Selecione o arquivo do banco e confira a prévia antes de salvar."
+          onBack={() => router.back()}
+        />
 
         <View style={styles.card}>
           <Pressable onPress={pickCsv} disabled={reading || busy} style={({ pressed }) => [styles.uploadBox, hasFile && styles.uploadBoxActive, pressed && styles.pressed]}>
@@ -1011,47 +983,6 @@ const styles = StyleSheet.create({
     padding: 20,
     gap: 16,
     paddingBottom: 28,
-  },
-  headerCard: {
-    minHeight: 140,
-    borderRadius: 22,
-    padding: 20,
-    paddingRight: 58,
-    justifyContent: "flex-end",
-    backgroundColor: OB.primary,
-  },
-  backButton: {
-    position: "absolute",
-    right: 14,
-    top: 14,
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.14)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.20)",
-  },
-  headerEyebrow: {
-    color: OB.textOnDarkMid,
-    fontSize: 10,
-    fontWeight: "900",
-    letterSpacing: 2,
-    textTransform: "uppercase",
-  },
-  headerTitle: {
-    color: OB.textOnDark,
-    fontSize: 25,
-    fontWeight: "900",
-    marginTop: 8,
-  },
-  headerSubtitle: {
-    color: OB.textOnDarkMid,
-    fontSize: 13,
-    fontWeight: "700",
-    lineHeight: 20,
-    marginTop: 6,
   },
   card: {
     borderRadius: 20,
