@@ -31,6 +31,7 @@ import {
   StatementBalanceConfidence,
   StatementImport,
 } from "../../src/lib/statementImports";
+import { reconcileImportedCommitments } from "../../src/lib/commitmentReconciliation";
 
 const emptyResult: CsvParseResult = {
   rows: [],
@@ -538,6 +539,14 @@ export default function ImportCsvOnboarding() {
         ""
       );
 
+      // Reconciliation is best-effort: the statement remains successfully imported
+      // even when planning data is unavailable or a candidate becomes stale.
+      const reconciliation = await reconcileImportedCommitments({
+        householdId,
+        userId,
+        importId: importResult.import_id,
+      }).catch(() => ({ matchedCount: 0, failedCount: 0 }));
+
       clearFile();
       router.dismissTo({
         pathname: "/(app)/journey",
@@ -545,6 +554,7 @@ export default function ImportCsvOnboarding() {
           tab: "controle",
           postImport: "1",
           importId: importResult.import_id,
+          reconciledCommitments: String(reconciliation.matchedCount),
           ...(importCycleDate ? { cycleDate: importCycleDate } : {}),
         },
       });

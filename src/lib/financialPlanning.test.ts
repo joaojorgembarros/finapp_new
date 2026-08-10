@@ -67,6 +67,7 @@ describe("conservative financial calculation", () => {
       expectedIncomeCents: 380_000,
       realizedIncomeCents: 380_000,
       realizedExpenseCents: 210_000,
+      totalCommitmentsCents: 50_000,
       pendingCommitmentsCents: 50_000,
       reserveCents: 30_000,
       allocatedCents: 0,
@@ -81,6 +82,7 @@ describe("conservative financial calculation", () => {
       expectedIncomeCents: 500_000,
       realizedIncomeCents: 0,
       realizedExpenseCents: 0,
+      totalCommitmentsCents: 0,
       pendingCommitmentsCents: 0,
       reserveCents: 0,
       allocatedCents: 0,
@@ -92,6 +94,7 @@ describe("conservative financial calculation", () => {
       expectedIncomeCents: 400_000,
       realizedIncomeCents: 400_000,
       realizedExpenseCents: 100_000,
+      totalCommitmentsCents: 20_000,
       pendingCommitmentsCents: 20_000,
       reserveCents: 10_000,
       allocatedCents: 5_000,
@@ -106,9 +109,41 @@ describe("conservative financial calculation", () => {
       expectedIncomeCents: 0,
       realizedIncomeCents: 10_000,
       realizedExpenseCents: 30_000,
+      totalCommitmentsCents: 0,
       pendingCommitmentsCents: 0,
       reserveCents: 0,
       allocatedCents: 0,
     }).availableCents).toBe(0);
+  });
+
+  it("calculates a separate monthly projection from expected income and all commitments", () => {
+    expect(calculateFinancialSummary({
+      expectedIncomeCents: 500_000,
+      realizedIncomeCents: 300_000,
+      realizedExpenseCents: 140_000,
+      totalCommitmentsCents: 120_000,
+      pendingCommitmentsCents: 40_000,
+      reserveCents: 50_000,
+      allocatedCents: 30_000,
+    })).toMatchObject({
+      availableCents: 40_000,
+      totalCommitmentsCents: 120_000,
+      projectedAvailableCents: 300_000,
+    });
+  });
+
+  it("does not double-count realized expenses in the monthly projection and floors it at zero", () => {
+    const summary = calculateFinancialSummary({
+      expectedIncomeCents: 200_000,
+      realizedIncomeCents: 200_000,
+      realizedExpenseCents: 180_000,
+      totalCommitmentsCents: 170_000,
+      pendingCommitmentsCents: 0,
+      reserveCents: 40_000,
+      allocatedCents: 10_000,
+    });
+
+    expect(summary.resultCents).toBe(20_000);
+    expect(summary.projectedAvailableCents).toBe(0);
   });
 });

@@ -20,6 +20,10 @@ describe("getKeyboardBottomSpace", () => {
   it("caps unusually large fields to avoid excessive empty space", () => {
     expect(getKeyboardBottomSpace(0, 900, 16)).toBe(320);
   });
+
+  it("keeps the debt field and its clearance visible with adjustResize", () => {
+    expect(getKeyboardBottomSpace(0, 48, 72)).toBe(120);
+  });
 });
 
 describe("getKeyboardScrollAdjustment", () => {
@@ -70,5 +74,28 @@ describe("getKeyboardScrollAdjustment", () => {
       contentHeight: 900,
       bottomOffset: 64,
     })).toEqual({ targetY: 322, missingRunway: 0 });
+  });
+
+  it("adds enough runway for the last debt field and its helper text", () => {
+    const geometry = {
+      scrollWindowY: 580,
+      scrollWindowHeight: 330,
+      keyboardTop: 910,
+      fieldWindowY: 900,
+      fieldHeight: 86,
+      currentScrollY: 350,
+      topOffset: 12,
+      bottomOffset: 72,
+    };
+
+    expect(getKeyboardScrollAdjustment({
+      ...geometry,
+      contentHeight: 720,
+    })).toEqual({ targetY: 498, missingRunway: 180 });
+
+    expect(getKeyboardScrollAdjustment({
+      ...geometry,
+      contentHeight: 900,
+    })).toEqual({ targetY: 498, missingRunway: 0 });
   });
 });

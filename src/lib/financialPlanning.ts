@@ -104,6 +104,7 @@ export type FinancialSummaryInput = {
   expectedIncomeCents: number;
   realizedIncomeCents: number;
   realizedExpenseCents: number;
+  totalCommitmentsCents: number;
   pendingCommitmentsCents: number;
   reserveCents: number;
   allocatedCents: number;
@@ -115,10 +116,12 @@ export type FinancialSummary = {
   realizedIncomeCents: number;
   realizedExpenseCents: number;
   resultCents: number;
+  totalCommitmentsCents: number;
   pendingCommitmentsCents: number;
   reserveCents: number;
   allocatedCents: number;
   availableCents: number;
+  projectedAvailableCents: number;
   positiveResultCents: number;
   balanceCapCents: number | null;
   balanceCapApplied: boolean;
@@ -217,6 +220,7 @@ export function calculateFinancialSummary(input: FinancialSummaryInput): Financi
   const expectedIncomeCents = Math.max(0, integerCents(input.expectedIncomeCents));
   const realizedIncomeCents = Math.max(0, integerCents(input.realizedIncomeCents));
   const realizedExpenseCents = Math.max(0, integerCents(input.realizedExpenseCents));
+  const totalCommitmentsCents = Math.max(0, integerCents(input.totalCommitmentsCents));
   const pendingCommitmentsCents = Math.max(0, integerCents(input.pendingCommitmentsCents));
   const reserveCents = Math.max(0, integerCents(input.reserveCents));
   const allocatedCents = Math.max(0, integerCents(input.allocatedCents));
@@ -235,12 +239,20 @@ export function calculateFinancialSummary(input: FinancialSummaryInput): Financi
     realizedIncomeCents,
     realizedExpenseCents,
     resultCents,
+    totalCommitmentsCents,
     pendingCommitmentsCents,
     reserveCents,
     allocatedCents,
     availableCents: Math.max(
       0,
       safeBase - pendingCommitmentsCents - reserveCents - allocatedCents
+    ),
+    // This is a planning scenario, not cash on hand. Using the full commitment
+    // amounts here avoids mixing paid bills (already in realized expenses) with
+    // the separate projection based on expected income.
+    projectedAvailableCents: Math.max(
+      0,
+      expectedIncomeCents - totalCommitmentsCents - reserveCents - allocatedCents
     ),
     positiveResultCents,
     balanceCapCents,
@@ -715,6 +727,7 @@ export async function getFinancialOverview(params: {
   const realizedExpenseCents = transactions
     .filter((transaction) => transaction.type === "expense")
     .reduce((sum, transaction) => sum + transaction.amount_cents, 0);
+  const totalCommitmentsCents = overviewCommitments.reduce((sum, item) => sum + item.amount_cents, 0);
   const pendingCommitmentsCents = overviewCommitments.reduce((sum, item) => sum + item.pending_cents, 0);
   const allocatedCents = cycleRows.reduce((sum, row) => sum + row.amount_cents, 0);
   const trustedBalanceCents = snapshots.length
@@ -724,6 +737,7 @@ export async function getFinancialOverview(params: {
     expectedIncomeCents,
     realizedIncomeCents,
     realizedExpenseCents,
+    totalCommitmentsCents,
     pendingCommitmentsCents,
     reserveCents: settings.reserve_cents,
     allocatedCents,

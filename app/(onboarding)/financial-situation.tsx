@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import {
   ActivityIndicator,
@@ -27,12 +27,24 @@ import { BANK_OPTIONS } from "../../src/lib/banks";
 import { formatBRLFromCents, formatBRLInputFromDigits, parseBRLToCents } from "../../src/lib/format";
 import { EmploymentType, expectedMonthlyIncomeCents, getProfile } from "../../src/lib/profile";
 import { BankLogo } from "../../src/ui/BankLogo";
+import { useKeyboardAwareScroll } from "../../src/hooks/useKeyboardAwareScroll";
+import {
+  getOnboardingDebtValidationError,
+  NO_DEBTS_OPTION,
+} from "../../src/lib/onboardingDebts";
+import type { OnboardingDebtDetail } from "../../src/lib/onboardingDebts";
 
 type Bank = {
   id: string;
   name: string;
   shortName: string;
   color: string;
+};
+
+type DebtDraft = {
+  amount: string;
+  dueDay: string;
+  installmentsRemaining: string;
 };
 
 const DEBT_OPTIONS = [
@@ -44,7 +56,7 @@ const DEBT_OPTIONS = [
   "Não tenho dívidas",
 ] as const;
 
-const NO_DEBTS = "Não tenho dívidas";
+const NO_DEBTS = NO_DEBTS_OPTION;
 const NO_BANK = "Não uso banco";
 
 const BANKS: Bank[] = [
@@ -74,6 +86,34 @@ function parseValues(raw: string | string[] | undefined) {
   } catch {
     return {};
   }
+}
+
+function parseDebtDrafts(raw: unknown) {
+  const drafts: Record<string, DebtDraft> = {};
+  if (!Array.isArray(raw)) return drafts;
+
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const detail = item as Record<string, unknown>;
+    const name = typeof detail.name === "string" ? detail.name : "";
+    const amountCents = Number(detail.amountCents);
+    const dueDay = Number(detail.dueDay);
+    const installmentsRemaining = detail.installmentsRemaining == null
+      ? null
+      : Number(detail.installmentsRemaining);
+    if (!name) continue;
+    drafts[name] = {
+      amount: Number.isSafeInteger(amountCents) && amountCents > 0
+        ? formatBRLFromCents(amountCents)
+        : "",
+      dueDay: Number.isInteger(dueDay) && dueDay > 0 ? String(dueDay) : "",
+      installmentsRemaining: Number.isInteger(installmentsRemaining)
+        && Number(installmentsRemaining) > 0
+        ? String(installmentsRemaining)
+        : "",
+    };
+  }
+  return drafts;
 }
 
 function DebtChip({
@@ -123,11 +163,21 @@ export default function FinancialSituationScreen() {
   const params = useLocalSearchParams<{ dreams?: string; values?: string }>();
   const { session, userId } = useSession();
   const metadata = session?.user.user_metadata;
-  const listRef = useRef<ScrollView>(null);
-  const pendingScrollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const manualScrollRef = useRef(false);
-  const focusedIncomeField = useRef<"fixed" | "variable" | null>(null);
-  const incomeFieldY = useRef<Record<"fixed" | "variable", number>>({ fixed: 0, variable: 0 });
+  const {
+    scrollRef: listRef,
+    keyboardVisible,
+    keyboardInset,
+    registerField,
+    registerFieldNode,
+    focusField,
+    cancelPendingScroll,
+    handleScroll,
+    handleContentSizeChange,
+  } = useKeyboardAwareScroll<string>(12, {
+    ensureFieldRunway: true,
+    keyboardClearance: 72,
+  });
+  const savingRef = useRef(false);
 
   const dreams = useMemo(
     () => {
@@ -153,6 +203,9 @@ export default function FinancialSituationScreen() {
   const [selectedDebts, setSelectedDebts] = useState<Set<string>>(
     () => new Set(Array.isArray(metadata?.finapp_debts) ? metadata.finapp_debts.map(String) : [NO_DEBTS])
   );
+  const [debtDrafts, setDebtDrafts] = useState<Record<string, DebtDraft>>(
+    () => parseDebtDrafts(metadata?.finapp_debt_details)
+  );
   const [selectedBanks, setSelectedBanks] = useState<Set<string>>(
     () => new Set(Array.isArray(metadata?.finapp_banks) ? metadata.finapp_banks.map(String) : [])
   );
@@ -161,84 +214,6 @@ export default function FinancialSituationScreen() {
   const [employmentType, setEmploymentType] = useState<EmploymentType | null>(null);
   const [section, setSection] = useState<"income" | "debts" | "banks">("income");
   const [saving, setSaving] = useState(false);
-  const [keyboardVisible, setKeyboardVisible] = useState(false);
-  const [keyboardInset, setKeyboardInset] = useState(0);
-
-  const clearPendingScroll = useCallback(() => {
-    if (pendingScrollRef.current === null) return;
-    clearTimeout(pendingScrollRef.current);
-    pendingScrollRef.current = null;
-  }, []);
-
-  const cancelPendingScroll = useCallback(() => {
-    manualScrollRef.current = true;
-    clearPendingScroll();
-  }, [clearPendingScroll]);
-
-  const scrollToIncomeField = useCallback((field: "fixed" | "variable", delay = 80) => {
-    clearPendingScroll();
-    if (manualScrollRef.current) return;
-    pendingScrollRef.current = setTimeout(() => {
-      pendingScrollRef.current = null;
-      listRef.current?.scrollTo({
-        y: Math.max(incomeFieldY.current[field] - 12, 0),
-        animated: true,
-      });
-    }, delay);
-  }, [clearPendingScroll]);
-
-  useEffect(() => {
-    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
-    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-    const showSub = Keyboard.addListener(showEvent, (event) => {
-      setKeyboardVisible(true);
-
-      const applyInset = (inset: number) => {
-        setKeyboardInset(inset);
-        if (!manualScrollRef.current && focusedIncomeField.current) {
-          scrollToIncomeField(focusedIncomeField.current, 100);
-        }
-      };
-
-      if (Platform.OS === "ios") {
-        applyInset(0);
-        return;
-      }
-
-      const scrollView = listRef.current?.getNativeScrollRef();
-      if (!scrollView) {
-        applyInset(0);
-        return;
-      }
-
-      scrollView.measureInWindow((_x, y, _width, height) => {
-        const overlap = Math.max(
-          0,
-          Math.min(event.endCoordinates.height, y + height - event.endCoordinates.screenY)
-        );
-        applyInset(overlap);
-      });
-    });
-    const hideSub = Keyboard.addListener(hideEvent, () => {
-      setKeyboardVisible(false);
-      setKeyboardInset(0);
-      focusedIncomeField.current = null;
-      manualScrollRef.current = false;
-      clearPendingScroll();
-    });
-
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-      clearPendingScroll();
-    };
-  }, [clearPendingScroll, scrollToIncomeField]);
-
-  function focusIncomeField(field: "fixed" | "variable") {
-    manualScrollRef.current = false;
-    focusedIncomeField.current = field;
-    scrollToIncomeField(field, keyboardVisible ? 40 : 220);
-  }
 
   useEffect(() => {
     let active = true;
@@ -274,6 +249,30 @@ export default function FinancialSituationScreen() {
   });
   const incomeAnswered = Boolean(fixedIncome.trim() || variableIncome.trim());
 
+  const selectedDebtNames = useMemo(
+    () => DEBT_OPTIONS.filter((name) => name !== NO_DEBTS && selectedDebts.has(name)),
+    [selectedDebts]
+  );
+  const debtDetails = useMemo<OnboardingDebtDetail[]>(
+    () => selectedDebtNames.map((name) => {
+      const draft = debtDrafts[name] ?? { amount: "", dueDay: "", installmentsRemaining: "" };
+      return {
+        name,
+        amountCents: parseBRLToCents(draft.amount),
+        dueDay: /^\d+$/.test(draft.dueDay.trim()) ? Number(draft.dueDay) : Number.NaN,
+        installmentsRemaining: draft.installmentsRemaining.trim()
+          ? Number(draft.installmentsRemaining)
+          : null,
+      };
+    }),
+    [debtDrafts, selectedDebtNames]
+  );
+  const debtValidationError = useMemo(
+    () => getOnboardingDebtValidationError([...selectedDebts], debtDetails),
+    [debtDetails, selectedDebts]
+  );
+  const debtsAnswered = selectedDebts.size > 0 && !debtValidationError;
+
   function toggleDebt(label: string) {
     setSelectedDebts((current) => {
       if (label === NO_DEBTS) return new Set(current.has(NO_DEBTS) ? [] : [NO_DEBTS]);
@@ -282,6 +281,20 @@ export default function FinancialSituationScreen() {
       else next.add(label);
       return next;
     });
+  }
+
+  function updateDebtDraft(name: string, changes: Partial<DebtDraft>) {
+    setDebtDrafts((current) => ({
+      ...current,
+      [name]: {
+        ...(current[name] ?? {
+          amount: "",
+          dueDay: "",
+          installmentsRemaining: "",
+        }),
+        ...changes,
+      },
+    }));
   }
 
   function toggleBank(label: string) {
@@ -305,15 +318,21 @@ export default function FinancialSituationScreen() {
     if (!selectedDebts.size) {
       return Alert.alert("Conte sobre suas dívidas", "Escolha uma opção para continuar.");
     }
+    if (debtValidationError) {
+      return Alert.alert("Complete suas dívidas", debtValidationError);
+    }
     if (!selectedBanks.size) {
       return Alert.alert("Escolha seus bancos", "Selecione ao menos um banco ou marque que não usa banco.");
     }
+    if (savingRef.current) return;
 
     try {
+      savingRef.current = true;
       setSaving(true);
       await markNewOnboardingDone(userId, dreams, values, {
         banks: [...selectedBanks],
         debts: [...selectedDebts],
+        debtDetails,
         incomeFixedCents: fixedIncomeCents,
         incomeVariableAvgCents: variableIncomeCents,
         employmentType,
@@ -331,11 +350,12 @@ export default function FinancialSituationScreen() {
         error?.message ?? "Confira sua conexão e tente novamente."
       );
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }
 
-  const canFinish = incomeAnswered && Boolean(employmentType) && selectedDebts.size > 0 && selectedBanks.size > 0 && !saving;
+  const canFinish = incomeAnswered && Boolean(employmentType) && debtsAnswered && selectedBanks.size > 0 && !saving;
 
   function goBack() {
     router.replace({
@@ -374,6 +394,10 @@ export default function FinancialSituationScreen() {
   function continueToBanks() {
     if (!selectedDebts.size) {
       Alert.alert("Conte sobre suas dívidas", "Escolha uma opção para continuar.");
+      return;
+    }
+    if (debtValidationError) {
+      Alert.alert("Complete suas dívidas", debtValidationError);
       return;
     }
     setSection("banks");
@@ -430,10 +454,14 @@ export default function FinancialSituationScreen() {
               styles.content,
               { paddingBottom: 24 + keyboardInset },
             ]}
-            showsVerticalScrollIndicator={section !== "debts"}
-            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator
+            keyboardShouldPersistTaps="always"
             keyboardDismissMode="none"
             onScrollBeginDrag={cancelPendingScroll}
+            onScroll={handleScroll}
+            scrollEventThrottle={16}
+            onContentSizeChange={handleContentSizeChange}
+            removeClippedSubviews={false}
           >
             {section === "income" ? (
               <View>
@@ -447,7 +475,11 @@ export default function FinancialSituationScreen() {
                   </View>
                 </View>
 
-                <View onLayout={(event) => { incomeFieldY.current.fixed = event.nativeEvent.layout.y; }}>
+                <View
+                  ref={registerFieldNode("income:fixed")}
+                  onLayout={registerField("income:fixed")}
+                  collapsable={false}
+                >
                   <Text style={styles.fieldLabel}>Renda fixa mensal</Text>
                   <TextInput
                     accessibilityLabel="Renda fixa mensal"
@@ -458,15 +490,19 @@ export default function FinancialSituationScreen() {
                     keyboardType="number-pad"
                     returnKeyType="done"
                     selectTextOnFocus
-                    onFocus={() => focusIncomeField("fixed")}
-                    onPressIn={() => focusIncomeField("fixed")}
+                    onFocus={() => focusField("income:fixed")}
+                    onPressIn={() => focusField("income:fixed")}
                     onSubmitEditing={Keyboard.dismiss}
                     style={styles.moneyInput}
                   />
                   <Text style={styles.fieldHint}>Salário, aposentadoria ou outra entrada recorrente.</Text>
                 </View>
 
-                <View onLayout={(event) => { incomeFieldY.current.variable = event.nativeEvent.layout.y; }}>
+                <View
+                  ref={registerFieldNode("income:variable")}
+                  onLayout={registerField("income:variable")}
+                  collapsable={false}
+                >
                   <Text style={styles.fieldLabel}>Média de renda extra</Text>
                   <TextInput
                     accessibilityLabel="Média de renda extra mensal"
@@ -477,8 +513,8 @@ export default function FinancialSituationScreen() {
                     keyboardType="number-pad"
                     returnKeyType="done"
                     selectTextOnFocus
-                    onFocus={() => focusIncomeField("variable")}
-                    onPressIn={() => focusIncomeField("variable")}
+                    onFocus={() => focusField("income:variable")}
+                    onPressIn={() => focusField("income:variable")}
                     onSubmitEditing={Keyboard.dismiss}
                     style={styles.moneyInput}
                   />
@@ -532,6 +568,110 @@ export default function FinancialSituationScreen() {
                   />
                 ))}
               </View>
+              {selectedDebtNames.length ? (
+                <View style={styles.debtDetailsList}>
+                  <View style={styles.debtDetailsIntro}>
+                    <Ionicons name="calendar-outline" size={18} color={OB.primary} />
+                    <Text style={styles.debtDetailsIntroText}>
+                      Informe o valor que sai por mês e quando ele vence.
+                    </Text>
+                  </View>
+                  {selectedDebtNames.map((name) => {
+                    const draft = debtDrafts[name] ?? {
+                      amount: "",
+                      dueDay: "",
+                      installmentsRemaining: "",
+                    };
+                    const amountField = `debt:${name}:amount`;
+                    const dueDayField = `debt:${name}:due-day`;
+                    const installmentsField = `debt:${name}:installments`;
+                    return (
+                      <View key={name} style={styles.debtDetailCard}>
+                        <Text style={styles.debtDetailName}>{name}</Text>
+                        <View style={styles.debtFieldsRow}>
+                          <View
+                            ref={registerFieldNode(amountField)}
+                            onLayout={registerField(amountField)}
+                            collapsable={false}
+                            style={styles.debtAmountField}
+                          >
+                            <Text style={styles.debtFieldLabel}>Valor mensal</Text>
+                            <TextInput
+                              accessibilityLabel={`Valor mensal de ${name}`}
+                              value={draft.amount}
+                              onChangeText={(text) => updateDebtDraft(name, {
+                                amount: formatBRLInputFromDigits(text),
+                              })}
+                              placeholder="R$ 0,00"
+                              placeholderTextColor={OB.support}
+                              keyboardType="number-pad"
+                              returnKeyType="done"
+                              selectTextOnFocus
+                              onFocus={() => focusField(amountField)}
+                              onPressIn={() => focusField(amountField)}
+                              onSubmitEditing={Keyboard.dismiss}
+                              style={styles.debtInput}
+                            />
+                          </View>
+                          <View
+                            ref={registerFieldNode(dueDayField)}
+                            onLayout={registerField(dueDayField)}
+                            collapsable={false}
+                            style={styles.debtDueField}
+                          >
+                            <Text style={styles.debtFieldLabel}>Vence dia</Text>
+                            <TextInput
+                              accessibilityLabel={`Dia de vencimento de ${name}`}
+                              value={draft.dueDay}
+                              onChangeText={(text) => updateDebtDraft(name, {
+                                dueDay: text.replace(/\D/g, "").slice(0, 2),
+                              })}
+                              placeholder="1 a 28"
+                              placeholderTextColor={OB.support}
+                              keyboardType="number-pad"
+                              returnKeyType="done"
+                              maxLength={2}
+                              onFocus={() => focusField(dueDayField)}
+                              onPressIn={() => focusField(dueDayField)}
+                              onSubmitEditing={Keyboard.dismiss}
+                              style={styles.debtInput}
+                            />
+                          </View>
+                        </View>
+                        <View
+                          ref={registerFieldNode(installmentsField)}
+                          onLayout={registerField(installmentsField)}
+                          collapsable={false}
+                        >
+                          <Text style={styles.debtFieldLabel}>Parcelas restantes (opcional)</Text>
+                          <TextInput
+                            accessibilityLabel={`Parcelas restantes de ${name}`}
+                            value={draft.installmentsRemaining}
+                            onChangeText={(text) => updateDebtDraft(name, {
+                              installmentsRemaining: text.replace(/\D/g, "").slice(0, 3),
+                            })}
+                            placeholder="Deixe vazio se não houver número definido"
+                            placeholderTextColor={OB.support}
+                            keyboardType="number-pad"
+                            returnKeyType="done"
+                            maxLength={3}
+                            onFocus={() => focusField(installmentsField)}
+                            onPressIn={() => focusField(installmentsField)}
+                            onSubmitEditing={Keyboard.dismiss}
+                            style={styles.debtInput}
+                          />
+                          <Text style={styles.debtFieldHint}>
+                            Com parcelas, o compromisso termina automaticamente. Sem elas, continua mensalmente.
+                          </Text>
+                        </View>
+                      </View>
+                    );
+                  })}
+                  {debtValidationError ? (
+                    <Text style={styles.debtValidationText}>{debtValidationError}</Text>
+                  ) : null}
+                </View>
+              ) : null}
               </View>
             ) : (
               <View>
@@ -563,7 +703,9 @@ export default function FinancialSituationScreen() {
               {section === "income"
                 ? "Esses valores serão a base das suas projeções financeiras."
                 : section === "debts"
-                  ? "Na próxima parte, você poderá escolher seus bancos."
+                  ? selectedDebtNames.length
+                    ? "Esses valores entrarão automaticamente no seu planejamento mensal."
+                    : "Na próxima parte, você poderá escolher seus bancos."
                   : "Usaremos essas escolhas para personalizar sua experiência."}
             </Text>
             {section === "income" ? (
@@ -575,7 +717,7 @@ export default function FinancialSituationScreen() {
             ) : section === "debts" ? (
               <PrimaryButton
                 title="Continuar para meus bancos"
-                disabled={!selectedDebts.size}
+                disabled={!debtsAnswered}
                 onPress={continueToBanks}
               />
             ) : (
@@ -798,6 +940,83 @@ const styles = StyleSheet.create({
   },
   debtChipTextSelected: {
     color: "#fff",
+  },
+  debtDetailsList: {
+    gap: 12,
+    marginTop: 18,
+  },
+  debtDetailsIntro: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 2,
+  },
+  debtDetailsIntroText: {
+    flex: 1,
+    color: OB.support,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "800",
+  },
+  debtDetailCard: {
+    borderRadius: 18,
+    padding: 15,
+    backgroundColor: "#fff",
+    borderWidth: 1.5,
+    borderColor: OB.supportSoft,
+  },
+  debtDetailName: {
+    color: OB.primary,
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: "900",
+    marginBottom: 10,
+  },
+  debtFieldsRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 10,
+    marginBottom: 10,
+  },
+  debtAmountField: {
+    flex: 1,
+  },
+  debtDueField: {
+    width: 104,
+  },
+  debtFieldLabel: {
+    color: OB.primary,
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: "900",
+    marginBottom: 5,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  debtInput: {
+    minHeight: 46,
+    borderRadius: 13,
+    borderWidth: 1.5,
+    borderColor: OB.supportSoft,
+    backgroundColor: OB.offWhite,
+    paddingHorizontal: 12,
+    color: OB.primary,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  debtFieldHint: {
+    color: OB.support,
+    fontSize: 10,
+    lineHeight: 15,
+    fontWeight: "700",
+    marginTop: 6,
+  },
+  debtValidationText: {
+    color: "#B42318",
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: "800",
+    paddingHorizontal: 2,
   },
   bankGrid: {
     flexDirection: "row",

@@ -4,10 +4,16 @@ import { createHousehold, getMyHouseholdId } from "./household";
 import { seedDefaultCategories } from "./categories";
 import { syncGoalsFromDreams } from "./goals";
 import { EmploymentType, upsertProfile } from "./profile";
+import {
+  getOnboardingDebtValidationError,
+  syncOnboardingDebtCommitments,
+} from "./onboardingDebts";
+import type { OnboardingDebtDetail } from "./onboardingDebts";
 
 export type FinancialSituation = {
   banks: string[];
   debts: string[];
+  debtDetails: OnboardingDebtDetail[];
   incomeFixedCents: number;
   incomeVariableAvgCents: number;
   employmentType: EmploymentType;
@@ -47,6 +53,7 @@ export async function syncNewOnboardingCompletion(
   if (financialSituation) {
     data.finapp_banks = financialSituation.banks;
     data.finapp_debts = financialSituation.debts;
+    data.finapp_debt_details = financialSituation.debtDetails;
   }
   const { error } = await supabase.auth.updateUser({ data });
   if (error) throw error;
@@ -58,6 +65,14 @@ export async function markNewOnboardingDone(
   values: Record<string, string>,
   financialSituation?: FinancialSituation
 ) {
+  if (financialSituation) {
+    const validationError = getOnboardingDebtValidationError(
+      financialSituation.debts,
+      financialSituation.debtDetails
+    );
+    if (validationError) throw new Error(validationError);
+  }
+
   let householdId = await getMyHouseholdId(userId);
   if (!householdId) {
     householdId = await createHousehold({ name: "Minha casa", type: "individual" });
@@ -70,6 +85,12 @@ export async function markNewOnboardingDone(
       income_variable_avg_cents: financialSituation.incomeVariableAvgCents,
       employment_type: financialSituation.employmentType,
       onboarding_done: true,
+    });
+    await syncOnboardingDebtCommitments({
+      householdId,
+      userId,
+      selectedDebts: financialSituation.debts,
+      debtDetails: financialSituation.debtDetails,
     });
   }
   await syncNewOnboardingCompletion(dreams, values, financialSituation);

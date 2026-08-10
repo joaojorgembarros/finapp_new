@@ -474,6 +474,7 @@ function ControlPanel({
   cycleDate,
   onCycleDateChange,
   postImportId,
+  reconciledCommitments = 0,
   onPostImportHandled,
 }: {
   householdId: string | null;
@@ -482,6 +483,7 @@ function ControlPanel({
   cycleDate?: string;
   onCycleDateChange: (cycleDate: string) => void;
   postImportId?: string;
+  reconciledCommitments?: number;
   onPostImportHandled: () => void;
 }) {
   const [overview, setOverview] = useState<FinancialOverview | null>(null);
@@ -818,6 +820,14 @@ function ControlPanel({
               </View>
               <Text style={styles.postImportTitle}>Extrato importado</Text>
               <Text style={styles.postImportText}>Suas entradas e gastos estão no app.</Text>
+              {reconciledCommitments > 0 ? (
+                <View style={styles.postImportReconciledNotice}>
+                  <Ionicons name="link-outline" size={17} color="#168A59" />
+                  <Text style={styles.postImportReconciledText}>
+                    {reconciledCommitments} {reconciledCommitments === 1 ? "conta foi reconhecida" : "contas foram reconhecidas"} automaticamente.
+                  </Text>
+                </View>
+              ) : null}
 
               <View style={styles.postImportNextStep}>
                 <Text style={styles.postImportNextEyebrow}>Próximo passo</Text>
@@ -916,6 +926,24 @@ function ControlPanel({
               ) : null}
             </View>
           )}
+
+          <View style={styles.projectedPlanCard}>
+            <View style={styles.projectedPlanIcon}>
+              <Ionicons name="calendar-outline" size={20} color={OB.primary} />
+            </View>
+            <View style={styles.projectedPlanCopy}>
+              <Text style={styles.projectedPlanEyebrow}>Projeção mensal</Text>
+              <Text style={styles.projectedPlanLabel}>Sobra depois do planejamento</Text>
+              <Text style={styles.projectedPlanValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+                {formatBRLFromCents(overview.projectedAvailableCents)}
+              </Text>
+              <Text style={styles.projectedPlanHelper}>
+                {overview.expectedIncomeCents > 0
+                  ? "Estimativa com a renda informada, todas as contas do período, sua reserva e valores já guardados. Não é o saldo disponível agora."
+                  : "Informe sua renda no planejamento para calcular esta estimativa. Este valor não representa o saldo disponível agora."}
+              </Text>
+            </View>
+          </View>
 
           <ControlQuickActions
             disabled={!householdId}
@@ -1035,9 +1063,11 @@ function ControlPanel({
               open={calculationOpen}
               onToggle={() => setCalculationOpen((open) => !open)}
             >
-              <Text style={styles.calculationHelper}>A renda prevista serve apenas para comparação. A sobra usa o dinheiro que já entrou e saiu.</Text>
+              <Text style={styles.calculationHelper}>São duas contas separadas: o disponível agora usa as movimentações registradas; a projeção mensal parte da renda informada. Os dois valores não devem ser somados.</Text>
               <View style={styles.planningMetrics}>
-                <PlanningMetric label="Renda que você informou" value={formatBRLFromCents(overview.expectedIncomeCents)} />
+                <PlanningMetric label="Renda mensal informada" value={formatBRLFromCents(overview.expectedIncomeCents)} />
+                <PlanningMetric label="Todas as contas planejadas, pagas e pendentes" value={formatBRLFromCents(overview.totalCommitmentsCents)} />
+                <PlanningMetric label="Projeção após contas, reserva e valores guardados" value={formatBRLFromCents(overview.projectedAvailableCents)} />
                 <PlanningMetric label="Entrou menos saiu" value={formatBRLFromCents(overview.resultCents)} />
                 <PlanningMetric label="Pagamentos ainda não confirmados" value={formatBRLFromCents(overview.pendingCommitmentsCents)} />
                 <PlanningMetric label="Valor que você quer manter" value={formatBRLFromCents(overview.reserveCents)} />
@@ -1189,7 +1219,7 @@ function JourneyDrawer({
 }
 
 export default function JourneyScreen() {
-  const params = useLocalSearchParams<{ dreams?: string; values?: string; tab?: string; cycleDate?: string; postImport?: string; importId?: string }>();
+  const params = useLocalSearchParams<{ dreams?: string; values?: string; tab?: string; cycleDate?: string; postImport?: string; importId?: string; reconciledCommitments?: string }>();
   const { session } = useSession();
   const userId = session?.user?.id ?? null;
   const { householdId, loading: householdLoading } = useHouseholdId(userId);
@@ -1197,6 +1227,11 @@ export default function JourneyScreen() {
   const requestedCycleDate = Array.isArray(params.cycleDate) ? params.cycleDate[0] : params.cycleDate;
   const requestedPostImport = Array.isArray(params.postImport) ? params.postImport[0] : params.postImport;
   const requestedImportId = Array.isArray(params.importId) ? params.importId[0] : params.importId;
+  const requestedReconciledCommitments = Array.isArray(params.reconciledCommitments) ? params.reconciledCommitments[0] : params.reconciledCommitments;
+  const parsedReconciledCommitments = Number(requestedReconciledCommitments);
+  const reconciledCommitments = Number.isFinite(parsedReconciledCommitments)
+    ? Math.max(0, Math.trunc(parsedReconciledCommitments))
+    : 0;
   const [tab, setTab] = useState<Tab>(requestedTab === "controle" ? "controle" : "jornada");
   const [controlCycleDate, setControlCycleDate] = useState(requestedCycleDate);
   const [postImportId, setPostImportId] = useState(requestedPostImport === "1" ? requestedImportId : undefined);
@@ -1236,7 +1271,7 @@ export default function JourneyScreen() {
 
   const finishPostImport = useCallback(() => {
     setPostImportId(undefined);
-    router.setParams({ postImport: undefined, importId: undefined });
+    router.setParams({ postImport: undefined, importId: undefined, reconciledCommitments: undefined });
   }, []);
 
   const activePostImportId = requestedPostImport === "1" && requestedImportId === postImportId
@@ -1371,7 +1406,7 @@ export default function JourneyScreen() {
     <OnboardingShell light>
       <View style={styles.root}>
         <View style={styles.content}>
-          {tab === "controle" ? <ControlPanel key={activePostImportId ? `post-import:${activePostImportId}` : "control"} householdId={householdId} userId={userId} householdLoading={householdLoading} cycleDate={controlCycleDate} onCycleDateChange={rememberControlCycle} postImportId={activePostImportId} onPostImportHandled={finishPostImport} /> : tab === "jornada" ? (
+          {tab === "controle" ? <ControlPanel key={activePostImportId ? `post-import:${activePostImportId}` : "control"} householdId={householdId} userId={userId} householdLoading={householdLoading} cycleDate={controlCycleDate} onCycleDateChange={rememberControlCycle} postImportId={activePostImportId} reconciledCommitments={activePostImportId ? reconciledCommitments : 0} onPostImportHandled={finishPostImport} /> : tab === "jornada" ? (
             <>
               <MountainHero progress={journeyProgress} />
               <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
@@ -1822,6 +1857,27 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 6,
   },
+  postImportReconciledNotice: {
+    alignSelf: "stretch",
+    minHeight: 44,
+    marginTop: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "rgba(22,138,89,0.09)",
+  },
+  postImportReconciledText: {
+    flexShrink: 1,
+    color: "#116D47",
+    fontSize: 12,
+    fontWeight: "800",
+    lineHeight: 17,
+    textAlign: "center",
+  },
   postImportNextStep: {
     alignSelf: "stretch",
     borderRadius: 18,
@@ -1941,6 +1997,54 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "900",
     textAlign: "center",
+  },
+  projectedPlanCard: {
+    borderRadius: 20,
+    padding: 16,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  projectedPlanIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(123,160,200,0.16)",
+  },
+  projectedPlanCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  projectedPlanEyebrow: {
+    color: "#5E7591",
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+  },
+  projectedPlanLabel: {
+    color: OB.primary,
+    fontSize: 14,
+    fontWeight: "900",
+    marginTop: 3,
+  },
+  projectedPlanValue: {
+    color: OB.primary,
+    fontSize: 23,
+    fontWeight: "900",
+    marginTop: 7,
+  },
+  projectedPlanHelper: {
+    color: "#5E7591",
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 18,
+    marginTop: 6,
   },
   availableHero: {
     borderRadius: 24,

@@ -1,0 +1,5 @@
+Banco: Nubank
+Data,Valor,Identificador,Descricao
+2026-08-05,4000.00,teste-nu-001,Renda mensal sintetica
+2026-08-08,-450.00,teste-nu-002,Pagamento divida teste principal
+2026-08-14,-120.00,teste-nu-003,Despesa variavel sintetica

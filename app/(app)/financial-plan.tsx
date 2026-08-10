@@ -102,7 +102,10 @@ export default function FinancialPlanScreen() {
   const { userId } = useSession();
   const { householdId, loading: householdLoading } = useHouseholdId(userId);
   const settingsKeyboard = useKeyboardAwareScroll<SettingsField>(18);
-  const modalKeyboard = useKeyboardAwareScroll<CommitmentField>(18);
+  const modalKeyboard = useKeyboardAwareScroll<CommitmentField>(18, {
+    ensureFieldRunway: true,
+    keyboardClearance: 72,
+  });
 
   const [cycleType, setCycleType] = useState<CycleMode>("calendar");
   const [paydayDay, setPaydayDay] = useState("5");
@@ -610,11 +613,19 @@ export default function FinancialPlanScreen() {
                   { paddingBottom: 22 + modalKeyboard.keyboardInset },
                 ]}
                 keyboardDismissMode="none"
-                keyboardShouldPersistTaps="handled"
+                keyboardShouldPersistTaps="always"
                 onScrollBeginDrag={modalKeyboard.cancelPendingScroll}
+                onScroll={modalKeyboard.handleScroll}
+                scrollEventThrottle={16}
+                onContentSizeChange={modalKeyboard.handleContentSizeChange}
+                removeClippedSubviews={false}
                 showsVerticalScrollIndicator={false}
               >
-                <View onLayout={modalKeyboard.registerField("name")}>
+                <View
+                  ref={modalKeyboard.registerFieldNode("name")}
+                  onLayout={modalKeyboard.registerField("name")}
+                  collapsable={false}
+                >
                   <Text style={styles.label}>Nome</Text>
                   <TextInput
                     value={draft.name}
@@ -648,7 +659,11 @@ export default function FinancialPlanScreen() {
                   })}
                 </View>
 
-                <View onLayout={modalKeyboard.registerField("amount")}>
+                <View
+                  ref={modalKeyboard.registerFieldNode("amount")}
+                  onLayout={modalKeyboard.registerField("amount")}
+                  collapsable={false}
+                >
                   <Text style={styles.label}>Valor</Text>
                   <TextInput
                     value={draft.amount}
@@ -669,7 +684,12 @@ export default function FinancialPlanScreen() {
                 </View>
 
                 <View style={styles.twoColumns}>
-                  <View style={styles.column} onLayout={modalKeyboard.registerField("due")}>
+                  <View
+                    ref={modalKeyboard.registerFieldNode("due")}
+                    style={styles.column}
+                    onLayout={modalKeyboard.registerField("due")}
+                    collapsable={false}
+                  >
                     <Text style={styles.label}>Vencimento</Text>
                     <TextInput
                       value={draft.dueDay}
@@ -688,7 +708,12 @@ export default function FinancialPlanScreen() {
                       accessibilityLabel="Dia do vencimento, entre 1 e 28"
                     />
                   </View>
-                  <View style={styles.column} onLayout={modalKeyboard.registerField("start")}>
+                  <View
+                    ref={modalKeyboard.registerFieldNode("start")}
+                    style={styles.column}
+                    onLayout={modalKeyboard.registerField("start")}
+                    collapsable={false}
+                  >
                     <Text style={styles.label}>Início</Text>
                     <TextInput
                       value={draft.startMonth}
@@ -710,7 +735,11 @@ export default function FinancialPlanScreen() {
                 </View>
 
                 {draft.kind === "installment" ? (
-                <View onLayout={modalKeyboard.registerField("installments")}>
+                <View
+                  ref={modalKeyboard.registerFieldNode("installments")}
+                  onLayout={modalKeyboard.registerField("installments")}
+                  collapsable={false}
+                >
                   <Text style={styles.label}>Quantidade de parcelas</Text>
                   <TextInput
                     value={draft.installmentCount}
