@@ -140,6 +140,25 @@ function MoneySummaryRow({
   );
 }
 
+function ProjectionLine({
+  label,
+  value,
+  subtract = false,
+}: {
+  label: string;
+  value: number;
+  subtract?: boolean;
+}) {
+  return (
+    <View style={styles.projectionLine}>
+      <Text style={styles.projectionLineLabel}>{label}</Text>
+      <Text style={[styles.projectionLineValue, subtract && styles.projectionLineValueSubtract]}>
+        {subtract ? "− " : ""}{formatBRLFromCents(value)}
+      </Text>
+    </View>
+  );
+}
+
 function ControlDisclosure({
   title,
   description,
@@ -638,14 +657,14 @@ function ControlPanel({
 
     if (Platform.OS === "web") {
       const confirmed = typeof globalThis.confirm === "function"
-        ? globalThis.confirm("Desfazer a confirmação? Esta conta voltará a aparecer como pendente neste período.")
+        ? globalThis.confirm("Desfazer o registro? Esta conta voltará a aparecer como pendente neste período.")
         : false;
       if (confirmed) await persist();
       return;
     }
 
     Alert.alert(
-      "Desfazer confirmação?",
+      "Desfazer registro?",
       "Esta conta voltará a aparecer como pendente neste período.",
       [
         { text: "Cancelar", style: "cancel" },
@@ -703,7 +722,7 @@ function ControlPanel({
       : overview.resultCents < 0
         ? `Neste período, saiu ${formatBRLFromCents(Math.abs(overview.resultCents))} a mais do que entrou.`
         : overview.pendingCommitmentsCents > 0
-          ? `Há ${formatBRLFromCents(overview.pendingCommitmentsCents)} em contas que ainda faltam conferir.`
+          ? `Há ${formatBRLFromCents(overview.pendingCommitmentsCents)} em contas que ainda não foram registradas como pagas.`
           : "Ainda não há uma sobra livre neste período.";
 
   const commitmentsDescription = !overview
@@ -711,8 +730,8 @@ function ControlPanel({
     : !overview.commitments.length
       ? "Nenhuma conta cadastrada neste período"
       : pendingCommitments.length
-        ? `${pendingCommitments.length} ${pendingCommitments.length === 1 ? "pagamento ainda não foi confirmado" : "pagamentos ainda não foram confirmados"} · ${formatBRLFromCents(overview.pendingCommitmentsCents)}`
-        : "Todas as contas cadastradas foram conferidas";
+        ? `${pendingCommitments.length} ${pendingCommitments.length === 1 ? "pagamento ainda não foi registrado" : "pagamentos ainda não foram registrados"} · ${formatBRLFromCents(overview.pendingCommitmentsCents)}`
+        : "Todos os pagamentos do mês foram registrados";
 
   const transactionsDescription = txs.length
     ? `${txs.length} ${txs.length === 1 ? "movimentação" : "movimentações"} neste período`
@@ -744,13 +763,13 @@ function ControlPanel({
           onPress={() => void toggleCommitment(commitment)}
           disabled={updating}
           accessibilityRole="button"
-          accessibilityLabel={isPaid ? `Pagamento de ${commitment.name} confirmado. Desfazer confirmação` : `Confirmar pagamento de ${commitment.name}`}
+          accessibilityLabel={isPaid ? `Pagamento de ${commitment.name} registrado. Desfazer registro` : `Registrar pagamento de ${commitment.name}`}
           style={[styles.commitmentToggle, isPaid && styles.commitmentTogglePaid]}
         >
           {updating ? (
             <ActivityIndicator size="small" color={isPaid ? "#fff" : OB.primary} />
           ) : (
-            <Text style={[styles.commitmentToggleText, isPaid && styles.commitmentToggleTextPaid]}>{isPaid ? "Desfazer" : "Confirmar pagamento"}</Text>
+            <Text style={[styles.commitmentToggleText, isPaid && styles.commitmentToggleTextPaid]}>{isPaid ? "Desfazer" : "Registrar pagamento"}</Text>
           )}
         </Pressable>
       </View>
@@ -835,7 +854,7 @@ function ControlPanel({
                   {needsPlanningFlow
                     ? "Falta preparar seu resumo"
                     : pendingCommitments.length
-                      ? `${pendingCommitments.length} ${pendingCommitments.length === 1 ? "conta precisa" : "contas precisam"} ser conferida${pendingCommitments.length === 1 ? "" : "s"}`
+                      ? `${pendingCommitments.length} ${pendingCommitments.length === 1 ? "pagamento precisa" : "pagamentos precisam"} ser registrado${pendingCommitments.length === 1 ? "" : "s"}`
                       : "Tudo pronto"}
                 </Text>
                 <Text style={styles.postImportNextText}>
@@ -843,7 +862,7 @@ function ControlPanel({
                     ? "Escolha seu período, quanto quer manter na conta e o que ainda precisa pagar."
                     : pendingCommitments.length
                       ? "Veja se essas contas já aparecem nos gastos importados."
-                      : "Não há contas pendentes para conferir."}
+                      : "Não há pagamentos pendentes para registrar."}
                 </Text>
               </View>
 
@@ -864,7 +883,7 @@ function ControlPanel({
                     <Text style={styles.postImportPrimaryButtonText}>
                       {needsPlanningFlow
                         ? planningGuideStarted && !needsPlanningSetup ? "Continuar meu resumo" : "Preparar meu resumo"
-                        : pendingCommitments.length ? "Conferir próxima conta" : "Ver meu resumo"}
+                        : pendingCommitments.length ? "Registrar próximo pagamento" : "Ver meu resumo"}
                     </Text>
                     <Ionicons name="arrow-forward" size={19} color="#fff" />
                   </>
@@ -932,15 +951,27 @@ function ControlPanel({
               <Ionicons name="calendar-outline" size={20} color={OB.primary} />
             </View>
             <View style={styles.projectedPlanCopy}>
-              <Text style={styles.projectedPlanEyebrow}>Projeção mensal</Text>
-              <Text style={styles.projectedPlanLabel}>Sobra depois do planejamento</Text>
+              <Text style={styles.projectedPlanEyebrow}>Planejamento do mês</Text>
+              <Text style={styles.projectedPlanLabel}>Previsão depois das contas</Text>
               <Text style={styles.projectedPlanValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
                 {formatBRLFromCents(overview.projectedAvailableCents)}
               </Text>
+              {overview.expectedIncomeCents > 0 ? (
+                <View style={styles.projectionEquation} accessibilityRole="summary">
+                  <ProjectionLine label="Renda mensal informada" value={overview.expectedIncomeCents} />
+                  <ProjectionLine label="Contas e parcelas deste mês" value={overview.totalCommitmentsCents} subtract />
+                  {overview.reserveCents > 0 ? (
+                    <ProjectionLine label="Valor que você quer manter" value={overview.reserveCents} subtract />
+                  ) : null}
+                  {overview.allocatedCents > 0 ? (
+                    <ProjectionLine label="Já guardado para sonhos" value={overview.allocatedCents} subtract />
+                  ) : null}
+                </View>
+              ) : null}
               <Text style={styles.projectedPlanHelper}>
                 {overview.expectedIncomeCents > 0
-                  ? "Estimativa com a renda informada, todas as contas do período, sua reserva e valores já guardados. Não é o saldo disponível agora."
-                  : "Informe sua renda no planejamento para calcular esta estimativa. Este valor não representa o saldo disponível agora."}
+                  ? "É uma previsão, não o saldo da sua conta. O valor de cada parcela é descontado uma vez por mês; a quantidade de parcelas diz por quantos meses."
+                  : "Informe sua renda no planejamento para calcular esta previsão. Este valor não representa o saldo disponível agora."}
               </Text>
             </View>
           </View>
@@ -965,7 +996,7 @@ function ControlPanel({
             <View style={styles.moneySummaryList}>
               <MoneySummaryRow label="Já entrou" value={overview.realizedIncomeCents} color="#168A59" icon="arrow-down-circle-outline" />
               <MoneySummaryRow label="Já saiu" value={overview.realizedExpenseCents} color="#C94949" icon="arrow-up-circle-outline" />
-              <MoneySummaryRow label="Contas sem pagamento confirmado" value={overview.pendingCommitmentsCents} color={OB.primary} icon="receipt-outline" />
+              <MoneySummaryRow label="Contas ainda não registradas como pagas" value={overview.pendingCommitmentsCents} color={OB.primary} icon="receipt-outline" />
             </View>
             <View style={[styles.resultSummary, overview.resultCents < 0 && styles.resultSummaryNegative, overview.resultCents === 0 && styles.resultSummaryNeutral]}>
               <View style={styles.resultSummaryCopy}>
@@ -980,17 +1011,17 @@ function ControlPanel({
 
           {!isEmptyCycle || overview.commitments.length ? (
             <ControlDisclosure
-              title="Contas para conferir"
+              title="Pagamentos deste mês"
               description={commitmentsDescription}
               icon="receipt-outline"
               open={commitmentsOpen}
               onToggle={() => setCommitmentsOpen((open) => !open)}
             >
-              <Text style={styles.commitmentsHelper}>Confirme quando encontrar esse pagamento na lista de gastos. Assim, o mesmo valor não será contado duas vezes.</Text>
+              <Text style={styles.commitmentsHelper}>Estas são as contas planejadas. Quando pagar, registre usando um gasto do extrato ou um lançamento manual. Importar extrato não é obrigatório.</Text>
               {pendingCommitments.length ? pendingCommitments.map(renderCommitment) : (
                 <View style={styles.noCommitments}>
                   <Ionicons name="checkmark-circle-outline" size={24} color="#168A59" />
-                  <Text style={styles.noCommitmentsText}>{overview.commitments.length ? "Tudo conferido neste período." : "Você ainda não cadastrou contas fixas ou parcelas."}</Text>
+                  <Text style={styles.noCommitmentsText}>{overview.commitments.length ? "Todos os pagamentos deste período foram registrados." : "Você ainda não cadastrou contas fixas ou parcelas."}</Text>
                 </View>
               )}
 
@@ -1000,10 +1031,10 @@ function ControlPanel({
                     onPress={() => setConfirmedCommitmentsOpen((open) => !open)}
                     accessibilityRole="button"
                     accessibilityState={{ expanded: confirmedCommitmentsOpen }}
-                    accessibilityLabel={`Pagamentos confirmados: ${confirmedCommitments.length}`}
+                    accessibilityLabel={`Pagamentos registrados: ${confirmedCommitments.length}`}
                     style={styles.confirmedCommitmentsHeader}
                   >
-                    <Text style={styles.confirmedCommitmentsTitle}>Pagamentos confirmados ({confirmedCommitments.length})</Text>
+                    <Text style={styles.confirmedCommitmentsTitle}>Pagamentos registrados ({confirmedCommitments.length})</Text>
                     <Ionicons name={confirmedCommitmentsOpen ? "chevron-up" : "chevron-down"} size={17} color={OB.support} />
                   </Pressable>
                   {confirmedCommitmentsOpen ? confirmedCommitments.map(renderCommitment) : null}
@@ -1069,7 +1100,7 @@ function ControlPanel({
                 <PlanningMetric label="Todas as contas planejadas, pagas e pendentes" value={formatBRLFromCents(overview.totalCommitmentsCents)} />
                 <PlanningMetric label="Projeção após contas, reserva e valores guardados" value={formatBRLFromCents(overview.projectedAvailableCents)} />
                 <PlanningMetric label="Entrou menos saiu" value={formatBRLFromCents(overview.resultCents)} />
-                <PlanningMetric label="Pagamentos ainda não confirmados" value={formatBRLFromCents(overview.pendingCommitmentsCents)} />
+                <PlanningMetric label="Pagamentos ainda não registrados" value={formatBRLFromCents(overview.pendingCommitmentsCents)} />
                 <PlanningMetric label="Valor que você quer manter" value={formatBRLFromCents(overview.reserveCents)} />
                 <PlanningMetric label="Já guardado nos sonhos" value={formatBRLFromCents(overview.allocatedCents)} />
               </View>
@@ -2039,6 +2070,32 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     marginTop: 7,
   },
+  projectionEquation: {
+    gap: 7,
+    marginTop: 12,
+    paddingTop: 11,
+    borderTopWidth: 1,
+    borderTopColor: OB.supportSoft,
+  },
+  projectionLine: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  projectionLineLabel: {
+    flex: 1,
+    color: "#5E7591",
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: "700",
+  },
+  projectionLineValue: {
+    color: "#168A59",
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  projectionLineValueSubtract: { color: "#C94949" },
   projectedPlanHelper: {
     color: "#5E7591",
     fontSize: 12,

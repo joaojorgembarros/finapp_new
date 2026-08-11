@@ -573,7 +573,7 @@ export default function FinancialSituationScreen() {
                   <View style={styles.debtDetailsIntro}>
                     <Ionicons name="calendar-outline" size={18} color={OB.primary} />
                     <Text style={styles.debtDetailsIntroText}>
-                      Informe o valor que sai por mês e quando ele vence.
+                      Informe o valor de uma parcela por mês — não o saldo total da dívida — e quando ela vence.
                     </Text>
                   </View>
                   {selectedDebtNames.map((name) => {
@@ -595,9 +595,9 @@ export default function FinancialSituationScreen() {
                             collapsable={false}
                             style={styles.debtAmountField}
                           >
-                            <Text style={styles.debtFieldLabel}>Valor mensal</Text>
+                            <Text style={styles.debtFieldLabel}>Valor pago por mês</Text>
                             <TextInput
-                              accessibilityLabel={`Valor mensal de ${name}`}
+                              accessibilityLabel={`Valor pago por mês de ${name}`}
                               value={draft.amount}
                               onChangeText={(text) => updateDebtDraft(name, {
                                 amount: formatBRLInputFromDigits(text),
@@ -661,7 +661,7 @@ export default function FinancialSituationScreen() {
                             style={styles.debtInput}
                           />
                           <Text style={styles.debtFieldHint}>
-                            Com parcelas, o compromisso termina automaticamente. Sem elas, continua mensalmente.
+                            Informe quantas parcelas ainda faltam. O valor acima será descontado uma vez por mês; sem quantidade, ele continua mensalmente.
                           </Text>
                         </View>
                       </View>

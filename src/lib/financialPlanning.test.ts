@@ -132,6 +132,20 @@ describe("conservative financial calculation", () => {
     });
   });
 
+  it("subtracts each monthly installment once from the monthly income projection", () => {
+    const summary = calculateFinancialSummary({
+      expectedIncomeCents: 500_000,
+      realizedIncomeCents: 0,
+      realizedExpenseCents: 0,
+      totalCommitmentsCents: 50_000 + 20_000,
+      pendingCommitmentsCents: 50_000 + 20_000,
+      reserveCents: 0,
+      allocatedCents: 0,
+    });
+
+    expect(summary.projectedAvailableCents).toBe(430_000);
+  });
+
   it("does not double-count realized expenses in the monthly projection and floors it at zero", () => {
     const summary = calculateFinancialSummary({
       expectedIncomeCents: 200_000,

@@ -518,7 +518,7 @@ export default function FinancialPlanScreen() {
                           {kindLabel(commitment.kind)} · vence dia {commitment.due_day}
                         </Text>
                         {commitment.installments_total ? (
-                          <Text style={styles.installmentText}>{commitment.installments_total} parcelas cadastradas</Text>
+                          <Text style={styles.installmentText}>{commitment.installments_total} parcelas no planejamento</Text>
                         ) : null}
                         <Text style={styles.commitmentAmount}>{formatBRLFromCents(commitment.amount_cents)}</Text>
                       </View>
@@ -664,7 +664,7 @@ export default function FinancialPlanScreen() {
                   onLayout={modalKeyboard.registerField("amount")}
                   collapsable={false}
                 >
-                  <Text style={styles.label}>Valor</Text>
+                  <Text style={styles.label}>Valor pago por mês</Text>
                   <TextInput
                     value={draft.amount}
                     onChangeText={(value) => setDraft((current) => ({
@@ -679,8 +679,9 @@ export default function FinancialPlanScreen() {
                     returnKeyType="done"
                     onSubmitEditing={Keyboard.dismiss}
                     style={styles.input}
-                    accessibilityLabel="Valor do compromisso"
+                    accessibilityLabel="Valor pago por mês deste compromisso"
                   />
+                  <Text style={styles.helper}>Informe o valor que vence em cada mês, não o saldo total da dívida.</Text>
                 </View>
 
                 <View style={styles.twoColumns}>
@@ -740,7 +741,7 @@ export default function FinancialPlanScreen() {
                   onLayout={modalKeyboard.registerField("installments")}
                   collapsable={false}
                 >
-                  <Text style={styles.label}>Quantidade de parcelas</Text>
+                  <Text style={styles.label}>Parcelas no planejamento</Text>
                   <TextInput
                     value={draft.installmentCount}
                     onChangeText={(installmentCount) => setDraft((current) => ({
@@ -755,9 +756,9 @@ export default function FinancialPlanScreen() {
                     returnKeyType="done"
                     onSubmitEditing={Keyboard.dismiss}
                     style={styles.input}
-                    accessibilityLabel="Quantidade de parcelas"
+                    accessibilityLabel="Quantidade de parcelas no planejamento"
                   />
-                  <Text style={styles.helper}>Informe o total contratado, entre 1 e 600 parcelas.</Text>
+                  <Text style={styles.helper}>Conte quantas parcelas devem aparecer a partir do mês inicial informado, entre 1 e 600.</Text>
                 </View>
                 ) : null}
 

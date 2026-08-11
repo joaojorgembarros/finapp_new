@@ -49,6 +49,10 @@ function addDays(value: string, amount: number) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
+function localYmd(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
 function cycleLabel(start: string, end: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) {
     return "Ciclo selecionado";
@@ -91,6 +95,7 @@ export default function LinkCommitmentScreen() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [actionError, setActionError] = useState("");
+  const [showOtherExpenses, setShowOtherExpenses] = useState(false);
 
   const cycle = useMemo<FinancialCycle>(() => ({
     key: cycleKey,
@@ -181,6 +186,7 @@ export default function LinkCommitmentScreen() {
         candidates,
         excludedCount: visibleExpenses.length - candidates.length,
       });
+      setShowOtherExpenses(false);
       setSelectedTransactionId((current) => (
         current && candidates.some((transaction) => transaction.id === current) ? current : null
       ));
@@ -208,6 +214,35 @@ export default function LinkCommitmentScreen() {
   const paidCents = data && selectedTransaction
     ? Math.min(data.commitment.amount_cents, selectedTransaction.amount_cents)
     : 0;
+  const suggestedCandidates = data?.candidates.filter(
+    (transaction) => transaction.exactAmount || transaction.currentlyLinked
+  ) ?? [];
+  const otherCandidates = data?.candidates.filter(
+    (transaction) => !transaction.exactAmount && !transaction.currentlyLinked
+  ) ?? [];
+  const displayedCandidates = showOtherExpenses
+    ? data?.candidates ?? []
+    : suggestedCandidates;
+
+  const registerManually = useCallback(() => {
+    if (!data) return;
+    const today = localYmd();
+    const occurredOn = today >= cycle.start && today < cycle.end
+      ? today
+      : data.commitment.due_on;
+    router.push({
+      pathname: "/(app)/new-transaction",
+      params: {
+        paymentFlow: "1",
+        commitmentId: data.commitment.id,
+        commitmentName: data.commitment.name,
+        amountCents: String(data.commitment.pending_cents || data.commitment.amount_cents),
+        occurredOn,
+        cycleKey: cycle.key,
+        cycleDate: cycleDate || cycle.start,
+      },
+    });
+  }, [cycle.end, cycle.key, cycle.start, cycleDate, data]);
 
   const confirmLink = useCallback(async () => {
     if (!data || !selectedTransaction || !householdId || !userId || saving) return;
@@ -264,9 +299,9 @@ export default function LinkCommitmentScreen() {
           <View style={[styles.contentInner, compact && styles.contentInnerCompact]}>
             <ScreenHeaderCard
               onBack={goBack}
-              eyebrow="Conferência do ciclo"
-              title="Vincule a conta à despesa real"
-              subtitle="Escolha o lançamento que corresponde ao pagamento deste compromisso."
+              eyebrow="Pagamento do mês"
+              title="Registrar pagamento"
+              subtitle="Escolha como esse pagamento entrou no seu controle."
             />
 
             {!validParams ? (
@@ -319,32 +354,42 @@ export default function LinkCommitmentScreen() {
 
                 <View style={styles.noticeCard} accessibilityRole="summary">
                   <View style={styles.noticeIcon}>
-                    <Ionicons name="git-merge-outline" size={20} color={OB.primary} />
+                    <Ionicons name="information-circle-outline" size={20} color={OB.primary} />
                   </View>
                   <View style={styles.flex}>
-                    <Text style={styles.noticeTitle}>Por que fazer este vínculo?</Text>
+                    <Text style={styles.noticeTitle}>O extrato é opcional</Text>
                     <Text style={styles.noticeText}>
-                      A conta planejada e a despesa importada representam o mesmo pagamento. Ao ligá-las, o app considera a conta realizada e evita descontar esse valor duas vezes.
+                      Use um gasto que já está no app ou registre o pagamento manualmente. O vínculo apenas evita que a mesma saída seja descontada duas vezes.
                     </Text>
                   </View>
                 </View>
 
                 <View style={styles.sectionHeader}>
                   <View style={styles.flex}>
-                    <Text style={styles.sectionEyebrow}>Despesas visíveis</Text>
-                    <Text style={styles.sectionTitle}>Qual lançamento é esta conta?</Text>
+                    <Text style={styles.sectionEyebrow}>Gasto real</Text>
+                    <Text style={styles.sectionTitle}>
+                      {suggestedCandidates.length
+                        ? suggestedCandidates.length === 1
+                          ? "Encontramos um possível pagamento"
+                          : `Encontramos ${suggestedCandidates.length} possíveis pagamentos`
+                        : "Como você quer registrar o pagamento?"}
+                    </Text>
                     <Text style={styles.sectionText}>
-                      Valores iguais aparecem primeiro. Confira também a data e a descrição.
+                      {suggestedCandidates.length
+                        ? "Confira a descrição e a data antes de confirmar."
+                        : `Ainda não há um gasto de ${formatBRLFromCents(data.commitment.amount_cents)} associado a esta conta.`}
                     </Text>
                   </View>
-                  <View style={styles.countBadge}>
-                    <Text style={styles.countText}>{data.candidates.length}</Text>
-                  </View>
+                  {suggestedCandidates.length ? (
+                    <View style={styles.countBadge}>
+                      <Text style={styles.countText}>{suggestedCandidates.length}</Text>
+                    </View>
+                  ) : null}
                 </View>
 
-                {data.candidates.length ? (
+                {displayedCandidates.length ? (
                   <View style={styles.transactionList} accessibilityRole="radiogroup">
-                    {data.candidates.map((transaction) => {
+                    {displayedCandidates.map((transaction) => {
                       const selected = transaction.id === selectedTransactionId;
                       return (
                         <Pressable
@@ -409,36 +454,56 @@ export default function LinkCommitmentScreen() {
                 ) : (
                   <View style={styles.emptyCard}>
                     <View style={styles.emptyIcon}>
-                      <Ionicons name="search-outline" size={25} color={OB.primary} />
+                      <Ionicons name="create-outline" size={25} color={OB.primary} />
                     </View>
-                    <Text style={styles.stateTitle}>Nenhuma despesa disponível</Text>
+                    <Text style={styles.stateTitle}>Registre sem importar um extrato</Text>
                     <Text style={styles.stateText}>
                       {data.excludedCount > 0
-                        ? "As despesas deste ciclo já estão vinculadas a outros compromissos."
-                        : "Importe um extrato ou crie o lançamento da despesa antes de marcar esta conta como realizada."}
+                        ? "Os outros gastos deste ciclo já foram usados em contas diferentes. Você ainda pode registrar este pagamento manualmente."
+                        : "Informe apenas de qual conta o dinheiro saiu. O valor e a descrição já estarão preenchidos."}
                     </Text>
-                    <View style={styles.emptyActions}>
+                    <View style={styles.emptyActionsVertical}>
+                      <Pressable
+                        onPress={registerManually}
+                        style={styles.primaryButton}
+                        accessibilityRole="button"
+                      >
+                        <Ionicons name="create-outline" size={18} color="#fff" />
+                        <Text style={styles.primaryButtonText}>Registrar manualmente</Text>
+                      </Pressable>
                       <Pressable
                         onPress={() => router.push("/(app)/import-csv")}
                         style={styles.secondaryButton}
                         accessibilityRole="button"
                       >
                         <Ionicons name="document-text-outline" size={17} color={OB.primary} />
-                        <Text style={styles.secondaryButtonText}>Importar extrato</Text>
-                      </Pressable>
-                      <Pressable
-                        onPress={() => router.push("/(app)/new-transaction")}
-                        style={styles.secondaryButton}
-                        accessibilityRole="button"
-                      >
-                        <Ionicons name="add" size={18} color={OB.primary} />
-                        <Text style={styles.secondaryButtonText}>Criar lançamento</Text>
+                        <Text style={styles.secondaryButtonText}>Importar extrato do banco</Text>
                       </Pressable>
                     </View>
                   </View>
                 )}
 
-                <View style={styles.confirmCard}>
+                {otherCandidates.length ? (
+                  <Pressable
+                    onPress={() => {
+                      setSelectedTransactionId(null);
+                      setShowOtherExpenses((visible) => !visible);
+                    }}
+                    style={styles.showOtherButton}
+                    accessibilityRole="button"
+                    accessibilityState={{ expanded: showOtherExpenses }}
+                  >
+                    <Ionicons name="search-outline" size={17} color={OB.primary} />
+                    <Text style={styles.showOtherButtonText}>
+                      {showOtherExpenses
+                        ? "Ocultar outros gastos"
+                        : `Procurar em ${otherCandidates.length} ${otherCandidates.length === 1 ? "outro gasto" : "outros gastos"}`}
+                    </Text>
+                    <Ionicons name={showOtherExpenses ? "chevron-up" : "chevron-down"} size={16} color={OB.support} />
+                  </Pressable>
+                ) : null}
+
+                {displayedCandidates.length ? <View style={styles.confirmCard}>
                   {selectedTransaction ? (
                     <>
                       <View style={styles.confirmSummary}>
@@ -484,12 +549,29 @@ export default function LinkCommitmentScreen() {
                       <ActivityIndicator color="#fff" />
                     ) : (
                       <>
-                        <Ionicons name="link-outline" size={19} color="#fff" />
-                        <Text style={styles.primaryButtonText}>Vincular e contabilizar pagamento</Text>
+                        <Ionicons name="checkmark-circle-outline" size={19} color="#fff" />
+                        <Text style={styles.primaryButtonText}>Usar este gasto</Text>
                       </>
                     )}
                   </Pressable>
-                </View>
+                </View> : null}
+
+                {displayedCandidates.length ? (
+                  <View style={styles.alternativeCard}>
+                    <View style={styles.flex}>
+                      <Text style={styles.alternativeTitle}>Não é nenhum desses gastos?</Text>
+                      <Text style={styles.alternativeText}>Registre manualmente ou importe outro extrato.</Text>
+                    </View>
+                    <View style={styles.alternativeActions}>
+                      <Pressable onPress={registerManually} style={styles.iconAction} accessibilityRole="button" accessibilityLabel="Registrar pagamento manualmente">
+                        <Ionicons name="create-outline" size={18} color={OB.primary} />
+                      </Pressable>
+                      <Pressable onPress={() => router.push("/(app)/import-csv")} style={styles.iconAction} accessibilityRole="button" accessibilityLabel="Importar extrato do banco">
+                        <Ionicons name="document-text-outline" size={18} color={OB.primary} />
+                      </Pressable>
+                    </View>
+                  </View>
+                ) : null}
               </>
             ) : null}
           </View>
@@ -656,11 +738,47 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "rgba(123,160,200,0.16)",
   },
-  emptyActions: { width: "100%", flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8, marginTop: 14 },
+  emptyActionsVertical: { width: "100%", gap: 8, marginTop: 14 },
+  showOtherButton: {
+    minHeight: 48,
+    borderRadius: 15,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+    backgroundColor: "rgba(123,160,200,0.10)",
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  showOtherButtonText: { flex: 1, color: OB.primary, fontSize: 10, fontWeight: "900" },
   confirmCard: {
     borderRadius: 20,
     padding: 15,
     gap: 13,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  alternativeCard: {
+    minHeight: 66,
+    borderRadius: 18,
+    padding: 13,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "rgba(123,160,200,0.08)",
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  alternativeTitle: { color: OB.primary, fontSize: 11, fontWeight: "900" },
+  alternativeText: { color: OB.support, fontSize: 9, lineHeight: 13, fontWeight: "700", marginTop: 3 },
+  alternativeActions: { flexDirection: "row", gap: 7 },
+  iconAction: {
+    width: 40,
+    height: 40,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
     backgroundColor: "#fff",
     borderWidth: 1,
     borderColor: OB.supportSoft,

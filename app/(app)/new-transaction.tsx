@@ -1,11 +1,12 @@
 import { Ionicons } from "@expo/vector-icons";
-import { router, useFocusEffect } from "expo-router";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useHouseholdId } from "../../src/hooks/useHousehold";
 import { useKeyboardAwareScroll } from "../../src/hooks/useKeyboardAwareScroll";
 import { BANK_OPTIONS, CASH_ACCOUNT, OTHER_BANK, TransactionAccountId, TransactionAccountOption } from "../../src/lib/banks";
 import { Category, listCategories } from "../../src/lib/categories";
+import { setCommitmentPaid } from "../../src/lib/financialPlanning";
 import { formatBRLInputFromDigits, parseBRLToCents } from "../../src/lib/format";
 import { addTransaction } from "../../src/lib/transactions";
 import { useSession } from "../../src/providers/SessionProvider";
@@ -15,18 +16,51 @@ import { ScreenHeaderCard } from "../../src/ui/ScreenHeaderCard";
 
 type TxType = "Receita" | "Despesa";
 
+function firstParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
 export default function NewTransactionScreen() {
+  const params = useLocalSearchParams<{
+    commitmentId?: string | string[];
+    cycleKey?: string | string[];
+    cycleDate?: string | string[];
+    occurredOn?: string | string[];
+    amountCents?: string | string[];
+    commitmentName?: string | string[];
+    paymentFlow?: string | string[];
+  }>();
+  const paymentCommitmentId = firstParam(params.commitmentId)?.trim() ?? "";
+  const paymentCycleKey = firstParam(params.cycleKey)?.trim() ?? "";
+  const paymentCycleDate = firstParam(params.cycleDate)?.trim() ?? "";
+  const paymentOccurredOn = firstParam(params.occurredOn)?.trim() ?? "";
+  const paymentCommitmentName = firstParam(params.commitmentName)?.trim() ?? "";
+  const parsedPaymentAmountCents = Number(firstParam(params.amountCents));
+  const paymentAmountCents = Number.isSafeInteger(parsedPaymentAmountCents) && parsedPaymentAmountCents > 0
+    ? parsedPaymentAmountCents
+    : 0;
+  const paymentFlow = Boolean(
+    firstParam(params.paymentFlow) === "1" &&
+      paymentCommitmentId &&
+      paymentCycleKey &&
+      /^\d{4}-\d{2}-\d{2}$/.test(paymentCycleDate) &&
+      /^\d{4}-\d{2}-\d{2}$/.test(paymentOccurredOn) &&
+      paymentAmountCents &&
+      paymentCommitmentName
+  );
   const { session, userId } = useSession();
   const { householdId, loading: householdLoading } = useHouseholdId(userId);
   const { scrollRef, keyboardInset, registerField, focusField, cancelPendingScroll } = useKeyboardAwareScroll<"amount" | "description">(18);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [type, setType] = useState<TxType>("Receita");
-  const [amount, setAmount] = useState("");
-  const [description, setDescription] = useState("");
+  const [type, setType] = useState<TxType>(paymentFlow ? "Despesa" : "Receita");
+  const [amount, setAmount] = useState(paymentFlow ? formatBRLInputFromDigits(String(paymentAmountCents)) : "");
+  const [description, setDescription] = useState(paymentFlow ? paymentCommitmentName : "");
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [accountId, setAccountId] = useState<TransactionAccountId | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const saveInFlightRef = useRef(false);
+  const createdPaymentTransactionRef = useRef<{ id: string; amountCents: number } | null>(null);
 
   const userMeta = session?.user?.user_metadata as Record<string, any> | undefined;
   const registeredBankNames = useMemo(
@@ -83,24 +117,80 @@ export default function NewTransactionScreen() {
     setCategoryId(null);
   }
 
+  const returnToControl = useCallback(() => {
+    const destination = {
+      pathname: "/(app)/journey" as const,
+      params: { tab: "controle", cycleDate: paymentCycleDate },
+    };
+    if (router.canDismiss()) {
+      router.dismissTo(destination);
+      return;
+    }
+    router.replace(destination);
+  }, [paymentCycleDate]);
+
   async function save() {
-    const amountCents = parseBRLToCents(amount);
-    if (!householdId || !userId || !amountCents || !description.trim() || !accountId || saving) return;
+    const enteredAmountCents = parseBRLToCents(amount);
+    if (!householdId || !userId || !enteredAmountCents || !description.trim() || !accountId || saveInFlightRef.current) return;
     try {
+      saveInFlightRef.current = true;
       setSaving(true);
-      await addTransaction({
-        householdId,
-        userId,
-        type: type === "Receita" ? "income" : "expense",
-        amount_cents: amountCents,
-        category_id: categoryId,
-        account_id: accountId,
-        note: description,
-      });
-      router.back();
+      let paymentTransaction = paymentFlow ? createdPaymentTransactionRef.current : null;
+      if (!paymentTransaction) {
+        const transaction = await addTransaction({
+          householdId,
+          userId,
+          type: type === "Receita" ? "income" : "expense",
+          amount_cents: enteredAmountCents,
+          category_id: categoryId,
+          account_id: accountId,
+          note: description,
+          ...(paymentFlow ? { occurred_on: paymentOccurredOn } : {}),
+        });
+        if (paymentFlow) {
+          paymentTransaction = { id: transaction.id, amountCents: enteredAmountCents };
+          createdPaymentTransactionRef.current = paymentTransaction;
+        }
+      }
+
+      if (!paymentFlow || !paymentTransaction) {
+        router.back();
+        return;
+      }
+
+      try {
+        await setCommitmentPaid({
+          householdId,
+          userId,
+          commitmentId: paymentCommitmentId,
+          cycleKey: paymentCycleKey,
+          paid: true,
+          paidCents: paymentTransaction.amountCents,
+          paidOn: paymentOccurredOn,
+          transactionId: paymentTransaction.id,
+        });
+        returnToControl();
+      } catch {
+        const message = "O gasto foi salvo. Volte ao Controle, toque em Registrar pagamento e escolha esse gasto para concluir.";
+        if (Platform.OS === "web") {
+          Alert.alert("Gasto salvo; falta associar", message);
+          returnToControl();
+        } else {
+          Alert.alert(
+            "Gasto salvo; falta associar",
+            message,
+            [{ text: "Voltar ao Controle", onPress: returnToControl }],
+            { cancelable: false }
+          );
+        }
+      }
     } catch (error: any) {
-      Alert.alert("Novo lançamento", error?.message ?? "Não foi possível salvar o lançamento.");
+      Alert.alert(
+        paymentFlow ? "Registrar pagamento" : "Novo lançamento",
+        error?.message ?? (paymentFlow ? "Não foi possível salvar o gasto." : "Não foi possível salvar o lançamento.")
+      );
     } finally {
+      saveInFlightRef.current = false;
       setSaving(false);
     }
   }
@@ -123,22 +213,26 @@ export default function NewTransactionScreen() {
             backAccessibilityLabel="Fechar"
             navigationVariant="close"
             eyebrow="Controle financeiro"
-            title="Novo lançamento"
-            subtitle="Registre entradas e saídas com clareza."
+            title={paymentFlow ? "Registrar pagamento" : "Novo lançamento"}
+            subtitle={paymentFlow ? "Escolha a conta e confirme o valor pago." : "Registre entradas e saídas com clareza."}
           />
 
-          <Pressable onPress={() => router.push("/(app)/import-extract")} style={styles.importButton}>
-            <View style={styles.importIcon}><Ionicons name="cloud-upload-outline" size={18} color={OB.primary} /></View>
-            <View style={styles.flex}><Text style={styles.importTitle}>Importar extrato</Text><Text style={styles.importText}>Carregue movimentações do banco por arquivo</Text></View>
-            <Ionicons name="chevron-forward" size={18} color={OB.support} />
-          </Pressable>
+          {!paymentFlow ? (
+            <>
+              <Pressable onPress={() => router.push("/(app)/import-extract")} style={styles.importButton}>
+                <View style={styles.importIcon}><Ionicons name="cloud-upload-outline" size={18} color={OB.primary} /></View>
+                <View style={styles.flex}><Text style={styles.importTitle}>Importar extrato</Text><Text style={styles.importText}>Carregue movimentações do banco por arquivo</Text></View>
+                <Ionicons name="chevron-forward" size={18} color={OB.support} />
+              </Pressable>
 
-          <View style={styles.typeTabs}>
-            {(["Receita", "Despesa"] as TxType[]).map((item) => {
-              const active = item === type;
-              return <Pressable key={item} onPress={() => changeType(item)} style={[styles.typeTab, active && styles.typeTabActive]}><Text style={[styles.typeTabText, active && styles.typeTabTextActive]}>{item}</Text></Pressable>;
-            })}
-          </View>
+              <View style={styles.typeTabs}>
+                {(["Receita", "Despesa"] as TxType[]).map((item) => {
+                  const active = item === type;
+                  return <Pressable key={item} onPress={() => changeType(item)} style={[styles.typeTab, active && styles.typeTabActive]}><Text style={[styles.typeTabText, active && styles.typeTabTextActive]}>{item}</Text></Pressable>;
+                })}
+              </View>
+            </>
+          ) : null}
 
           <Text style={styles.label}>{type === "Receita" ? "Onde o dinheiro entrou?" : "De onde o dinheiro saiu?"}</Text>
           <View style={styles.panel}>
@@ -177,7 +271,9 @@ export default function NewTransactionScreen() {
           </View>
 
           <Pressable onPress={() => void save()} disabled={!valid || saving} style={[styles.saveButton, (!valid || saving) && styles.saveDisabled]}>
-            <Text style={[styles.saveText, (!valid || saving) && styles.saveTextDisabled]}>{saving ? "Salvando..." : "Salvar lançamento"}</Text>
+            <Text style={[styles.saveText, (!valid || saving) && styles.saveTextDisabled]}>
+              {saving ? "Salvando..." : paymentFlow ? "Salvar pagamento" : "Salvar lançamento"}
+            </Text>
           </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
