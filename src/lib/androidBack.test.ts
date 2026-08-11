@@ -14,6 +14,10 @@ describe("getAndroidBackAction", () => {
     expect(getAndroidBackAction({ menuOpen: false, tab: "desafios", isSecondPress: false })).toBe("go-home");
   });
 
+  it("volta de Movimentações para a tela inicial de Sonhos", () => {
+    expect(getAndroidBackAction({ menuOpen: false, tab: "movimentacoes", isSecondPress: false })).toBe("go-home");
+  });
+
   it("só inicia e confirma a saída quando já está em Sonhos", () => {
     expect(getAndroidBackAction({ menuOpen: false, tab: "jornada", isSecondPress: false })).toBe("warn-exit");
     expect(getAndroidBackAction({ menuOpen: false, tab: "jornada", isSecondPress: true })).toBe("confirm-exit");

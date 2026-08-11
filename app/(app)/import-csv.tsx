@@ -548,16 +548,21 @@ export default function ImportCsvOnboarding() {
       }).catch(() => ({ matchedCount: 0, failedCount: 0 }));
 
       clearFile();
-      router.dismissTo({
-        pathname: "/(app)/journey",
+      const destination = {
+        pathname: "/(app)/journey" as const,
         params: {
-          tab: "controle",
+          tab: "movimentacoes",
           postImport: "1",
           importId: importResult.import_id,
           reconciledCommitments: String(reconciliation.matchedCount),
           ...(importCycleDate ? { cycleDate: importCycleDate } : {}),
         },
-      });
+      };
+      if (router.canDismiss()) {
+        router.dismissTo(destination);
+        return;
+      }
+      router.replace(destination);
     } catch (error: any) {
       if (isDuplicateStatementError(error)) {
         const existingImport = await findStatementImportByHash(householdId, fileHash).catch(() => null);

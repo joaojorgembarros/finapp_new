@@ -14,7 +14,7 @@ type ScreenHeaderCardProps = {
   eyebrow: string;
   title: string;
   subtitle?: string;
-  onBack: () => void;
+  onBack?: () => void;
   backAccessibilityLabel?: string;
   titleNumberOfLines?: number;
   navigationVariant?: "back" | "close";
@@ -37,7 +37,7 @@ export function ScreenHeaderCard({
     : Platform.OS === "ios" ? "chevron-back" : "arrow-back";
   const navigationAlign = isClose ? "right" : "left";
   const navigationAccessibilityLabel = backAccessibilityLabel ?? (isClose ? "Fechar" : "Voltar");
-  const navigationButton = (
+  const navigationButton = onBack ? (
     <Pressable
       onPress={onBack}
       accessibilityRole="button"
@@ -50,7 +50,7 @@ export function ScreenHeaderCard({
     >
       <Ionicons name={navigationIcon} size={navigationIcon === "close" ? 22 : 20} color="#fff" />
     </Pressable>
-  );
+  ) : null;
 
   return (
     <View style={[styles.card, compact && styles.cardCompact]}>

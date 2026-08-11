@@ -563,9 +563,9 @@ export default function FinancialPlanScreen() {
                       onPress={() => router.dismissTo({ pathname: "/(app)/journey", params: { tab: "controle" } })}
                       style={styles.primaryButton}
                       accessibilityRole="button"
-                      accessibilityLabel="Concluir e voltar ao Controle"
+                      accessibilityLabel="Concluir e voltar ao Resumo"
                     >
-                      <Text style={styles.primaryButtonText}>Concluir e voltar ao Controle</Text>
+                      <Text style={styles.primaryButtonText}>Concluir e voltar ao Resumo</Text>
                     </Pressable>
                   ) : null}
                 </>

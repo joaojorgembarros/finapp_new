@@ -1,4 +1,4 @@
-export type MainTab = "controle" | "jornada" | "desafios";
+export type MainTab = "controle" | "jornada" | "movimentacoes" | "desafios";
 export type AndroidBackAction = "close-menu" | "go-home" | "warn-exit" | "confirm-exit";
 
 export function getAndroidBackAction(opts: {

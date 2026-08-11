@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Keyboard,
@@ -10,6 +10,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -27,6 +28,7 @@ import { ScreenHeaderCard } from "../../src/ui/ScreenHeaderCard";
 import { TransactionEditorModal } from "../../src/ui/TransactionEditorModal";
 
 type FlowFilter = "all" | "income" | "expense";
+type TransactionHistoryScreenProps = { embedded?: boolean };
 
 function monthLabel(monthKey: string) {
   const [year, month] = monthKey.split("-").map(Number);
@@ -82,9 +84,11 @@ function TransactionCard({ transaction, onPress }: { transaction: TxRow; onPress
   );
 }
 
-export default function TransactionHistoryScreen() {
+export function TransactionHistoryScreen({ embedded = false }: TransactionHistoryScreenProps = {}) {
   const params = useLocalSearchParams<{ importId?: string | string[] }>();
   const requestedImportId = Array.isArray(params.importId) ? params.importId[0] : params.importId;
+  const { width } = useWindowDimensions();
+  const stackActions = width < 600;
   const { userId } = useSession();
   const { householdId, loading: householdLoading } = useHouseholdId(userId);
   const { scrollRef, keyboardInset, registerField, focusField, cancelPendingScroll } = useKeyboardAwareScroll<"search">();
@@ -99,6 +103,16 @@ export default function TransactionHistoryScreen() {
   const [month, setMonth] = useState("all");
   const [account, setAccount] = useState("all");
   const [statementImportId, setStatementImportId] = useState<string | null>(requestedImportId ?? null);
+
+  useEffect(() => {
+    setStatementImportId(requestedImportId ?? null);
+    if (requestedImportId) {
+      setSearch("");
+      setFlow("all");
+      setMonth("all");
+      setAccount("all");
+    }
+  }, [requestedImportId]);
 
   const load = useCallback(async (refresh = false) => {
     if (!householdId) {
@@ -116,7 +130,7 @@ export default function TransactionHistoryScreen() {
       setTransactions(nextTransactions);
       setCategories(nextCategories);
     } catch (error: any) {
-      setLoadError(error?.message ?? "Não foi possível carregar o histórico.");
+      setLoadError(error?.message ?? "Não foi possível carregar as movimentações.");
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -161,8 +175,8 @@ export default function TransactionHistoryScreen() {
 
   const busy = loading || householdLoading;
 
-  return (
-    <OnboardingShell light>
+  const content = (
+    <>
       <KeyboardAvoidingView enabled={Platform.OS === "ios"} behavior="padding" style={styles.keyboard}>
         <ScrollView
           ref={scrollRef}
@@ -174,12 +188,64 @@ export default function TransactionHistoryScreen() {
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} tintColor={OB.primary} />}
         >
         <ScreenHeaderCard
-          onBack={() => router.back()}
+          onBack={embedded ? undefined : () => router.back()}
           backAccessibilityLabel="Voltar"
-          eyebrow="Controle financeiro"
-          title="Histórico de movimentações"
+          eyebrow="Entradas e saídas"
+          title="Movimentações"
           subtitle="Consulte tudo o que entrou e saiu, manualmente ou por CSV."
         />
+
+        <View style={styles.actionPanel}>
+          <View style={styles.actionIntro}>
+            <Text style={styles.actionEyebrow}>Atualize seu financeiro</Text>
+            <Text style={styles.actionDescription}>Registre agora ou traga as movimentações do seu banco.</Text>
+          </View>
+          <View style={[styles.actionRow, stackActions && styles.actionRowStacked]}>
+            <Pressable
+              onPress={() => router.push("/(app)/new-transaction")}
+              accessibilityRole="button"
+              accessibilityLabel="Adicionar movimentação"
+              accessibilityHint="Abre o formulário para registrar uma entrada ou um gasto"
+              style={({ pressed }) => [
+                styles.actionButton,
+                styles.primaryAction,
+                !stackActions && styles.actionButtonWide,
+                pressed && styles.actionButtonPressed,
+              ]}
+            >
+              <View style={styles.primaryActionIcon}>
+                <Ionicons name="add" size={24} color="#fff" />
+              </View>
+              <View style={styles.actionText}>
+                <Text style={styles.primaryActionTitle}>Adicionar movimentação</Text>
+                <Text style={styles.primaryActionSubtitle}>Registre uma entrada ou um gasto</Text>
+              </View>
+              <Ionicons name="arrow-forward" size={19} color="#fff" />
+            </Pressable>
+
+            <Pressable
+              onPress={() => router.push("/(app)/import-csv")}
+              accessibilityRole="button"
+              accessibilityLabel="Importar extrato"
+              accessibilityHint="Abre o fluxo para importar um arquivo CSV do banco"
+              style={({ pressed }) => [
+                styles.actionButton,
+                styles.secondaryAction,
+                !stackActions && styles.actionButtonWide,
+                pressed && styles.actionButtonPressed,
+              ]}
+            >
+              <View style={styles.secondaryActionIcon}>
+                <Ionicons name="document-text-outline" size={21} color={OB.primary} />
+              </View>
+              <View style={styles.actionText}>
+                <Text style={styles.secondaryActionTitle}>Importar extrato</Text>
+                <Text style={styles.secondaryActionSubtitle}>Envie o CSV do seu banco</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={OB.support} />
+            </Pressable>
+          </View>
+        </View>
 
         <View style={styles.searchBox} onLayout={registerField("search")}>
           <Ionicons name="search-outline" size={19} color={OB.support} />
@@ -194,14 +260,14 @@ export default function TransactionHistoryScreen() {
               <Text style={styles.importFilterTitle}>Movimentações do arquivo importado</Text>
               <Text style={styles.importFilterText}>A lista está mostrando somente os registros desta importação.</Text>
             </View>
-            <Pressable onPress={() => setStatementImportId(null)} hitSlop={10} accessibilityRole="button" accessibilityLabel="Mostrar todo o histórico">
+            <Pressable onPress={() => setStatementImportId(null)} hitSlop={10} accessibilityRole="button" accessibilityLabel="Mostrar todas as movimentações">
               <Ionicons name="close-circle" size={21} color={OB.support} />
             </Pressable>
           </View>
         ) : null}
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
-          {([{"id":"all","label":"Todas"},{"id":"income","label":"Receitas"},{"id":"expense","label":"Despesas"}] as { id: FlowFilter; label: string }[]).map((item) => (
+          {([{"id":"all","label":"Todas"},{"id":"income","label":"Entradas"},{"id":"expense","label":"Gastos"}] as { id: FlowFilter; label: string }[]).map((item) => (
             <Pressable key={item.id} onPress={() => setFlow(item.id)} style={[styles.filterChip, flow === item.id && styles.filterChipActive]}>
               <Text style={[styles.filterChipText, flow === item.id && styles.filterChipTextActive]}>{item.label}</Text>
             </Pressable>
@@ -211,7 +277,7 @@ export default function TransactionHistoryScreen() {
         <View style={styles.filterGroup}>
           <Text style={styles.filterLabel}>Período</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
-            <Pressable onPress={() => setMonth("all")} style={[styles.smallChip, month === "all" && styles.smallChipActive]}><Text style={[styles.smallChipText, month === "all" && styles.smallChipTextActive]}>Todo o histórico</Text></Pressable>
+            <Pressable onPress={() => setMonth("all")} style={[styles.smallChip, month === "all" && styles.smallChipActive]}><Text style={[styles.smallChipText, month === "all" && styles.smallChipTextActive]}>Todos os períodos</Text></Pressable>
             {months.map((item) => <Pressable key={item} onPress={() => setMonth(item)} style={[styles.smallChip, month === item && styles.smallChipActive]}><Text style={[styles.smallChipText, month === item && styles.smallChipTextActive]}>{monthLabel(item)}</Text></Pressable>)}
           </ScrollView>
         </View>
@@ -236,7 +302,7 @@ export default function TransactionHistoryScreen() {
         </View>
 
         {busy ? (
-          <View style={styles.stateCard}><ActivityIndicator color={OB.primary} /><Text style={styles.stateText}>Carregando histórico...</Text></View>
+          <View style={styles.stateCard}><ActivityIndicator color={OB.primary} /><Text style={styles.stateText}>Carregando movimentações...</Text></View>
         ) : loadError ? (
           <View style={styles.stateCard}><Ionicons name="cloud-offline-outline" size={32} color={OB.support} /><Text style={styles.stateTitle}>Não foi possível carregar</Text><Text style={styles.stateText}>{loadError}</Text><Pressable onPress={() => void load()} style={styles.retryButton}><Text style={styles.retryText}>Tentar novamente</Text></Pressable></View>
         ) : filtered.length ? (
@@ -257,13 +323,41 @@ export default function TransactionHistoryScreen() {
           onChanged={() => load(true)}
         />
       ) : null}
+    </>
+  );
+
+  if (embedded) return content;
+
+  return (
+    <OnboardingShell light>
+      {content}
     </OnboardingShell>
   );
 }
 
+export default TransactionHistoryScreen;
+
 const styles = StyleSheet.create({
   keyboard: { flex: 1 },
   scroll: { padding: 18, gap: 14, paddingBottom: 34 },
+  actionPanel: { borderRadius: 20, padding: 14, gap: 12, backgroundColor: "rgba(123,160,200,0.12)", borderWidth: 1, borderColor: OB.supportSoft },
+  actionIntro: { gap: 3 },
+  actionEyebrow: { color: OB.primary, fontSize: 12, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 },
+  actionDescription: { color: OB.support, fontSize: 11, lineHeight: 16, fontWeight: "700" },
+  actionRow: { flexDirection: "row", alignItems: "stretch", gap: 10 },
+  actionRowStacked: { flexDirection: "column" },
+  actionButton: { minHeight: 74, borderRadius: 17, paddingHorizontal: 13, paddingVertical: 11, flexDirection: "row", alignItems: "center", gap: 10 },
+  actionButtonWide: { flex: 1, minWidth: 0 },
+  actionButtonPressed: { opacity: 0.84, transform: [{ scale: 0.99 }] },
+  primaryAction: { backgroundColor: OB.primary, borderWidth: 1, borderColor: OB.primary },
+  secondaryAction: { backgroundColor: "#fff", borderWidth: 1, borderColor: OB.supportSoft },
+  primaryActionIcon: { width: 38, height: 38, borderRadius: 13, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.16)" },
+  secondaryActionIcon: { width: 38, height: 38, borderRadius: 13, alignItems: "center", justifyContent: "center", backgroundColor: OB.offWhite },
+  actionText: { flex: 1, minWidth: 0 },
+  primaryActionTitle: { color: "#fff", fontSize: 13, lineHeight: 18, fontWeight: "900" },
+  primaryActionSubtitle: { color: "rgba(255,255,255,0.78)", fontSize: 9, lineHeight: 13, fontWeight: "700", marginTop: 2 },
+  secondaryActionTitle: { color: OB.primary, fontSize: 13, lineHeight: 18, fontWeight: "900" },
+  secondaryActionSubtitle: { color: OB.support, fontSize: 9, lineHeight: 13, fontWeight: "700", marginTop: 2 },
   searchBox: { minHeight: 54, borderRadius: 17, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "#fff", borderWidth: 1, borderColor: OB.supportSoft },
   searchInput: { flex: 1, color: OB.primary, fontSize: 13, fontWeight: "700" },
   importFilterCard: { minHeight: 64, borderRadius: 16, padding: 13, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "rgba(55,110,165,0.10)", borderWidth: 1, borderColor: "rgba(55,110,165,0.22)" },

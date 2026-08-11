@@ -309,8 +309,8 @@ export default function LinkCommitmentScreen() {
                 icon="alert-circle-outline"
                 iconColor="#B94A4A"
                 title="Dados do ciclo incompletos"
-                text="Volte ao Controle e abra este compromisso novamente."
-                actionLabel="Voltar ao Controle"
+                text="Volte ao Resumo e abra este compromisso novamente."
+                actionLabel="Voltar ao Resumo"
                 onAction={returnToControl}
               />
             ) : busy ? (
@@ -323,7 +323,7 @@ export default function LinkCommitmentScreen() {
                 icon="people-outline"
                 title="Estrutura financeira indisponível"
                 text="Conclua a configuração inicial antes de vincular um pagamento."
-                actionLabel="Voltar ao Controle"
+                actionLabel="Voltar ao Resumo"
                 onAction={returnToControl}
               />
             ) : error ? (

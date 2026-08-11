@@ -171,7 +171,7 @@ export default function NewTransactionScreen() {
         });
         returnToControl();
       } catch {
-        const message = "O gasto foi salvo. Volte ao Controle, toque em Registrar pagamento e escolha esse gasto para concluir.";
+        const message = "O gasto foi salvo. Volte ao Resumo, toque na conta pendente e escolha esse gasto para concluir.";
         if (Platform.OS === "web") {
           Alert.alert("Gasto salvo; falta associar", message);
           returnToControl();
@@ -179,7 +179,7 @@ export default function NewTransactionScreen() {
           Alert.alert(
             "Gasto salvo; falta associar",
             message,
-            [{ text: "Voltar ao Controle", onPress: returnToControl }],
+            [{ text: "Voltar ao Resumo", onPress: returnToControl }],
             { cancelable: false }
           );
         }
@@ -212,7 +212,7 @@ export default function NewTransactionScreen() {
             onBack={() => router.back()}
             backAccessibilityLabel="Fechar"
             navigationVariant="close"
-            eyebrow="Controle financeiro"
+            eyebrow="Movimentações"
             title={paymentFlow ? "Registrar pagamento" : "Novo lançamento"}
             subtitle={paymentFlow ? "Escolha a conta e confirme o valor pago." : "Registre entradas e saídas com clareza."}
           />

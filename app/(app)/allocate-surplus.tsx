@@ -224,7 +224,7 @@ export default function AllocateSurplusScreen() {
             <View style={styles.flex}>
               <Text style={styles.noticeTitle}>Primeiro separe, depois confirme</Text>
               <Text style={styles.noticeText}>
-                Separe o dinheiro antes de confirmar. Essa destinação não é uma despesa e não reduz o resultado do ciclo. Se a transferência aparecer depois no CSV como uma saída, abra o Histórico e use “Ignorar esta movimentação” para não contar o mesmo valor duas vezes.
+                Separe o dinheiro antes de confirmar. Essa destinação não é uma despesa e não reduz o resultado do ciclo. Se a transferência aparecer depois no CSV como uma saída, abra Movimentações e use “Ignorar esta movimentação” para não contar o mesmo valor duas vezes.
               </Text>
             </View>
           </View>
@@ -233,9 +233,9 @@ export default function AllocateSurplusScreen() {
             <View style={styles.stateCard}>
               <Ionicons name="alert-circle-outline" size={28} color="#B94A4A" />
               <Text style={styles.stateTitle}>Ciclo inválido</Text>
-              <Text style={styles.stateText}>Volte ao Controle e abra novamente o fechamento deste ciclo.</Text>
+              <Text style={styles.stateText}>Volte ao Resumo e abra novamente o fechamento deste ciclo.</Text>
               <Pressable onPress={returnToControl} style={styles.secondaryButton} accessibilityRole="button">
-                <Text style={styles.secondaryButtonText}>Voltar ao Controle</Text>
+                <Text style={styles.secondaryButtonText}>Voltar ao Resumo</Text>
               </Pressable>
             </View>
           ) : busy ? (

@@ -134,7 +134,7 @@ export function TransactionEditorModal({ visible, transaction, categories, house
     Alert.alert(
       imported ? "Ignorar movimentação?" : "Excluir lançamento?",
       imported
-        ? "Ela deixará de aparecer nos totais e no histórico, mas continuará protegida contra duplicidade numa nova importação."
+        ? "Ela deixará de aparecer nos totais e nas movimentações, mas continuará protegida contra duplicidade numa nova importação."
         : "Esta ação remove o lançamento manual definitivamente.",
       [
         { text: "Cancelar", style: "cancel" },

@@ -13,7 +13,6 @@ import { useKeyboardAwareScroll } from "../../src/hooks/useKeyboardAwareScroll";
 import { Category } from "../../src/lib/categories";
 import { listTransactionsByMonth } from "../../src/lib/transactions";
 import {
-  findTransactionAccountById,
   TransactionAccountId,
   TransactionAccountOption,
 } from "../../src/lib/banks";
@@ -21,22 +20,27 @@ import { GoalProgress, listGoalsWithProgress, syncGoalsFromDreams } from "../../
 import { MountainHero } from "../../src/features/journey/MountainHero";
 import { getAndroidBackAction } from "../../src/lib/androidBack";
 import { BankLogo } from "../../src/ui/BankLogo";
+import MovementsScreen from "./transaction-history";
 import {
   FinancialOverview,
   FinancialOverviewCommitment,
-  FinancialOverviewTransaction,
   getCycleForOffset,
   getFinancialOverview,
   getFinancialSettings,
   setCommitmentPaid,
 } from "../../src/lib/financialPlanning";
 
-type Tab = "controle" | "jornada" | "desafios";
+type Tab = "controle" | "jornada" | "movimentacoes" | "desafios";
 type MenuIcon = keyof typeof Ionicons.glyphMap;
 type TxType = "Receita" | "Despesa";
-type Filter = "Todos" | TxType;
-type Tx = { id: string; type: TxType; description: string; category: string; categoryId: string | null; account: string; accountId: TransactionAccountId | null; date: string; amount: number };
 type TxDraft = { type: TxType; description: string; categoryId: string | null; accountId: TransactionAccountId; amount: number };
+
+const MAIN_NAVIGATION_ITEMS: readonly { id: Tab; label: string; icon: MenuIcon }[] = [
+  { id: "jornada", label: "Sonhos", icon: "compass-outline" },
+  { id: "movimentacoes", label: "Movimentações", icon: "swap-vertical-outline" },
+  { id: "controle", label: "Resumo", icon: "bar-chart-outline" },
+  { id: "desafios", label: "Desafios", icon: "trophy-outline" },
+];
 
 const WEB_DRAWER_BLUR_STYLE =
   Platform.OS === "web"
@@ -140,122 +144,6 @@ function MoneySummaryRow({
   );
 }
 
-function ProjectionLine({
-  label,
-  value,
-  subtract = false,
-}: {
-  label: string;
-  value: number;
-  subtract?: boolean;
-}) {
-  return (
-    <View style={styles.projectionLine}>
-      <Text style={styles.projectionLineLabel}>{label}</Text>
-      <Text style={[styles.projectionLineValue, subtract && styles.projectionLineValueSubtract]}>
-        {subtract ? "− " : ""}{formatBRLFromCents(value)}
-      </Text>
-    </View>
-  );
-}
-
-function ControlDisclosure({
-  title,
-  description,
-  icon,
-  open,
-  onToggle,
-  children,
-}: {
-  title: string;
-  description: string;
-  icon: MenuIcon;
-  open: boolean;
-  onToggle: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <View style={styles.disclosureCard}>
-      <Pressable
-        onPress={onToggle}
-        accessibilityRole="button"
-        accessibilityState={{ expanded: open }}
-        accessibilityLabel={`${title}. ${description}`}
-        style={({ pressed }) => [styles.disclosureHeader, pressed && styles.disclosureHeaderPressed]}
-      >
-        <View style={styles.disclosureIcon}>
-          <Ionicons name={icon} size={19} color={OB.primary} />
-        </View>
-        <View style={styles.disclosureCopy}>
-          <Text style={styles.disclosureTitle}>{title}</Text>
-          <Text style={styles.disclosureDescription}>{description}</Text>
-        </View>
-        <View style={styles.disclosureChevron}>
-          <Ionicons name={open ? "chevron-up" : "chevron-down"} size={18} color={OB.support} />
-        </View>
-      </Pressable>
-      {open ? <View style={styles.disclosureBody}>{children}</View> : null}
-    </View>
-  );
-}
-
-function ControlQuickActions({ disabled, addLabel, onAdd }: { disabled: boolean; addLabel: string; onAdd: () => void }) {
-  return (
-    <View style={styles.quickActionsCard}>
-      <Pressable
-        onPress={onAdd}
-        disabled={disabled}
-        accessibilityRole="button"
-        accessibilityLabel={addLabel}
-        style={({ pressed }) => [styles.quickActionPrimary, disabled && styles.newButtonUnavailable, pressed && styles.newButtonPressed]}
-      >
-        <View style={styles.quickActionPrimaryIcon}><Ionicons name="add" size={20} color="#fff" /></View>
-        <View style={styles.quickActionCopy}>
-          <Text style={styles.quickActionPrimaryTitle}>{addLabel}</Text>
-        </View>
-        <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.74)" />
-      </Pressable>
-
-      <Pressable
-        onPress={() => router.push("/(app)/import-csv")}
-        disabled={disabled}
-        accessibilityRole="button"
-        accessibilityLabel="Importar extrato do banco"
-        style={({ pressed }) => [styles.quickActionSecondary, disabled && styles.newButtonUnavailable, pressed && styles.newButtonPressed]}
-      >
-        <View style={styles.quickActionSecondaryIcon}><Ionicons name="document-text-outline" size={19} color={OB.primary} /></View>
-        <View style={styles.quickActionCopy}>
-          <Text style={styles.quickActionSecondaryTitle}>Importar extrato</Text>
-          <Text style={styles.quickActionSecondaryText}>Use o arquivo do seu banco</Text>
-        </View>
-        <Ionicons name="chevron-forward" size={18} color={OB.support} />
-      </Pressable>
-    </View>
-  );
-}
-
-function TxRow({ tx }: { tx: Tx }) {
-  const color = tx.type === "Receita" ? "#168A59" : "#C94949";
-  const sign = tx.type === "Receita" ? "+" : "-";
-  const displayType = tx.type === "Receita" ? "Entrada" : "Gasto";
-
-  return (
-    <View style={styles.txRow}>
-      <View style={[styles.txDot, { backgroundColor: `${color}1A` }]}>
-        <Text style={[styles.txDotText, { color }]}>{sign}</Text>
-      </View>
-      <View style={styles.txInfo}>
-        <Text style={styles.txDesc} numberOfLines={1}>{tx.description}</Text>
-        <Text style={styles.txMeta}>{tx.category} · {tx.account} · {formatDate(tx.date)}</Text>
-        <View style={styles.txValueRow}>
-          <Text style={[styles.txAmount, { color }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>{sign}{formatBRLFromCents(tx.amount)}</Text>
-          <Text style={[styles.txType, { color, backgroundColor: `${color}1A` }]}>{displayType}</Text>
-        </View>
-      </View>
-    </View>
-  );
-}
-
 export function AddModal({
   visible,
   categories,
@@ -348,7 +236,7 @@ export function AddModal({
               <Pressable onPress={onClose} style={styles.sheetClose} accessibilityRole="button" accessibilityLabel="Fechar">
                 <Ionicons name="close" size={21} color="#fff" />
               </Pressable>
-              <Text style={styles.sheetEyebrow}>Controle financeiro</Text>
+              <Text style={styles.sheetEyebrow}>Movimentações</Text>
               <Text style={styles.sheetTitle}>Novo lançamento</Text>
               <Text style={styles.sheetSubtitle}>Registre entradas e saídas com clareza.</Text>
             </View>
@@ -445,21 +333,6 @@ export function AddModal({
   );
 }
 
-function mapOverviewTx(row: FinancialOverviewTransaction): Tx {
-  const accountId = row.account_id as TransactionAccountId | null;
-  return {
-    id: row.id,
-    type: row.type === "income" ? "Receita" : "Despesa",
-    amount: Number(row.amount_cents || 0),
-    description: row.note?.trim() || "Lançamento",
-    category: row.category?.name ?? "Sem categoria",
-    categoryId: row.category_id,
-    account: findTransactionAccountById(accountId)?.name ?? "Conta não informada",
-    accountId,
-    date: row.occurred_on,
-  };
-}
-
 function routeCycleReference(cycleDate?: string) {
   const match = cycleDate?.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return new Date();
@@ -475,15 +348,6 @@ function previousDate(ymd: string) {
 
 function localDateYmd(date = new Date()) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-
-function PlanningMetric({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={styles.planningMetric}>
-      <Text style={styles.planningMetricLabel}>{label}</Text>
-      <Text style={styles.planningMetricValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.74}>{value}</Text>
-    </View>
-  );
 }
 
 function ControlPanel({
@@ -505,18 +369,15 @@ function ControlPanel({
   reconciledCommitments?: number;
   onPostImportHandled: () => void;
 }) {
+  const insets = useSafeAreaInsets();
   const [overview, setOverview] = useState<FinancialOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<Filter>("Todos");
   const [cycleOffset, setCycleOffset] = useState(0);
   const [reference, setReference] = useState(() => routeCycleReference(cycleDate));
-  const [calculationOpen, setCalculationOpen] = useState(false);
-  const [commitmentsOpen, setCommitmentsOpen] = useState(false);
-  const [confirmedCommitmentsOpen, setConfirmedCommitmentsOpen] = useState(false);
-  const [transactionsOpen, setTransactionsOpen] = useState(false);
   const [setupGuideDismissed, setSetupGuideDismissed] = useState(false);
   const [planningGuideStarted, setPlanningGuideStarted] = useState(false);
+  const [paymentsModalOpen, setPaymentsModalOpen] = useState(false);
   const [updatingCommitmentId, setUpdatingCommitmentId] = useState<string | null>(null);
   const loadTokenRef = useRef(0);
   const cycleDateRef = useRef(cycleDate);
@@ -563,24 +424,20 @@ function ControlPanel({
     }, [load])
   );
 
-  const txs = useMemo(() => overview?.transactions.map(mapOverviewTx) ?? [], [overview]);
-  const filtered = filter === "Todos" ? txs : txs.filter((tx) => tx.type === filter);
   const pendingCommitments = useMemo(() => overview?.commitments.filter((item) => item.pending_cents > 0) ?? [], [overview]);
   const confirmedCommitments = useMemo(() => overview?.commitments.filter((item) => item.pending_cents <= 0) ?? [], [overview]);
-  const visibleTransactions = filtered.slice(0, 5);
+  const visiblePendingCommitments = pendingCommitments.slice(0, 3);
   const postImportMatchesCycle = Boolean(overview && postImportId && overview.transactions.some((transaction) => transaction.statement_import_id === postImportId));
   const needsPlanningSetup = Boolean(overview && overview.settings.updated_by === null);
   const needsPlanningFlow = needsPlanningSetup || planningGuideStarted;
   const showPlanningGuide = postImportMatchesCycle && !setupGuideDismissed;
   const postImportModeActive = Boolean(postImportId && !setupGuideDismissed);
-  const isEmptyCycle = Boolean(overview && !txs.length && overview.balance.total_cents === null);
   const busy = loading || householdLoading;
   const emptyStyle = { color: "#5E7591", fontSize: 14, fontWeight: "700" as const, paddingVertical: 24, textAlign: "center" as const };
   const todayYmd = localDateYmd();
   const viewingCurrentCycle = overview ? overview.cycle.start <= todayYmd && overview.cycle.end > todayYmd : cycleOffset === 0;
 
   useEffect(() => {
-    setFilter("Todos");
     setSetupGuideDismissed(false);
   }, [overview?.cycle.key]);
 
@@ -611,16 +468,12 @@ function ControlPanel({
     onCycleDateChange(localDateYmd(today));
   }, [onCycleDateChange]);
 
-  const openNewTransaction = useCallback(() => {
-    if (!overview || !viewingCurrentCycle) showToday();
-    router.push("/(app)/new-transaction");
-  }, [overview, showToday, viewingCurrentCycle]);
-
   const toggleCommitment = useCallback(async (commitment: FinancialOverviewCommitment) => {
     if (!householdId || !userId || !overview) return;
     const isPaid = commitment.pending_cents <= 0;
 
     if (!isPaid) {
+      setPaymentsModalOpen(false);
       router.push({
         pathname: "/(app)/link-commitment",
         params: {
@@ -709,10 +562,7 @@ function ControlPanel({
 
   const openImportedTransactions = useCallback(() => {
     if (!postImportId) return;
-    router.push({
-      pathname: "/(app)/transaction-history",
-      params: { importId: postImportId },
-    });
+    router.setParams({ tab: "movimentacoes", importId: postImportId });
   }, [postImportId]);
 
   const availabilityMessage = !overview
@@ -733,11 +583,7 @@ function ControlPanel({
         ? `${pendingCommitments.length} ${pendingCommitments.length === 1 ? "pagamento ainda não foi registrado" : "pagamentos ainda não foram registrados"} · ${formatBRLFromCents(overview.pendingCommitmentsCents)}`
         : "Todos os pagamentos do mês foram registrados";
 
-  const transactionsDescription = txs.length
-    ? `${txs.length} ${txs.length === 1 ? "movimentação" : "movimentações"} neste período`
-    : "Nenhuma entrada ou gasto neste período";
-
-  function renderCommitment(commitment: FinancialOverviewCommitment) {
+  function renderPaymentRow(commitment: FinancialOverviewCommitment) {
     const isPaid = commitment.pending_cents <= 0;
     const hasPartialPayment = !isPaid && commitment.paid_cents > 0;
     const updating = updatingCommitmentId === commitment.id;
@@ -779,7 +625,8 @@ function ControlPanel({
   return (
     <ScrollView contentContainerStyle={styles.controlScroll} showsVerticalScrollIndicator={false}>
       <View style={styles.controlHeader}>
-        <Text style={styles.controlTitle}>Seu dinheiro</Text>
+        <Text style={styles.controlTitle}>Resumo financeiro</Text>
+        <Text style={styles.controlSubtitle}>Como estou financeiramente neste período?</Text>
       </View>
 
       {!postImportModeActive ? (
@@ -908,17 +755,10 @@ function ControlPanel({
             </View>
           ) : (
             <>
-          {isEmptyCycle ? (
-            <View style={styles.emptyCycleCard}>
-              <View style={styles.emptyCycleIcon}><Ionicons name="wallet-outline" size={24} color={OB.primary} /></View>
-              <Text style={styles.emptyCycleTitle}>Não há entradas ou gastos neste período</Text>
-              <Text style={styles.emptyCycleText}>{viewingCurrentCycle ? "Adicione uma entrada ou um gasto, ou importe o extrato do seu banco." : "Você está vendo um período sem movimentações registradas."}</Text>
-            </View>
-          ) : (
             <View style={styles.availableHero}>
               <View style={styles.availableHeroTop}>
                 <View style={styles.availableHeroIcon}><Ionicons name="sparkles-outline" size={20} color="#fff" /></View>
-                <Text style={styles.availableLabel}>{overview.availableCents <= 0 ? "Disponível para seus sonhos" : overview.confidence.status === "reliable" ? "Pode guardar para seus sonhos" : "Estimativa para seus sonhos"}</Text>
+                <Text style={styles.availableLabel}>Disponível para os sonhos</Text>
               </View>
               <Text style={styles.availableValue} maxFontSizeMultiplier={1.25} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.58}>{formatBRLFromCents(overview.availableCents)}</Text>
               <Text style={styles.availableExplanation}>{availabilityMessage}</Text>
@@ -928,10 +768,10 @@ function ControlPanel({
                   <Ionicons name="information-circle-outline" size={18} color="#fff" />
                   <Text style={styles.estimateNoticeText}>
                     {overview.balance.total_cents === null
-                      ? "Estimativa sem o saldo do banco. Use Importar extrato logo abaixo para conferir."
+                      ? "Estimativa sem saldo bancário atualizado."
                       : overview.balance.status !== "reliable"
-                        ? `Os saldos dos extratos disponíveis${overview.balance.as_of ? `, com atualização mais recente em ${formatDate(overview.balance.as_of)},` : ""} ainda são uma estimativa.`
-                        : "Confira sua renda, o valor que quer manter e suas contas para melhorar esta estimativa."
+                        ? "Estimativa baseada nos extratos disponíveis."
+                        : "Revise renda, reserva e contas no planejamento."
                     }
                   </Text>
                 </View>
@@ -944,196 +784,156 @@ function ControlPanel({
                 </Pressable>
               ) : null}
             </View>
-          )}
 
           <View style={styles.projectedPlanCard}>
             <View style={styles.projectedPlanIcon}>
-              <Ionicons name="calendar-outline" size={20} color={OB.primary} />
+              <Ionicons name="calendar-outline" size={21} color={OB.primary} />
             </View>
             <View style={styles.projectedPlanCopy}>
-              <Text style={styles.projectedPlanEyebrow}>Planejamento do mês</Text>
-              <Text style={styles.projectedPlanLabel}>Previsão depois das contas</Text>
+              <Text style={styles.projectedPlanEyebrow}>Projeção do período</Text>
+              <Text style={styles.projectedPlanLabel}>Previsão ao final do período</Text>
               <Text style={styles.projectedPlanValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
                 {formatBRLFromCents(overview.projectedAvailableCents)}
               </Text>
-              {overview.expectedIncomeCents > 0 ? (
-                <View style={styles.projectionEquation} accessibilityRole="summary">
-                  <ProjectionLine label="Renda mensal informada" value={overview.expectedIncomeCents} />
-                  <ProjectionLine label="Contas e parcelas deste mês" value={overview.totalCommitmentsCents} subtract />
-                  {overview.reserveCents > 0 ? (
-                    <ProjectionLine label="Valor que você quer manter" value={overview.reserveCents} subtract />
-                  ) : null}
-                  {overview.allocatedCents > 0 ? (
-                    <ProjectionLine label="Já guardado para sonhos" value={overview.allocatedCents} subtract />
-                  ) : null}
-                </View>
-              ) : null}
-              <Text style={styles.projectedPlanHelper}>
-                {overview.expectedIncomeCents > 0
-                  ? "É uma previsão, não o saldo da sua conta. O valor de cada parcela é descontado uma vez por mês; a quantidade de parcelas diz por quantos meses."
-                  : "Informe sua renda no planejamento para calcular esta previsão. Este valor não representa o saldo disponível agora."}
-              </Text>
+              <Text style={styles.projectedPlanHelper}>Considerando o que já entrou, saiu e ainda falta pagar.</Text>
             </View>
           </View>
 
-          <ControlQuickActions
-            disabled={!householdId}
-            addLabel={viewingCurrentCycle ? "Adicionar entrada ou gasto" : "Adicionar entrada ou gasto de hoje"}
-            onAdd={openNewTransaction}
-          />
-
-          {isEmptyCycle && viewingCurrentCycle ? (
-            <Pressable onPress={() => router.push("/(app)/financial-plan")} accessibilityRole="button" style={styles.emptyCyclePlanButton}>
-              <Ionicons name="options-outline" size={17} color={OB.primary} />
-              <Text style={styles.emptyCyclePlanButtonText}>Configurar planejamento</Text>
-            </Pressable>
-          ) : null}
-
-          {!isEmptyCycle ? <View style={styles.simpleSummaryCard}>
-            <Text style={styles.sectionEyebrow}>Visão rápida</Text>
-            <Text style={styles.controlSectionTitle}>Resumo do período</Text>
-            <Text style={styles.sectionHelper}>Os números que mostram o que já aconteceu.</Text>
+          <View style={styles.simpleSummaryCard}>
+            <Text style={styles.controlSectionTitle}>Visão rápida do período</Text>
             <View style={styles.moneySummaryList}>
-              <MoneySummaryRow label="Já entrou" value={overview.realizedIncomeCents} color="#168A59" icon="arrow-down-circle-outline" />
-              <MoneySummaryRow label="Já saiu" value={overview.realizedExpenseCents} color="#C94949" icon="arrow-up-circle-outline" />
-              <MoneySummaryRow label="Contas ainda não registradas como pagas" value={overview.pendingCommitmentsCents} color={OB.primary} icon="receipt-outline" />
+              <MoneySummaryRow label="Entrou" value={overview.realizedIncomeCents} color="#168A59" icon="arrow-down-circle-outline" />
+              <MoneySummaryRow label="Saiu" value={overview.realizedExpenseCents} color="#C94949" icon="arrow-up-circle-outline" />
+              <MoneySummaryRow label="Falta pagar" value={overview.pendingCommitmentsCents} color={OB.primary} icon="receipt-outline" />
             </View>
-            <View style={[styles.resultSummary, overview.resultCents < 0 && styles.resultSummaryNegative, overview.resultCents === 0 && styles.resultSummaryNeutral]}>
-              <View style={styles.resultSummaryCopy}>
-                <Text style={styles.resultSummaryLabel}>{overview.resultCents < 0 ? "Saiu a mais" : overview.resultCents > 0 ? "Entrou a mais" : "Entrou o mesmo que saiu"}</Text>
-                <Text style={styles.resultSummaryHelper}>Este valor ainda não desconta contas futuras nem sua reserva.</Text>
+          </View>
+
+          <View style={styles.pendingPreviewCard}>
+            <View style={styles.pendingPreviewHeader}>
+              <View style={styles.pendingPreviewIcon}><Ionicons name="receipt-outline" size={20} color={OB.primary} /></View>
+              <View style={styles.pendingPreviewHeading}>
+                <Text style={styles.pendingPreviewTitle}>Próximas contas</Text>
+                <Text style={styles.pendingPreviewDescription}>{commitmentsDescription}</Text>
               </View>
-              <Text style={[styles.resultSummaryValue, overview.resultCents < 0 && styles.resultSummaryValueNegative, overview.resultCents === 0 && styles.resultSummaryValueNeutral]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
-                {formatBRLFromCents(Math.abs(overview.resultCents))}
-              </Text>
             </View>
-          </View> : null}
 
-          {!isEmptyCycle || overview.commitments.length ? (
-            <ControlDisclosure
-              title="Pagamentos deste mês"
-              description={commitmentsDescription}
-              icon="receipt-outline"
-              open={commitmentsOpen}
-              onToggle={() => setCommitmentsOpen((open) => !open)}
-            >
-              <Text style={styles.commitmentsHelper}>Estas são as contas planejadas. Quando pagar, registre usando um gasto do extrato ou um lançamento manual. Importar extrato não é obrigatório.</Text>
-              {pendingCommitments.length ? pendingCommitments.map(renderCommitment) : (
-                <View style={styles.noCommitments}>
-                  <Ionicons name="checkmark-circle-outline" size={24} color="#168A59" />
-                  <Text style={styles.noCommitmentsText}>{overview.commitments.length ? "Todos os pagamentos deste período foram registrados." : "Você ainda não cadastrou contas fixas ou parcelas."}</Text>
-                </View>
-              )}
-
-              {confirmedCommitments.length ? (
-                <View style={styles.confirmedCommitments}>
+            {visiblePendingCommitments.length ? (
+              <View style={styles.pendingPreviewList}>
+                {visiblePendingCommitments.map((commitment) => (
                   <Pressable
-                    onPress={() => setConfirmedCommitmentsOpen((open) => !open)}
+                    key={commitment.id}
+                    onPress={() => void toggleCommitment(commitment)}
                     accessibilityRole="button"
-                    accessibilityState={{ expanded: confirmedCommitmentsOpen }}
-                    accessibilityLabel={`Pagamentos registrados: ${confirmedCommitments.length}`}
-                    style={styles.confirmedCommitmentsHeader}
+                    accessibilityLabel={`Registrar pagamento de ${commitment.name}`}
+                    style={({ pressed }) => [styles.pendingPreviewRow, pressed && styles.pendingPreviewRowPressed]}
                   >
-                    <Text style={styles.confirmedCommitmentsTitle}>Pagamentos registrados ({confirmedCommitments.length})</Text>
-                    <Ionicons name={confirmedCommitmentsOpen ? "chevron-up" : "chevron-down"} size={17} color={OB.support} />
+                    <View style={styles.pendingPreviewCopy}>
+                      <Text style={styles.pendingPreviewName} numberOfLines={1}>{commitment.name}</Text>
+                      <Text style={styles.pendingPreviewMeta}>Vence em {formatDate(commitment.due_on)}</Text>
+                    </View>
+                    <View style={styles.pendingPreviewAction}>
+                      <Text style={styles.pendingPreviewAmount} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{formatBRLFromCents(commitment.pending_cents)}</Text>
+                      <Text style={styles.pendingPreviewActionText}>Registrar</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={17} color={OB.support} />
                   </Pressable>
-                  {confirmedCommitmentsOpen ? confirmedCommitments.map(renderCommitment) : null}
-                </View>
-              ) : null}
+                ))}
+                {pendingCommitments.length > visiblePendingCommitments.length ? (
+                  <Pressable onPress={() => setPaymentsModalOpen(true)} accessibilityRole="button" style={styles.pendingPreviewMoreButton}>
+                    <Text style={styles.pendingPreviewMore}>Ver outras {pendingCommitments.length - visiblePendingCommitments.length} contas</Text>
+                    <Ionicons name="chevron-forward" size={15} color={OB.support} />
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : (
+              <View style={styles.noPendingState}>
+                <Ionicons name="checkmark-circle-outline" size={22} color="#168A59" />
+                <Text style={styles.noPendingText}>{overview.commitments.length ? "Nenhuma conta pendente neste período." : "Nenhuma conta cadastrada neste período."}</Text>
+              </View>
+            )}
 
-              <Pressable onPress={() => router.push("/(app)/financial-plan")} accessibilityRole="button" style={styles.manageCommitmentsButton}>
-                <Text style={styles.manageCommitmentsText}>{overview.commitments.length ? "Editar contas e parcelas" : "Adicionar contas e parcelas"}</Text>
-                <Ionicons name="chevron-forward" size={18} color={OB.primary} />
+            {overview.commitments.length ? (
+              <Pressable onPress={() => setPaymentsModalOpen(true)} accessibilityRole="button" style={styles.reviewPaymentsButton}>
+                <Ionicons name="checkmark-done-outline" size={17} color={OB.primary} />
+                <Text style={styles.reviewPaymentsText}>Revisar pagamentos</Text>
+                <Ionicons name="chevron-forward" size={16} color={OB.support} />
               </Pressable>
-            </ControlDisclosure>
-          ) : null}
+            ) : null}
 
-          {!isEmptyCycle ? (
-            <ControlDisclosure
-              title="Últimas entradas e gastos"
-              description={transactionsDescription}
-              icon="swap-vertical-outline"
-              open={transactionsOpen}
-              onToggle={() => setTransactionsOpen((open) => !open)}
-            >
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
-                {(["Todos", "Receita", "Despesa"] as Filter[]).map((item) => {
-                  const active = item === filter;
-                  const label = item === "Todos" ? "Todas" : item === "Receita" ? "Entradas" : "Gastos";
-                  return (
-                    <Pressable
-                      key={item}
-                      onPress={() => setFilter(item)}
-                      accessibilityRole="button"
-                      accessibilityState={{ selected: active }}
-                      accessibilityLabel={`Mostrar ${label.toLocaleLowerCase("pt-BR")}`}
-                      style={[styles.filter, active && styles.filterActive]}
-                    >
-                      <Text style={[styles.filterText, active && styles.filterTextActive]}>{label}</Text>
-                    </Pressable>
-                  );
-                })}
-              </ScrollView>
-              <View style={styles.txList}>
-                {visibleTransactions.length ? visibleTransactions.map((tx) => <TxRow key={tx.id} tx={tx} />) : <Text style={emptyStyle}>Nenhuma entrada ou gasto aqui.</Text>}
-              </View>
-              {txs.length ? (
-                <Pressable onPress={() => router.push("/(app)/transaction-history")} accessibilityRole="button" style={styles.manageCommitmentsButton}>
-                  <Text style={styles.manageCommitmentsText}>Ver histórico completo</Text>
-                  <Ionicons name="chevron-forward" size={18} color={OB.primary} />
-                </Pressable>
-              ) : null}
-            </ControlDisclosure>
-          ) : null}
+            <Pressable onPress={() => router.push("/(app)/financial-plan")} accessibilityRole="button" style={styles.manageCommitmentsButton}>
+              <Text style={styles.manageCommitmentsText}>Ver planejamento</Text>
+              <Ionicons name="chevron-forward" size={18} color={OB.primary} />
+            </Pressable>
+          </View>
 
-          {!isEmptyCycle ? (
-            <ControlDisclosure
-              title="Como calculamos esse valor"
-              description="Veja os saldos, o valor que você quer manter e os outros descontos"
-              icon="calculator-outline"
-              open={calculationOpen}
-              onToggle={() => setCalculationOpen((open) => !open)}
-            >
-              <Text style={styles.calculationHelper}>São duas contas separadas: o disponível agora usa as movimentações registradas; a projeção mensal parte da renda informada. Os dois valores não devem ser somados.</Text>
-              <View style={styles.planningMetrics}>
-                <PlanningMetric label="Renda mensal informada" value={formatBRLFromCents(overview.expectedIncomeCents)} />
-                <PlanningMetric label="Todas as contas planejadas, pagas e pendentes" value={formatBRLFromCents(overview.totalCommitmentsCents)} />
-                <PlanningMetric label="Projeção após contas, reserva e valores guardados" value={formatBRLFromCents(overview.projectedAvailableCents)} />
-                <PlanningMetric label="Entrou menos saiu" value={formatBRLFromCents(overview.resultCents)} />
-                <PlanningMetric label="Pagamentos ainda não registrados" value={formatBRLFromCents(overview.pendingCommitmentsCents)} />
-                <PlanningMetric label="Valor que você quer manter" value={formatBRLFromCents(overview.reserveCents)} />
-                <PlanningMetric label="Já guardado nos sonhos" value={formatBRLFromCents(overview.allocatedCents)} />
-              </View>
-
-              <View style={styles.balanceSnapshot}>
-                <View style={styles.balanceSnapshotIcon}><Ionicons name="business-outline" size={20} color={OB.primary} /></View>
-                <View style={styles.balanceSnapshotCopy}>
-                  <Text style={styles.balanceSnapshotLabel}>Total conhecido nos extratos</Text>
-                  <Text style={styles.balanceSnapshotValue}>{overview.balance.total_cents === null ? "Não informado" : formatBRLFromCents(overview.balance.total_cents)}</Text>
-                  <Text style={styles.balanceSnapshotMeta}>
-                    {overview.balance.total_cents === null
-                      ? "Importe um extrato com saldo final para melhorar a estimativa."
-                      : overview.balance.status === "reliable"
-                        ? `Soma dos saldos mais recentes das suas contas${overview.balance.as_of ? `. Atualização mais recente em ${formatDate(overview.balance.as_of)}` : ""}.`
-                        : `Estimativa com os extratos disponíveis${overview.balance.as_of ? `. Atualização mais recente em ${formatDate(overview.balance.as_of)}` : ""}.`}
-                  </Text>
-                </View>
-              </View>
-
-              <Pressable onPress={() => router.push("/(app)/financial-plan")} accessibilityRole="button" style={styles.manageCommitmentsButton}>
-                <Text style={styles.manageCommitmentsText}>Ajustar período, valor mantido e contas</Text>
-                <Ionicons name="chevron-forward" size={18} color={OB.primary} />
-              </Pressable>
-            </ControlDisclosure>
-          ) : null}
             </>
           )}
         </>
       ) : !householdId ? (
         <Text style={emptyStyle}>Conclua as primeiras etapas para criar sua estrutura financeira.</Text>
       ) : (
-        <ControlQuickActions disabled={false} addLabel="Adicionar entrada ou gasto" onAdd={openNewTransaction} />
+        <Text style={emptyStyle}>Não foi possível mostrar o resumo deste período.</Text>
       )}
+
+      <Modal
+        visible={paymentsModalOpen}
+        animationType="slide"
+        transparent
+        statusBarTranslucent={Platform.OS === "android"}
+        onRequestClose={() => setPaymentsModalOpen(false)}
+      >
+        <View style={styles.paymentsModalBackdrop} accessibilityViewIsModal>
+          <Pressable
+            onPress={() => setPaymentsModalOpen(false)}
+            accessibilityRole="button"
+            accessibilityLabel="Fechar pagamentos"
+            style={StyleSheet.absoluteFill}
+          />
+          <View
+            style={[
+              styles.paymentsModalSheet,
+              {
+                marginTop: Math.max(insets.top, Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0) + 12,
+                paddingBottom: Math.max(insets.bottom, 18) + 10,
+              },
+            ]}
+          >
+            <View style={styles.paymentsModalHeader}>
+              <View style={styles.paymentsModalHeaderCopy}>
+                <Text style={styles.paymentsModalEyebrow}>Resumo financeiro</Text>
+                <Text style={styles.paymentsModalTitle}>Revisar pagamentos</Text>
+                <Text style={styles.paymentsModalText}>Registre uma conta pendente ou desfaça somente o vínculo de um pagamento.</Text>
+              </View>
+              <Pressable onPress={() => setPaymentsModalOpen(false)} accessibilityRole="button" accessibilityLabel="Fechar" style={styles.paymentsModalClose}>
+                <Ionicons name="close" size={20} color={OB.primary} />
+              </Pressable>
+            </View>
+
+            <ScrollView contentContainerStyle={styles.paymentsModalContent} showsVerticalScrollIndicator={false}>
+              {pendingCommitments.length ? (
+                <View>
+                  <Text style={styles.paymentsModalSectionTitle}>Pendentes ({pendingCommitments.length})</Text>
+                  {pendingCommitments.map(renderPaymentRow)}
+                </View>
+              ) : null}
+
+              {confirmedCommitments.length ? (
+                <View>
+                  <Text style={styles.paymentsModalSectionTitle}>Registrados ({confirmedCommitments.length})</Text>
+                  {confirmedCommitments.map(renderPaymentRow)}
+                </View>
+              ) : null}
+
+              {!overview?.commitments.length ? (
+                <View style={styles.noPendingState}>
+                  <Ionicons name="receipt-outline" size={22} color={OB.support} />
+                  <Text style={styles.noPendingText}>Nenhuma conta cadastrada neste período.</Text>
+                </View>
+              ) : null}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -1191,11 +991,6 @@ function JourneyDrawer({
     router.push("/(app)/categories");
   }
 
-  function goTransactionHistory() {
-    onClose();
-    router.push("/(app)/transaction-history");
-  }
-
   return (
     <View style={styles.drawerLayer}>
       <Pressable onPress={onClose} style={[styles.drawerScrim, WEB_DRAWER_BLUR_STYLE]}>
@@ -1232,8 +1027,8 @@ function JourneyDrawer({
 
         <View style={styles.drawerList}>
           <DrawerButton icon="compass-outline" label="Sonhos" active={activeTab === "jornada"} onPress={() => goTab("jornada")} />
-          <DrawerButton icon="wallet-outline" label="Controle financeiro" active={activeTab === "controle"} onPress={() => goTab("controle")} />
-          <DrawerButton icon="time-outline" label="Histórico" onPress={goTransactionHistory} />
+          <DrawerButton icon="swap-vertical-outline" label="Movimentações" active={activeTab === "movimentacoes"} onPress={() => goTab("movimentacoes")} />
+          <DrawerButton icon="wallet-outline" label="Resumo" active={activeTab === "controle"} onPress={() => goTab("controle")} />
           <DrawerButton icon="pricetags-outline" label="Categorias" onPress={goCategories} />
           <DrawerButton icon="trophy-outline" label="Desafios" active={activeTab === "desafios"} onPress={() => goTab("desafios")} />
         </View>
@@ -1263,7 +1058,10 @@ export default function JourneyScreen() {
   const reconciledCommitments = Number.isFinite(parsedReconciledCommitments)
     ? Math.max(0, Math.trunc(parsedReconciledCommitments))
     : 0;
-  const [tab, setTab] = useState<Tab>(requestedTab === "controle" ? "controle" : "jornada");
+  const initialTab: Tab = requestedTab === "controle" || requestedTab === "jornada" || requestedTab === "movimentacoes" || requestedTab === "desafios"
+    ? requestedTab
+    : "jornada";
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [controlCycleDate, setControlCycleDate] = useState(requestedCycleDate);
   const [postImportId, setPostImportId] = useState(requestedPostImport === "1" ? requestedImportId : undefined);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -1274,6 +1072,11 @@ export default function JourneyScreen() {
   const lastBackPressRef = useRef(0);
   const logoutPromptOpenRef = useRef(false);
 
+  const selectTab = useCallback((nextTab: Tab) => {
+    setTab(nextTab);
+    router.setParams({ tab: nextTab });
+  }, []);
+
   const userMeta = session?.user?.user_metadata as Record<string, any> | undefined;
   const displayName = userMeta?.full_name || userMeta?.name || session?.user?.email?.split("@")[0] || "Usuário";
   const avatarUrl = userMeta?.avatar_url || userMeta?.picture || null;
@@ -1283,7 +1086,7 @@ export default function JourneyScreen() {
   const values = useMemo(() => readJson<Record<string, string>>(params.values ?? savedValues, {}), [params.values, savedValues]);
 
   useEffect(() => {
-    if (requestedTab === "controle" || requestedTab === "jornada" || requestedTab === "desafios") {
+    if (requestedTab === "controle" || requestedTab === "jornada" || requestedTab === "movimentacoes" || requestedTab === "desafios") {
       setTab(requestedTab);
     }
   }, [requestedTab]);
@@ -1328,7 +1131,7 @@ export default function JourneyScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      if (tab !== "controle") void loadJourney();
+      if (tab === "jornada" || tab === "desafios") void loadJourney();
     }, [loadJourney, tab])
   );
 
@@ -1369,7 +1172,7 @@ export default function JourneyScreen() {
         }
 
         if (action === "go-home") {
-          setTab("jornada");
+          selectTab("jornada");
           lastBackPressRef.current = 0;
           return true;
         }
@@ -1419,7 +1222,7 @@ export default function JourneyScreen() {
         lastBackPressRef.current = 0;
         logoutPromptOpenRef.current = false;
       };
-    }, [logout, menuOpen, tab])
+    }, [logout, menuOpen, selectTab, tab])
   );
 
   const challengeCard = (
@@ -1427,7 +1230,7 @@ export default function JourneyScreen() {
       <View style={{ flex: 1 }}>
         <Text style={styles.challengeEyebrow}>Desafio de hoje</Text>
         <Text style={styles.challengeTitle}>Registre uma despesa do dia</Text>
-        <Text style={styles.challengeText}>{expenseToday ? "Concluído com um lançamento real de hoje." : "Adicione uma despesa na aba Controle para concluir."}</Text>
+        <Text style={styles.challengeText}>{expenseToday ? "Concluído com um lançamento real de hoje." : "Adicione uma despesa na aba Movimentações para concluir."}</Text>
       </View>
       <View style={[styles.checkButton, expenseToday && styles.checkButtonDone]}><Ionicons name={expenseToday ? "checkmark" : "receipt-outline"} size={21} color={expenseToday ? "#fff" : OB.support} /></View>
     </View>
@@ -1437,7 +1240,7 @@ export default function JourneyScreen() {
     <OnboardingShell light>
       <View style={styles.root}>
         <View style={styles.content}>
-          {tab === "controle" ? <ControlPanel key={activePostImportId ? `post-import:${activePostImportId}` : "control"} householdId={householdId} userId={userId} householdLoading={householdLoading} cycleDate={controlCycleDate} onCycleDateChange={rememberControlCycle} postImportId={activePostImportId} reconciledCommitments={activePostImportId ? reconciledCommitments : 0} onPostImportHandled={finishPostImport} /> : tab === "jornada" ? (
+          {tab === "controle" ? <ControlPanel key={activePostImportId ? `post-import:${activePostImportId}` : "control"} householdId={householdId} userId={userId} householdLoading={householdLoading} cycleDate={controlCycleDate} onCycleDateChange={rememberControlCycle} postImportId={activePostImportId} reconciledCommitments={activePostImportId ? reconciledCommitments : 0} onPostImportHandled={finishPostImport} /> : tab === "movimentacoes" ? <MovementsScreen embedded /> : tab === "jornada" ? (
             <>
               <MountainHero progress={journeyProgress} />
               <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
@@ -1476,13 +1279,13 @@ export default function JourneyScreen() {
           ) : <ScrollView contentContainerStyle={styles.challengesPage}><Ionicons name="trophy-outline" size={42} color={OB.primary} /><Text style={styles.placeholderTitle}>Seus desafios</Text><Text style={styles.placeholderText}>As missões são concluídas automaticamente com seus dados reais.</Text>{challengeCard}</ScrollView>}
         </View>
         <View style={styles.nav}>
-          <Pressable onPress={() => setMenuOpen(true)} style={styles.navItem}><Ionicons name="menu-outline" size={23} color={menuOpen ? OB.primary : OB.support} /><Text style={[styles.navText, menuOpen && styles.navTextActive]}>Menu</Text>{menuOpen ? <View style={styles.navIndicator} /> : null}</Pressable>
-          {[["jornada", "Sonhos", "compass-outline"], ["controle", "Controle", "bar-chart-outline"], ["desafios", "Desafios", "trophy-outline"]].map(([id, label, icon]) => {
+          <Pressable onPress={() => setMenuOpen(true)} style={[styles.navItem, styles.navMenuItem]} accessibilityRole="button" accessibilityLabel="Abrir menu"><Ionicons name="menu-outline" size={21} color={menuOpen ? OB.primary : OB.support} /><Text style={[styles.navText, menuOpen && styles.navTextActive]} numberOfLines={1}>Menu</Text>{menuOpen ? <View style={styles.navIndicator} /> : null}</Pressable>
+          {MAIN_NAVIGATION_ITEMS.map(({ id, label, icon }) => {
             const active = tab === id;
-            return <Pressable key={id} onPress={() => setTab(id as Tab)} style={styles.navItem}><Ionicons name={icon as any} size={21} color={active ? OB.primary : OB.support} /><Text style={[styles.navText, active && styles.navTextActive]}>{label}</Text>{active ? <View style={styles.navIndicator} /> : null}</Pressable>;
+            return <Pressable key={id} onPress={() => selectTab(id)} style={[styles.navItem, id === "movimentacoes" && styles.navMovementsItem]} accessibilityRole="button" accessibilityLabel={`Abrir ${label}`}><Ionicons name={icon} size={21} color={active ? OB.primary : OB.support} /><Text style={[styles.navText, active && styles.navTextActive]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.82}>{label}</Text>{active ? <View style={styles.navIndicator} /> : null}</Pressable>;
           })}
         </View>
-        <JourneyDrawer open={menuOpen} activeTab={tab} displayName={displayName} avatarUrl={avatarUrl} onClose={() => setMenuOpen(false)} onTab={setTab} onLogout={logout} />
+        <JourneyDrawer open={menuOpen} activeTab={tab} displayName={displayName} avatarUrl={avatarUrl} onClose={() => setMenuOpen(false)} onTab={selectTab} onLogout={logout} />
       </View>
     </OnboardingShell>
   );
@@ -1727,6 +1530,13 @@ const styles = StyleSheet.create({
     color: OB.primary,
     fontSize: 26,
     fontWeight: "900",
+  },
+  controlSubtitle: {
+    color: "#5E7591",
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 19,
+    marginTop: 4,
   },
   cycleNavigator: {
     minHeight: 64,
@@ -2030,22 +1840,23 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   projectedPlanCard: {
-    borderRadius: 20,
-    padding: 16,
+    minHeight: 154,
+    borderRadius: 22,
+    padding: 18,
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 12,
-    backgroundColor: "#fff",
+    backgroundColor: "rgba(123,160,200,0.13)",
     borderWidth: 1,
-    borderColor: OB.supportSoft,
+    borderColor: "rgba(123,160,200,0.36)",
   },
   projectedPlanIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
+    width: 44,
+    height: 44,
+    borderRadius: 15,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(123,160,200,0.16)",
+    backgroundColor: "rgba(255,255,255,0.78)",
   },
   projectedPlanCopy: {
     flex: 1,
@@ -2066,7 +1877,7 @@ const styles = StyleSheet.create({
   },
   projectedPlanValue: {
     color: OB.primary,
-    fontSize: 23,
+    fontSize: 26,
     fontWeight: "900",
     marginTop: 7,
   },
@@ -2180,14 +1991,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "900",
   },
-  quickActionsCard: {
-    borderRadius: 20,
-    padding: 12,
-    gap: 10,
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: OB.supportSoft,
-  },
   sectionEyebrow: {
     color: "#5E7591",
     fontSize: 10,
@@ -2207,65 +2010,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     lineHeight: 18,
     marginBottom: 2,
-  },
-  quickActionPrimary: {
-    minHeight: 60,
-    borderRadius: 17,
-    paddingHorizontal: 13,
-    paddingVertical: 11,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 11,
-    backgroundColor: OB.primary,
-  },
-  quickActionSecondary: {
-    minHeight: 60,
-    borderRadius: 17,
-    paddingHorizontal: 13,
-    paddingVertical: 11,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 11,
-    backgroundColor: OB.offWhite,
-    borderWidth: 1,
-    borderColor: OB.supportSoft,
-  },
-  quickActionPrimaryIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 13,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.13)",
-  },
-  quickActionSecondaryIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 13,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(123,160,200,0.16)",
-  },
-  quickActionCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  quickActionPrimaryTitle: {
-    color: "#fff",
-    fontSize: 14,
-    fontWeight: "900",
-  },
-  quickActionSecondaryTitle: {
-    color: OB.primary,
-    fontSize: 14,
-    fontWeight: "900",
-  },
-  quickActionSecondaryText: {
-    color: "#5E7591",
-    fontSize: 12,
-    fontWeight: "700",
-    lineHeight: 17,
-    marginTop: 2,
   },
   simpleSummaryCard: {
     borderRadius: 22,
@@ -2305,6 +2049,199 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "900",
     marginTop: 3,
+  },
+  pendingPreviewCard: {
+    borderRadius: 22,
+    padding: 16,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  pendingPreviewHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 11,
+  },
+  pendingPreviewIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(123,160,200,0.15)",
+  },
+  pendingPreviewHeading: {
+    flex: 1,
+    minWidth: 0,
+  },
+  pendingPreviewTitle: {
+    color: OB.primary,
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  pendingPreviewDescription: {
+    color: "#5E7591",
+    fontSize: 11,
+    fontWeight: "700",
+    lineHeight: 16,
+    marginTop: 3,
+  },
+  pendingPreviewList: {
+    marginTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: OB.supportSoft,
+  },
+  pendingPreviewRow: {
+    minHeight: 58,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 9,
+    borderBottomWidth: 1,
+    borderBottomColor: OB.supportSoft,
+  },
+  pendingPreviewRowPressed: {
+    opacity: 0.72,
+  },
+  pendingPreviewCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  pendingPreviewName: {
+    color: OB.primary,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  pendingPreviewMeta: {
+    color: "#5E7591",
+    fontSize: 10,
+    fontWeight: "700",
+    marginTop: 3,
+  },
+  pendingPreviewAmount: {
+    maxWidth: 108,
+    color: OB.primary,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  pendingPreviewAction: {
+    alignItems: "flex-end",
+  },
+  pendingPreviewActionText: {
+    color: "#5E7591",
+    fontSize: 9,
+    fontWeight: "900",
+    marginTop: 3,
+  },
+  pendingPreviewMoreButton: {
+    minHeight: 38,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+  },
+  pendingPreviewMore: {
+    color: "#5E7591",
+    fontSize: 10,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  noPendingState: {
+    minHeight: 58,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+    marginTop: 10,
+  },
+  noPendingText: {
+    flex: 1,
+    color: "#5E7591",
+    fontSize: 11,
+    fontWeight: "700",
+    lineHeight: 17,
+  },
+  reviewPaymentsButton: {
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 8,
+    paddingHorizontal: 12,
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  reviewPaymentsText: {
+    flex: 1,
+    color: OB.primary,
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  paymentsModalBackdrop: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(6,25,54,0.42)",
+  },
+  paymentsModalSheet: {
+    maxHeight: "84%",
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingTop: 18,
+    paddingHorizontal: 18,
+    backgroundColor: OB.offWhite,
+  },
+  paymentsModalHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: OB.supportSoft,
+  },
+  paymentsModalHeaderCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  paymentsModalEyebrow: {
+    color: "#5E7591",
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+  },
+  paymentsModalTitle: {
+    color: OB.primary,
+    fontSize: 20,
+    fontWeight: "900",
+    marginTop: 4,
+  },
+  paymentsModalText: {
+    color: "#5E7591",
+    fontSize: 11,
+    fontWeight: "700",
+    lineHeight: 17,
+    marginTop: 4,
+  },
+  paymentsModalClose: {
+    width: 40,
+    height: 40,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  paymentsModalContent: {
+    gap: 18,
+    paddingTop: 8,
+    paddingBottom: 16,
+  },
+  paymentsModalSectionTitle: {
+    color: OB.primary,
+    fontSize: 13,
+    fontWeight: "900",
+    marginTop: 8,
   },
   resultSummary: {
     minHeight: 70,
@@ -2961,19 +2898,33 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: OB.supportSoft,
     backgroundColor: OB.offWhite,
+    paddingHorizontal: 2,
     paddingBottom: 6,
   },
   navItem: {
     flex: 1,
+    minWidth: 0,
     alignItems: "center",
-    gap: 4,
+    gap: 3,
+    paddingHorizontal: 1,
     paddingTop: 11,
     paddingBottom: 8,
   },
+  navMenuItem: {
+    flex: 0,
+    width: 50,
+  },
+  navMovementsItem: {
+    flex: 1.3,
+  },
   navText: {
+    width: "100%",
+    flexShrink: 1,
     color: OB.support,
-    fontSize: 11,
+    fontSize: 10,
+    lineHeight: 12,
     fontWeight: "800",
+    textAlign: "center",
   },
   navTextActive: {
     color: OB.primary,
