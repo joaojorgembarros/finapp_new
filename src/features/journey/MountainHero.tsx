@@ -146,7 +146,7 @@ export function MountainHero({ progress }: { progress: number }) {
       </Svg>
 
       <View style={styles.heroTextBlock}>
-        <Text style={styles.heroTitle}>Seus sonhos</Text>
+        <Text style={styles.heroTitle} accessibilityRole="header">Seus sonhos</Text>
         <Text style={styles.heroSubtitle}>Acompanhe o progresso dos seus sonhos.</Text>
       </View>
     </View>
@@ -162,14 +162,16 @@ const styles = StyleSheet.create({
   heroTextBlock: {
     position: "absolute",
     left: 24,
+    right: 24,
     top: 22,
-    maxWidth: 210,
+    alignItems: "center",
   },
   heroTitle: {
     color: OB.offWhite,
     fontSize: 27,
     fontWeight: "900",
     marginTop: 14,
+    textAlign: "center",
   },
   heroSubtitle: {
     color: "rgba(220,235,255,0.86)",
@@ -177,5 +179,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     lineHeight: 20,
     marginTop: 7,
+    textAlign: "center",
   },
 });

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
-import { ActivityIndicator, Alert, BackHandler, Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, ToastAndroid, View } from "react-native";
+import { ActivityIndicator, Alert, BackHandler, Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, ToastAndroid, useWindowDimensions, View } from "react-native";
 import { BlurView } from "expo-blur";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -370,6 +370,21 @@ function ControlPanel({
   onPostImportHandled: () => void;
 }) {
   const insets = useSafeAreaInsets();
+  const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
+  const paymentsSheetTopInset = Math.max(
+    insets.top,
+    Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0
+  );
+  const compactPaymentsSheet = viewportWidth < 360;
+  const widePaymentsSheet = viewportWidth >= 720;
+  const paymentsSheetHeight = Math.max(
+    0,
+    Math.min(
+      viewportHeight * (widePaymentsSheet ? 0.82 : 0.9),
+      widePaymentsSheet ? 760 : viewportHeight,
+      viewportHeight - paymentsSheetTopInset - 12
+    )
+  );
   const [overview, setOverview] = useState<FinancialOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -510,15 +525,15 @@ function ControlPanel({
 
     if (Platform.OS === "web") {
       const confirmed = typeof globalThis.confirm === "function"
-        ? globalThis.confirm("Desfazer o registro? Esta conta voltará a aparecer como pendente neste período.")
+        ? globalThis.confirm("Desfazer pagamento? Esta conta voltará a aparecer como pendente neste período. A movimentação original será preservada.")
         : false;
       if (confirmed) await persist();
       return;
     }
 
     Alert.alert(
-      "Desfazer registro?",
-      "Esta conta voltará a aparecer como pendente neste período.",
+      "Desfazer pagamento?",
+      "Esta conta voltará a aparecer como pendente neste período. A movimentação original continuará em Movimentações.",
       [
         { text: "Cancelar", style: "cancel" },
         { text: "Desfazer", style: "destructive", onPress: () => void persist() },
@@ -594,12 +609,20 @@ function ControlPanel({
             <Ionicons name={isPaid ? "checkmark" : "receipt-outline"} size={17} color={isPaid ? "#fff" : OB.primary} />
           </View>
           <View style={styles.commitmentInfo}>
-            <Text style={[styles.commitmentName, isPaid && styles.commitmentNamePaid]} numberOfLines={1}>{commitment.name}</Text>
+            <View style={styles.commitmentTitleRow}>
+              <Text style={[styles.commitmentName, isPaid && styles.commitmentNamePaid]} numberOfLines={1}>{commitment.name}</Text>
+              <View style={[styles.commitmentStatus, isPaid && styles.commitmentStatusPaid]}>
+                <Text style={[styles.commitmentStatusText, isPaid && styles.commitmentStatusTextPaid]}>{isPaid ? "Pago" : "Pendente"}</Text>
+              </View>
+            </View>
             <Text style={styles.commitmentMeta}>
               {commitment.installment_number && commitment.installments_total
                 ? `Parcela ${commitment.installment_number}/${commitment.installments_total} · `
                 : ""}
-              Vence em {formatDate(commitment.due_on)} · {hasPartialPayment
+              Vence em {formatDate(commitment.due_on)}
+            </Text>
+            <Text style={styles.commitmentAmount} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78}>
+              {hasPartialPayment
                 ? `Faltam ${formatBRLFromCents(commitment.pending_cents)} de ${formatBRLFromCents(commitment.amount_cents)}`
                 : formatBRLFromCents(commitment.amount_cents)}
             </Text>
@@ -609,13 +632,22 @@ function ControlPanel({
           onPress={() => void toggleCommitment(commitment)}
           disabled={updating}
           accessibilityRole="button"
-          accessibilityLabel={isPaid ? `Pagamento de ${commitment.name} registrado. Desfazer registro` : `Registrar pagamento de ${commitment.name}`}
-          style={[styles.commitmentToggle, isPaid && styles.commitmentTogglePaid]}
+          accessibilityLabel={isPaid ? `Pagamento de ${commitment.name} registrado. Desfazer pagamento` : `Registrar pagamento de ${commitment.name}`}
+          accessibilityState={{ disabled: updating }}
+          style={({ pressed }) => [
+            styles.commitmentToggle,
+            isPaid && styles.commitmentTogglePaid,
+            pressed && !updating && styles.commitmentTogglePressed,
+            updating && styles.commitmentToggleDisabled,
+          ]}
         >
           {updating ? (
-            <ActivityIndicator size="small" color={isPaid ? "#fff" : OB.primary} />
+            <ActivityIndicator size="small" color={isPaid ? OB.primary : "#fff"} />
           ) : (
-            <Text style={[styles.commitmentToggleText, isPaid && styles.commitmentToggleTextPaid]}>{isPaid ? "Desfazer" : "Registrar pagamento"}</Text>
+            <>
+              <Ionicons name={isPaid ? "arrow-undo-outline" : "checkmark-circle-outline"} size={18} color={isPaid ? OB.primary : "#fff"} />
+              <Text style={[styles.commitmentToggleText, isPaid && styles.commitmentToggleTextPaid]}>{isPaid ? "Desfazer pagamento" : "Registrar pagamento"}</Text>
+            </>
           )}
         </Pressable>
       </View>
@@ -625,7 +657,7 @@ function ControlPanel({
   return (
     <ScrollView contentContainerStyle={styles.controlScroll} showsVerticalScrollIndicator={false}>
       <View style={styles.controlHeader}>
-        <Text style={styles.controlTitle}>Resumo financeiro</Text>
+        <Text style={styles.controlTitle} accessibilityRole="header">Resumo financeiro</Text>
         <Text style={styles.controlSubtitle}>Como estou financeiramente neste período?</Text>
       </View>
 
@@ -839,7 +871,7 @@ function ControlPanel({
                   </Pressable>
                 ))}
                 {pendingCommitments.length > visiblePendingCommitments.length ? (
-                  <Pressable onPress={() => setPaymentsModalOpen(true)} accessibilityRole="button" style={styles.pendingPreviewMoreButton}>
+                  <Pressable onPress={() => setPaymentsModalOpen(true)} accessibilityRole="button" accessibilityLabel={`Ver outras ${pendingCommitments.length - visiblePendingCommitments.length} contas pendentes`} style={styles.pendingPreviewMoreButton}>
                     <Text style={styles.pendingPreviewMore}>Ver outras {pendingCommitments.length - visiblePendingCommitments.length} contas</Text>
                     <Ionicons name="chevron-forward" size={15} color={OB.support} />
                   </Pressable>
@@ -852,13 +884,16 @@ function ControlPanel({
               </View>
             )}
 
-            {overview.commitments.length ? (
-              <Pressable onPress={() => setPaymentsModalOpen(true)} accessibilityRole="button" style={styles.reviewPaymentsButton}>
-                <Ionicons name="checkmark-done-outline" size={17} color={OB.primary} />
-                <Text style={styles.reviewPaymentsText}>Revisar pagamentos</Text>
-                <Ionicons name="chevron-forward" size={16} color={OB.support} />
-              </Pressable>
-            ) : null}
+            <Pressable
+              onPress={() => setPaymentsModalOpen(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Revisar pagamentos do período selecionado"
+              style={({ pressed }) => [styles.reviewPaymentsButton, pressed && styles.reviewPaymentsButtonPressed]}
+            >
+              <Ionicons name="checkmark-done-outline" size={17} color={OB.primary} />
+              <Text style={styles.reviewPaymentsText}>Revisar pagamentos</Text>
+              <Ionicons name="chevron-forward" size={16} color={OB.support} />
+            </Pressable>
 
             <Pressable onPress={() => router.push("/(app)/financial-plan")} accessibilityRole="button" style={styles.manageCommitmentsButton}>
               <Text style={styles.manageCommitmentsText}>Ver planejamento</Text>
@@ -879,59 +914,116 @@ function ControlPanel({
         visible={paymentsModalOpen}
         animationType="slide"
         transparent
+        presentationStyle="overFullScreen"
         statusBarTranslucent={Platform.OS === "android"}
+        navigationBarTranslucent={Platform.OS === "android"}
         onRequestClose={() => setPaymentsModalOpen(false)}
       >
         <View style={styles.paymentsModalBackdrop} accessibilityViewIsModal>
-          <Pressable
-            onPress={() => setPaymentsModalOpen(false)}
-            accessibilityRole="button"
-            accessibilityLabel="Fechar pagamentos"
-            style={StyleSheet.absoluteFill}
-          />
           <View
             style={[
               styles.paymentsModalSheet,
               {
-                marginTop: Math.max(insets.top, Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0) + 12,
-                paddingBottom: Math.max(insets.bottom, 18) + 10,
+                height: paymentsSheetHeight,
+                marginTop: paymentsSheetTopInset + 12,
               },
             ]}
           >
-            <View style={styles.paymentsModalHeader}>
+            <View style={[styles.paymentsModalHeader, compactPaymentsSheet && styles.paymentsModalHeaderCompact]}>
+              <View pointerEvents="none" style={styles.paymentsModalActionSlot} />
               <View style={styles.paymentsModalHeaderCopy}>
                 <Text style={styles.paymentsModalEyebrow}>Resumo financeiro</Text>
-                <Text style={styles.paymentsModalTitle}>Revisar pagamentos</Text>
-                <Text style={styles.paymentsModalText}>Registre uma conta pendente ou desfaça somente o vínculo de um pagamento.</Text>
+                <Text
+                  style={[styles.paymentsModalTitle, compactPaymentsSheet && styles.paymentsModalTitleCompact]}
+                  accessibilityRole="header"
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.82}
+                >
+                  Revisar pagamentos
+                </Text>
+                <Text style={[styles.paymentsModalText, compactPaymentsSheet && styles.paymentsModalTextCompact]}>Confira o que já foi pago neste período.</Text>
               </View>
-              <Pressable onPress={() => setPaymentsModalOpen(false)} accessibilityRole="button" accessibilityLabel="Fechar" style={styles.paymentsModalClose}>
-                <Ionicons name="close" size={20} color={OB.primary} />
+              <Pressable
+                onPress={() => setPaymentsModalOpen(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Fechar revisão de pagamentos"
+                style={({ pressed }) => [styles.paymentsModalClose, pressed && styles.paymentsModalClosePressed]}
+              >
+                <Ionicons name="close" size={21} color="#fff" />
               </Pressable>
             </View>
 
-            <ScrollView contentContainerStyle={styles.paymentsModalContent} showsVerticalScrollIndicator={false}>
+            <ScrollView
+              style={styles.paymentsModalScroll}
+              contentContainerStyle={[
+                styles.paymentsModalContent,
+                { paddingBottom: Math.max(insets.bottom, 18) + 22 },
+              ]}
+              showsVerticalScrollIndicator={false}
+            >
+              {overview ? (
+                <View style={styles.paymentsPeriodBar}>
+                  <View style={styles.paymentsPeriodIcon}>
+                    <Ionicons name="calendar-outline" size={18} color={OB.primary} />
+                  </View>
+                  <View style={styles.paymentsPeriodCopy}>
+                    <Text style={styles.paymentsPeriodEyebrow}>Período selecionado</Text>
+                    <Text style={styles.paymentsPeriodLabel}>{overview.cycle.label}</Text>
+                    <Text style={styles.paymentsPeriodRange}>{formatDate(overview.cycle.start)} a {formatDate(previousDate(overview.cycle.end))}</Text>
+                  </View>
+                </View>
+              ) : null}
+
+              {loadError ? (
+                <View style={styles.paymentsInlineError} accessibilityRole="alert">
+                  <Ionicons name="alert-circle-outline" size={20} color="#A33F3F" />
+                  <Text style={styles.paymentsInlineErrorText}>{loadError}</Text>
+                </View>
+              ) : null}
+
               {pendingCommitments.length ? (
-                <View>
-                  <Text style={styles.paymentsModalSectionTitle}>Pendentes ({pendingCommitments.length})</Text>
+                <View style={styles.paymentsModalSection}>
+                  <View style={styles.paymentsModalSectionHeading}>
+                    <Text style={styles.paymentsModalSectionTitle}>Pendentes</Text>
+                    <View style={styles.paymentsModalSectionCount}>
+                      <Text style={styles.paymentsModalSectionCountText}>{pendingCommitments.length}</Text>
+                    </View>
+                  </View>
                   {pendingCommitments.map(renderPaymentRow)}
                 </View>
               ) : null}
 
               {confirmedCommitments.length ? (
-                <View>
-                  <Text style={styles.paymentsModalSectionTitle}>Registrados ({confirmedCommitments.length})</Text>
+                <View style={styles.paymentsModalSection}>
+                  <View style={styles.paymentsModalSectionHeading}>
+                    <Text style={styles.paymentsModalSectionTitle}>Pagas</Text>
+                    <View style={[styles.paymentsModalSectionCount, styles.paymentsModalSectionCountPaid]}>
+                      <Text style={[styles.paymentsModalSectionCountText, styles.paymentsModalSectionCountTextPaid]}>{confirmedCommitments.length}</Text>
+                    </View>
+                  </View>
                   {confirmedCommitments.map(renderPaymentRow)}
                 </View>
               ) : null}
 
               {!overview?.commitments.length ? (
-                <View style={styles.noPendingState}>
-                  <Ionicons name="receipt-outline" size={22} color={OB.support} />
-                  <Text style={styles.noPendingText}>Nenhuma conta cadastrada neste período.</Text>
+                <View style={styles.paymentsEmptyState}>
+                  <View style={styles.paymentsEmptyIcon}>
+                    <Ionicons name="checkmark-circle-outline" size={30} color="#168A59" />
+                  </View>
+                  <Text style={styles.paymentsEmptyTitle}>Tudo certo por aqui</Text>
+                  <Text style={styles.paymentsEmptyText}>Não há pagamentos para revisar neste período.</Text>
                 </View>
               ) : null}
             </ScrollView>
           </View>
+          <Pressable
+            onPress={() => setPaymentsModalOpen(false)}
+            accessible={false}
+            focusable={false}
+            tabIndex={-1}
+            style={StyleSheet.absoluteFill}
+          />
         </View>
       </Modal>
     </ScrollView>
@@ -1276,7 +1368,7 @@ export default function JourneyScreen() {
                 ) : null}
               </ScrollView>
             </>
-          ) : <ScrollView contentContainerStyle={styles.challengesPage}><Ionicons name="trophy-outline" size={42} color={OB.primary} /><Text style={styles.placeholderTitle}>Seus desafios</Text><Text style={styles.placeholderText}>As missões são concluídas automaticamente com seus dados reais.</Text>{challengeCard}</ScrollView>}
+          ) : <ScrollView contentContainerStyle={styles.challengesPage}><Ionicons name="trophy-outline" size={42} color={OB.primary} /><Text style={styles.placeholderTitle} accessibilityRole="header">Seus desafios</Text><Text style={styles.placeholderText}>As missões são concluídas automaticamente com seus dados reais.</Text>{challengeCard}</ScrollView>}
         </View>
         <View style={styles.nav}>
           <Pressable onPress={() => setMenuOpen(true)} style={[styles.navItem, styles.navMenuItem]} accessibilityRole="button" accessibilityLabel="Abrir menu"><Ionicons name="menu-outline" size={21} color={menuOpen ? OB.primary : OB.support} /><Text style={[styles.navText, menuOpen && styles.navTextActive]} numberOfLines={1}>Menu</Text>{menuOpen ? <View style={styles.navIndicator} /> : null}</Pressable>
@@ -1525,11 +1617,13 @@ const styles = StyleSheet.create({
   controlHeader: {
     paddingHorizontal: 2,
     paddingTop: 2,
+    alignItems: "center",
   },
   controlTitle: {
     color: OB.primary,
     fontSize: 26,
     fontWeight: "900",
+    textAlign: "center",
   },
   controlSubtitle: {
     color: "#5E7591",
@@ -1537,6 +1631,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     lineHeight: 19,
     marginTop: 4,
+    textAlign: "center",
   },
   cycleNavigator: {
     minHeight: 64,
@@ -2134,7 +2229,7 @@ const styles = StyleSheet.create({
     marginTop: 3,
   },
   pendingPreviewMoreButton: {
-    minHeight: 38,
+    minHeight: 44,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -2177,71 +2272,244 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "900",
   },
+  reviewPaymentsButtonPressed: {
+    opacity: 0.72,
+  },
   paymentsModalBackdrop: {
     flex: 1,
     justifyContent: "flex-end",
     backgroundColor: "rgba(6,25,54,0.42)",
   },
   paymentsModalSheet: {
-    maxHeight: "84%",
+    width: "100%",
+    maxWidth: 680,
+    alignSelf: "center",
+    zIndex: 1,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    paddingTop: 18,
-    paddingHorizontal: 18,
+    overflow: "hidden",
     backgroundColor: OB.offWhite,
+    shadowColor: "#061936",
+    shadowOffset: { width: 0, height: -8 },
+    shadowOpacity: 0.18,
+    shadowRadius: 22,
+    elevation: 18,
   },
   paymentsModalHeader: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 12,
-    paddingBottom: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: OB.supportSoft,
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingTop: 18,
+    paddingBottom: 20,
+    backgroundColor: OB.primary,
+  },
+  paymentsModalHeaderCompact: {
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingTop: 16,
+    paddingBottom: 18,
+  },
+  paymentsModalActionSlot: {
+    width: 44,
+    height: 44,
+    flexShrink: 0,
   },
   paymentsModalHeaderCopy: {
     flex: 1,
     minWidth: 0,
+    alignItems: "center",
   },
   paymentsModalEyebrow: {
-    color: "#5E7591",
+    color: OB.textOnDarkMid,
     fontSize: 9,
     fontWeight: "900",
     letterSpacing: 1.2,
     textTransform: "uppercase",
+    textAlign: "center",
   },
   paymentsModalTitle: {
-    color: OB.primary,
-    fontSize: 20,
+    alignSelf: "stretch",
+    color: OB.textOnDark,
+    fontSize: 22,
+    lineHeight: 28,
     fontWeight: "900",
     marginTop: 4,
+    textAlign: "center",
+  },
+  paymentsModalTitleCompact: {
+    fontSize: 20,
+    lineHeight: 26,
   },
   paymentsModalText: {
-    color: "#5E7591",
+    alignSelf: "stretch",
+    color: OB.textOnDarkMid,
     fontSize: 11,
     fontWeight: "700",
     lineHeight: 17,
     marginTop: 4,
+    textAlign: "center",
+  },
+  paymentsModalTextCompact: {
+    fontSize: 10,
+    lineHeight: 15,
   },
   paymentsModalClose: {
+    width: 44,
+    height: 44,
+    flexShrink: 0,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.10)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.17)",
+  },
+  paymentsModalClosePressed: {
+    opacity: 0.74,
+    transform: [{ scale: 0.98 }],
+  },
+  paymentsModalScroll: {
+    flex: 1,
+  },
+  paymentsModalContent: {
+    flexGrow: 1,
+    gap: 16,
+    paddingHorizontal: 18,
+    paddingTop: 16,
+  },
+  paymentsPeriodBar: {
+    minHeight: 70,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 11,
+    paddingHorizontal: 13,
+    paddingVertical: 11,
+    borderRadius: 17,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  paymentsPeriodIcon: {
     width: 40,
     height: 40,
     borderRadius: 13,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: OB.supportSoft,
+    backgroundColor: "rgba(123,160,200,0.15)",
   },
-  paymentsModalContent: {
-    gap: 18,
-    paddingTop: 8,
-    paddingBottom: 16,
+  paymentsPeriodCopy: {
+    flex: 1,
+    minWidth: 0,
   },
-  paymentsModalSectionTitle: {
+  paymentsPeriodEyebrow: {
+    color: "#5E7591",
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+  paymentsPeriodLabel: {
     color: OB.primary,
     fontSize: 13,
+    lineHeight: 18,
     fontWeight: "900",
-    marginTop: 8,
+    marginTop: 2,
+  },
+  paymentsPeriodRange: {
+    color: "#5E7591",
+    fontSize: 10,
+    lineHeight: 15,
+    fontWeight: "700",
+    marginTop: 1,
+  },
+  paymentsInlineError: {
+    minHeight: 48,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
+    backgroundColor: "rgba(201,73,73,0.09)",
+    borderWidth: 1,
+    borderColor: "rgba(201,73,73,0.20)",
+  },
+  paymentsInlineErrorText: {
+    flex: 1,
+    color: "#8F3434",
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: "800",
+  },
+  paymentsModalSection: {
+    paddingTop: 2,
+  },
+  paymentsModalSectionHeading: {
+    minHeight: 32,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 2,
+  },
+  paymentsModalSectionTitle: {
+    flex: 1,
+    color: OB.primary,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  paymentsModalSectionCount: {
+    minWidth: 28,
+    height: 24,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 8,
+    backgroundColor: "rgba(55,110,165,0.11)",
+  },
+  paymentsModalSectionCountPaid: {
+    backgroundColor: "rgba(22,138,89,0.11)",
+  },
+  paymentsModalSectionCountText: {
+    color: OB.primary,
+    fontSize: 10,
+    fontWeight: "900",
+  },
+  paymentsModalSectionCountTextPaid: {
+    color: "#126B45",
+  },
+  paymentsEmptyState: {
+    flex: 1,
+    minHeight: 260,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+    paddingVertical: 34,
+  },
+  paymentsEmptyIcon: {
+    width: 58,
+    height: 58,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(22,138,89,0.10)",
+  },
+  paymentsEmptyTitle: {
+    color: OB.primary,
+    fontSize: 17,
+    fontWeight: "900",
+    textAlign: "center",
+    marginTop: 14,
+  },
+  paymentsEmptyText: {
+    maxWidth: 320,
+    color: "#5E7591",
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: "700",
+    textAlign: "center",
+    marginTop: 5,
   },
   resultSummary: {
     minHeight: 70,
@@ -2417,8 +2685,7 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   commitmentRow: {
-    minHeight: 104,
-    paddingVertical: 10,
+    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: OB.supportSoft,
   },
@@ -2442,47 +2709,89 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
+  commitmentTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
   commitmentName: {
+    flex: 1,
+    minWidth: 0,
     color: OB.primary,
     fontSize: 13,
     fontWeight: "900",
   },
   commitmentNamePaid: {
     color: OB.support,
-    textDecorationLine: "line-through",
+  },
+  commitmentStatus: {
+    flexShrink: 0,
+    minHeight: 23,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 8,
+    backgroundColor: "rgba(55,110,165,0.11)",
+  },
+  commitmentStatusPaid: {
+    backgroundColor: "rgba(22,138,89,0.11)",
+  },
+  commitmentStatusText: {
+    color: OB.primary,
+    fontSize: 9,
+    fontWeight: "900",
+  },
+  commitmentStatusTextPaid: {
+    color: "#126B45",
   },
   commitmentMeta: {
     color: "#5E7591",
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: "700",
-    lineHeight: 17,
+    lineHeight: 15,
+    marginTop: 4,
+  },
+  commitmentAmount: {
+    color: OB.primary,
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: "900",
     marginTop: 3,
   },
   commitmentToggle: {
     minHeight: 44,
     alignSelf: "stretch",
     marginTop: 8,
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     borderRadius: 13,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: OB.offWhite,
+    gap: 7,
+    backgroundColor: OB.primary,
     borderWidth: 1,
-    borderColor: OB.supportSoft,
+    borderColor: OB.primary,
   },
   commitmentTogglePaid: {
-    backgroundColor: "#168A59",
-    borderColor: "#168A59",
+    backgroundColor: "#fff",
+    borderColor: OB.supportSoft,
+  },
+  commitmentTogglePressed: {
+    opacity: 0.74,
+    transform: [{ scale: 0.995 }],
+  },
+  commitmentToggleDisabled: {
+    opacity: 0.58,
   },
   commitmentToggleText: {
     flexShrink: 1,
-    color: OB.primary,
+    color: "#fff",
     fontSize: 11,
     fontWeight: "900",
     textAlign: "center",
   },
   commitmentToggleTextPaid: {
-    color: "#fff",
+    color: OB.primary,
   },
   noCommitments: {
     minHeight: 68,
@@ -2884,6 +3193,7 @@ const styles = StyleSheet.create({
     fontSize: 19,
     fontWeight: "900",
     marginTop: 14,
+    textAlign: "center",
   },
   placeholderText: {
     color: OB.support,

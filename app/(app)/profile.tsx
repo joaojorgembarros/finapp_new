@@ -5,6 +5,7 @@ import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import { router } from "expo-router";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
+import { ScreenHeaderCard } from "../../src/ui/ScreenHeaderCard";
 import { useSession } from "../../src/providers/SessionProvider";
 import { useKeyboardAwareScroll } from "../../src/hooks/useKeyboardAwareScroll";
 import { expectedMonthlyIncomeCents, EmploymentType, getProfile, upsertProfile } from "../../src/lib/profile";
@@ -251,23 +252,14 @@ export default function OnboardingProfileScreen() {
   return (
     <OnboardingShell light>
       <KeyboardAvoidingView enabled={Platform.OS === "ios"} behavior="padding" style={styles.root}>
-        <View style={styles.header}>
-          <Text style={styles.headerEyebrow}>Perfil</Text>
-          <View style={styles.headerHeadingRow}>
-            <Pressable
-              onPress={() => router.replace("/(app)/journey")}
-              style={({ pressed }) => [styles.backButton, pressed && styles.backButtonPressed]}
-              accessibilityRole="button"
-              accessibilityLabel="Voltar"
-            >
-              <Ionicons name={Platform.OS === "ios" ? "chevron-back" : "arrow-back"} size={20} color="#fff" />
-            </Pressable>
-            <View style={styles.headerContent}>
-              <Text style={styles.headerTitle} accessibilityRole="header">Editar perfil</Text>
-              <Text style={styles.headerSubtitle}>Atualize seus dados, contato e preferências da sua jornada.</Text>
-            </View>
-          </View>
-        </View>
+        <ScreenHeaderCard
+          eyebrow="Perfil"
+          title="Editar perfil"
+          subtitle="Atualize seus dados, contato e preferências da sua jornada."
+          onBack={() => router.replace("/(app)/journey")}
+          backAccessibilityLabel="Voltar"
+          style={styles.profileHeader}
+        />
 
         <ScrollView
           ref={scrollRef}
@@ -435,54 +427,11 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: OB.offWhite,
   },
-  header: {
+  profileHeader: {
+    borderRadius: 0,
     paddingHorizontal: 20,
     paddingTop: 12,
     paddingBottom: 22,
-    backgroundColor: OB.primary,
-    alignItems: "stretch",
-    gap: 12,
-  },
-  headerHeadingRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 12,
-  },
-  backButton: {
-    width: 44,
-    height: 44,
-    alignItems: "center",
-    justifyContent: "flex-start",
-    paddingTop: 5,
-  },
-  backButtonPressed: {
-    opacity: 0.72,
-  },
-  headerContent: {
-    flex: 1,
-    minWidth: 0,
-    alignItems: "flex-start",
-  },
-  headerEyebrow: {
-    color: OB.textOnDarkMid,
-    fontSize: 10,
-    fontWeight: "900",
-    letterSpacing: 2,
-    textTransform: "uppercase",
-  },
-  headerTitle: {
-    color: OB.textOnDark,
-    fontSize: 25,
-    fontWeight: "900",
-    textAlign: "left",
-  },
-  headerSubtitle: {
-    color: OB.textOnDarkMid,
-    fontSize: 13,
-    fontWeight: "700",
-    lineHeight: 20,
-    marginTop: 6,
-    textAlign: "left",
   },
   scroll: {
     padding: 16,

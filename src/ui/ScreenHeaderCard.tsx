@@ -3,10 +3,12 @@ import React from "react";
 import {
   Platform,
   Pressable,
+  StyleProp,
   StyleSheet,
   Text,
   useWindowDimensions,
   View,
+  ViewStyle,
 } from "react-native";
 import { OB } from "./OnboardingKit";
 
@@ -18,6 +20,7 @@ type ScreenHeaderCardProps = {
   backAccessibilityLabel?: string;
   titleNumberOfLines?: number;
   navigationVariant?: "back" | "close";
+  style?: StyleProp<ViewStyle>;
 };
 
 export function ScreenHeaderCard({
@@ -28,6 +31,7 @@ export function ScreenHeaderCard({
   backAccessibilityLabel,
   titleNumberOfLines,
   navigationVariant = "back",
+  style,
 }: ScreenHeaderCardProps) {
   const { width } = useWindowDimensions();
   const compact = width < 360;
@@ -53,22 +57,34 @@ export function ScreenHeaderCard({
   ) : null;
 
   return (
-    <View style={[styles.card, compact && styles.cardCompact]}>
+    <View style={[styles.card, compact && styles.cardCompact, style]}>
       <Text style={styles.eyebrow} numberOfLines={1}>{eyebrow}</Text>
 
-      <View style={[styles.headingRow, compact && styles.headingRowCompact]}>
-        {navigationAlign === "left" ? navigationButton : null}
-        <View style={styles.headingCopy}>
-          <Text
-            style={[styles.title, compact && styles.titleCompact]}
-            numberOfLines={titleNumberOfLines}
-            accessibilityRole="header"
-          >
-            {title}
-          </Text>
-          {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
+      <View style={[styles.headingBlock, compact && styles.headingBlockCompact]}>
+        <View style={[styles.headingRow, compact && styles.headingRowCompact]}>
+          {onBack ? (
+            <View style={styles.navigationSlot}>
+              {navigationAlign === "left" ? navigationButton : null}
+            </View>
+          ) : null}
+          <View style={styles.headingCopy}>
+            <Text
+              style={[styles.title, compact && styles.titleCompact]}
+              numberOfLines={titleNumberOfLines}
+              adjustsFontSizeToFit={compact && titleNumberOfLines === 1}
+              minimumFontScale={0.82}
+              accessibilityRole="header"
+            >
+              {title}
+            </Text>
+          </View>
+          {onBack ? (
+            <View style={styles.navigationSlot}>
+              {navigationAlign === "right" ? navigationButton : null}
+            </View>
+          ) : null}
         </View>
-        {navigationAlign === "right" ? navigationButton : null}
+        {subtitle ? <Text style={[styles.subtitle, compact && styles.subtitleCompact]}>{subtitle}</Text> : null}
       </View>
     </View>
   );
@@ -85,20 +101,32 @@ const styles = StyleSheet.create({
     backgroundColor: OB.primary,
   },
   cardCompact: {
-    paddingHorizontal: 16,
-    gap: 10,
+    paddingHorizontal: 12,
+    gap: 8,
   },
   headingRow: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 12,
   },
+  headingBlock: {
+    gap: 6,
+  },
+  headingBlockCompact: {
+    gap: 5,
+  },
   headingRowCompact: {
-    gap: 10,
+    gap: 4,
   },
   headingCopy: {
     flex: 1,
     minWidth: 0,
+    alignItems: "center",
+  },
+  navigationSlot: {
+    width: 44,
+    height: 44,
+    flexShrink: 0,
   },
   navigationButton: {
     width: 44,
@@ -127,22 +155,30 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     letterSpacing: 1.4,
     textTransform: "uppercase",
+    textAlign: "center",
   },
   title: {
     color: OB.textOnDark,
     fontSize: 24,
     lineHeight: 30,
     fontWeight: "900",
+    alignSelf: "stretch",
+    textAlign: "center",
   },
   titleCompact: {
-    fontSize: 22,
-    lineHeight: 28,
+    fontSize: 20,
+    lineHeight: 26,
   },
   subtitle: {
     color: OB.textOnDarkMid,
     fontSize: 13,
     lineHeight: 20,
     fontWeight: "700",
-    marginTop: 6,
+    alignSelf: "stretch",
+    textAlign: "center",
+  },
+  subtitleCompact: {
+    fontSize: 12,
+    lineHeight: 18,
   },
 });

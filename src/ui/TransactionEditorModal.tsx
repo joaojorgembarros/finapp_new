@@ -12,6 +12,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { TRANSACTION_ACCOUNT_OPTIONS, TransactionAccountId } from "../lib/banks";
@@ -48,6 +49,8 @@ function dateFromYmd(value: string) {
 }
 
 export function TransactionEditorModal({ visible, transaction, categories, householdId, userId, onClose, onChanged }: Props) {
+  const { width } = useWindowDimensions();
+  const compact = width < 360;
   const { scrollRef, keyboardInset, registerField, focusField, cancelPendingScroll } = useKeyboardAwareScroll<Field>();
   const [type, setType] = useState<TxType>("expense");
   const [amount, setAmount] = useState("");
@@ -166,12 +169,21 @@ export function TransactionEditorModal({ visible, transaction, categories, house
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-        <View style={styles.header}>
+        <View style={[styles.header, compact && styles.headerCompact]}>
+          <View style={styles.headerActionSlot} pointerEvents="none" />
           <View style={styles.headerCopy}>
             <Text style={styles.eyebrow}>{imported ? "Importado por CSV" : "Lançamento manual"}</Text>
-            <Text style={styles.title}>{imported ? "Ajustar movimentação" : "Editar lançamento"}</Text>
+            <Text
+              style={[styles.title, compact && styles.titleCompact]}
+              accessibilityRole="header"
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.82}
+            >
+              {imported ? "Ajustar movimentação" : "Editar lançamento"}
+            </Text>
           </View>
-          <Pressable onPress={onClose} disabled={saving} style={styles.closeButton} accessibilityRole="button" accessibilityLabel="Fechar">
+          <Pressable onPress={onClose} disabled={saving} style={styles.closeButton} accessibilityRole="button" accessibilityLabel="Fechar" accessibilityState={{ disabled: saving }}>
             <Ionicons name="close" size={22} color={OB.primary} />
           </Pressable>
         </View>
@@ -290,9 +302,12 @@ export function TransactionEditorModal({ visible, transaction, categories, house
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: OB.offWhite },
   header: { paddingHorizontal: 20, paddingTop: Platform.OS === "android" ? 22 : 16, paddingBottom: 15, flexDirection: "row", alignItems: "center", borderBottomWidth: 1, borderBottomColor: OB.supportSoft, backgroundColor: "#fff" },
-  headerCopy: { flex: 1 },
-  eyebrow: { color: OB.support, fontSize: 10, fontWeight: "900", letterSpacing: 1.2, textTransform: "uppercase" },
-  title: { color: OB.primary, fontSize: 22, fontWeight: "900", marginTop: 4 },
+  headerCompact: { paddingHorizontal: 12 },
+  headerActionSlot: { width: 44, height: 44 },
+  headerCopy: { flex: 1, minWidth: 0, alignItems: "center" },
+  eyebrow: { color: OB.support, fontSize: 10, fontWeight: "900", letterSpacing: 1.2, textTransform: "uppercase", textAlign: "center" },
+  title: { color: OB.primary, fontSize: 22, fontWeight: "900", marginTop: 4, textAlign: "center" },
+  titleCompact: { fontSize: 19 },
   closeButton: { width: 44, height: 44, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: OB.offWhite },
   content: { padding: 20, paddingBottom: 36 },
   readOnlyCard: { padding: 16, borderRadius: 18, flexDirection: "row", justifyContent: "space-between", backgroundColor: "rgba(55,110,165,0.10)", borderWidth: 1, borderColor: "rgba(55,110,165,0.18)", marginBottom: 18 },
