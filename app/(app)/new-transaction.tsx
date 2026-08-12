@@ -117,6 +117,17 @@ export default function NewTransactionScreen() {
     setCategoryId(null);
   }
 
+  function cancelNewTransaction() {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace({
+      pathname: "/(app)/journey",
+      params: { tab: "movimentacoes" },
+    });
+  }
+
   const returnToControl = useCallback(() => {
     const destination = {
       pathname: "/(app)/journey" as const,
@@ -209,9 +220,9 @@ export default function NewTransactionScreen() {
           onScrollBeginDrag={cancelPendingScroll}
         >
           <ScreenHeaderCard
-            onBack={() => router.back()}
-            backAccessibilityLabel="Fechar"
-            navigationVariant="close"
+            onBack={paymentFlow ? () => router.back() : undefined}
+            backAccessibilityLabel={paymentFlow ? "Fechar" : undefined}
+            navigationVariant={paymentFlow ? "close" : undefined}
             eyebrow="Movimentações"
             title={paymentFlow ? "Registrar pagamento" : "Novo lançamento"}
             subtitle={paymentFlow ? "Escolha a conta e confirme o valor pago." : "Registre entradas e saídas com clareza."}
@@ -275,6 +286,16 @@ export default function NewTransactionScreen() {
               {saving ? "Salvando..." : paymentFlow ? "Salvar pagamento" : "Salvar lançamento"}
             </Text>
           </Pressable>
+          {!paymentFlow ? (
+            <Pressable
+              onPress={cancelNewTransaction}
+              accessibilityRole="button"
+              accessibilityLabel="Cancelar novo lançamento"
+              style={({ pressed }) => [styles.cancelButton, pressed && styles.cancelButtonPressed]}
+            >
+              <Text style={styles.cancelText}>Cancelar</Text>
+            </Pressable>
+          ) : null}
         </ScrollView>
       </KeyboardAvoidingView>
     </OnboardingShell>
@@ -312,4 +333,7 @@ const styles = StyleSheet.create({
   saveDisabled: { backgroundColor: "rgba(123,160,200,0.32)" },
   saveText: { color: "#fff", fontSize: 15, fontWeight: "900" },
   saveTextDisabled: { color: OB.support },
+  cancelButton: { minHeight: 44, alignItems: "center", justifyContent: "center", marginTop: -4 },
+  cancelButtonPressed: { opacity: 0.7 },
+  cancelText: { color: OB.support, fontSize: 13, fontWeight: "800" },
 });

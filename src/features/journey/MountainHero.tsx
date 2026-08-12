@@ -161,17 +161,17 @@ const styles = StyleSheet.create({
   },
   heroTextBlock: {
     position: "absolute",
-    left: 24,
-    right: 24,
+    left: 16,
     top: 22,
-    alignItems: "center",
+    width: 184,
+    alignItems: "flex-start",
+    zIndex: 1,
   },
   heroTitle: {
     color: OB.offWhite,
     fontSize: 27,
     fontWeight: "900",
-    marginTop: 14,
-    textAlign: "center",
+    textAlign: "left",
   },
   heroSubtitle: {
     color: "rgba(220,235,255,0.86)",
@@ -179,6 +179,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     lineHeight: 20,
     marginTop: 7,
-    textAlign: "center",
+    textAlign: "left",
   },
 });
