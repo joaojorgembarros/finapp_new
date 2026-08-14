@@ -310,7 +310,7 @@ export default function LoginScreen() {
         <View style={[styles.root, compact && styles.rootCompact, inputKeyboardActive && styles.rootKeyboardActive]}>
           <View style={[styles.brandRow, inputKeyboardActive && styles.keyboardHidden]}>
             <LogoMark />
-            <Text style={styles.brandName}>FinApp</Text>
+            <Text style={styles.brandName}>Sonho+</Text>
           </View>
 
           <View style={[styles.copyBlock, compact && styles.copyBlockCompact, inputKeyboardActive && styles.keyboardHidden]}>

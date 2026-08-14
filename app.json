@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "FinApp",
+    "name": "Sonho+",
     "slug": "finapp-zero-newdb",
-    "scheme": "finapp",
+    "scheme": "sonhomais",
     "version": "1.0.2",
     "icon": "./assets/icon.png",
     "orientation": "portrait",
@@ -14,7 +14,7 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "O FinApp acessa suas fotos para você escolher a imagem principal dos seus sonhos.",
+          "photosPermission": "O Sonho+ acessa suas fotos para você escolher a imagem principal dos seus sonhos.",
           "cameraPermission": false,
           "microphonePermission": false
         }
@@ -23,7 +23,7 @@
       [
         "expo-local-authentication",
         {
-          "faceIDPermission": "Permitir que o Sonhar+ use o Face ID para proteger seus dados financeiros."
+          "faceIDPermission": "Permitir que o Sonho+ use o Face ID para proteger seus dados financeiros."
         }
       ]
     ],
@@ -34,7 +34,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.joaojorgembarros.finapp",
+      "bundleIdentifier": "com.joaojorgembarros.sonhomais",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }

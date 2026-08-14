@@ -173,7 +173,7 @@ function WarningStep({ onCancel, onContinue }: WarningStepProps) {
     <View style={styles.stepContent}>
       <Text accessibilityRole="header" style={styles.title}>Excluir sua conta?</Text>
       <Text style={styles.description}>
-        Ao excluir sua conta, os dados do Sonhar+ associados a ela serão removidos permanentemente.
+        Ao excluir sua conta, os dados do Sonho+ associados a ela serão removidos permanentemente.
       </Text>
 
       <View

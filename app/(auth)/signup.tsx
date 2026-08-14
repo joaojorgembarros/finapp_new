@@ -285,7 +285,7 @@ export default function SignupScreen() {
               >
                 <Ionicons name={Platform.OS === "ios" ? "chevron-back" : "arrow-back"} size={20} color="#fff" />
               </Pressable>
-              <Text style={styles.brandName}>FinApp</Text>
+              <Text style={styles.brandName}>Sonho+</Text>
             </View>
 
             <View style={styles.copyBlock}>

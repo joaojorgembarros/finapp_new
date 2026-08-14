@@ -109,7 +109,7 @@ describe("biometric authentication", () => {
 
     expect(result.status).toBe("success");
     expect(deps.authenticateAsync).toHaveBeenCalledWith(expect.objectContaining({
-      promptMessage: "Desbloquear o Sonhar+",
+      promptMessage: "Desbloquear o Sonho+",
       disableDeviceFallback: true,
       biometricsSecurityLevel: "strong",
       requireConfirmation: true,

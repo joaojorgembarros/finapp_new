@@ -236,7 +236,7 @@ async function runBiometricAuthentication(
   if (!capabilities.available) return unavailableResult(capabilities);
 
   const authenticationOptions: LocalAuthentication.LocalAuthenticationOptions = {
-    promptMessage: options.promptMessage ?? "Desbloquear o Sonhar+",
+    promptMessage: options.promptMessage ?? "Desbloquear o Sonho+",
     cancelLabel: "Cancelar",
     disableDeviceFallback: true,
   };

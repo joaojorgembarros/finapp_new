@@ -1,10 +1,10 @@
 # Publicação no Google Play
 
-Este documento usa **FinApp** como nome provisório. O nome da ficha da loja pode ser alterado antes do lançamento público sem mudar o pacote `com.joaojorgembarros.finapp`.
+Este documento detalha as informações de publicação do **Sonho+** para a Google Play Store, utilizando o pacote `com.joaojorgembarros.finapp`.
 
 ## Ficha principal da loja
 
-- Nome provisório: `FinApp`
+- Nome do aplicativo: `Sonho+`
 - Idioma padrão: Português (Brasil)
 - Categoria: Finanças
 - Aplicativo ou jogo: Aplicativo
@@ -21,7 +21,7 @@ Organize suas finanças, acompanhe metas e transforme planos em conquistas.
 
 ### Descrição completa
 
-O FinApp ajuda você a entender seu dinheiro e transformar objetivos em planos possíveis.
+O Sonho+ ajuda você a entender seu dinheiro e transformar objetivos em planos possíveis.
 
 Registre receitas e despesas, organize categorias, acompanhe sua evolução e crie metas para os sonhos que realmente importam. Você também pode importar extratos bancários em CSV, revisar os lançamentos antes de confirmar e aproveitar sugestões de categorização que tornam as próximas importações mais rápidas.
 
@@ -36,7 +36,7 @@ Principais recursos:
 - acesso protegido por conta;
 - exclusão da conta e dos dados pelo próprio aplicativo.
 
-O FinApp é uma ferramenta de organização financeira pessoal. Ele não oferece consultoria financeira, contábil, jurídica ou de investimentos.
+O Sonho+ é uma ferramenta de organização financeira pessoal. Ele não oferece consultoria financeira, contábil, jurídica ou de investimentos.
 
 ## Segurança dos dados
 

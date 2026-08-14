@@ -209,12 +209,12 @@ export function AppLockScreen({
         setShowPin(true);
         setErrorMessage(
           result.message
-            ?? "Seu novo PIN foi salvo. Digite-o para desbloquear o Sonhar+.",
+            ?? "Seu novo PIN foi salvo. Digite-o para desbloquear o Sonho+.",
         );
       }
     } catch {
       setShowPin(true);
-      setErrorMessage("Seu novo PIN foi salvo. Digite-o para desbloquear o Sonhar+.");
+      setErrorMessage("Seu novo PIN foi salvo. Digite-o para desbloquear o Sonho+.");
     } finally {
       setPinSetupLoading(false);
     }
@@ -261,11 +261,11 @@ export function AppLockScreen({
             showsVerticalScrollIndicator={false}
           >
         <View style={styles.brandBlock}>
-          <Text style={styles.brand}>Sonhar+</Text>
+          <Text style={styles.brand}>Sonho+</Text>
           <View accessible={false} style={styles.lockIcon}>
             <Ionicons name="lock-closed" size={32} color={OB.white} accessible={false} />
           </View>
-          <Text accessibilityRole="header" style={styles.title}>Sonhar+ está bloqueado</Text>
+          <Text accessibilityRole="header" style={styles.title}>Sonho+ está bloqueado</Text>
           <Text style={styles.subtitle}>
             {canUseBiometric && hasPin
               ? "Confirme sua identidade com biometria ou PIN para continuar."
@@ -284,7 +284,7 @@ export function AppLockScreen({
               disabled={busy}
               accessibilityRole="button"
               accessibilityLabel={biometricLabel}
-              accessibilityHint="Confirma sua identidade e desbloqueia o Sonhar+."
+              accessibilityHint="Confirma sua identidade e desbloqueia o Sonho+."
               accessibilityState={{ disabled: busy, busy: busyMethod === "biometric" }}
               style={({ pressed }) => [
                 styles.primaryButton,
@@ -335,7 +335,7 @@ export function AppLockScreen({
                   setErrorMessage(null);
                 }}
                 editable={!busy && !pinBlocked}
-                accessibilityLabel="PIN para desbloquear o Sonhar+"
+                accessibilityLabel="PIN para desbloquear o Sonho+"
                 error={Boolean(errorMessage)}
                 tone="dark"
               />
@@ -499,7 +499,7 @@ function PasswordRecoveryModal({
             </View>
             <Text accessibilityRole="header" style={styles.recoveryTitle}>Confirme sua conta</Text>
             <Text style={styles.recoveryDescription}>
-              Digite a senha da sua conta Sonhar+ para criar um novo PIN. O PIN antigo nunca será exibido.
+              Digite a senha da sua conta Sonho+ para criar um novo PIN. O PIN antigo nunca será exibido.
             </Text>
 
             <Text style={styles.inputLabel}>SENHA DA CONTA</Text>

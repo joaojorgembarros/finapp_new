@@ -24,13 +24,13 @@ function PrivacyShield() {
   return (
     <View
       accessible
-      accessibilityLabel="Conteúdo protegido pelo Sonhar+"
+      accessibilityLabel="Conteúdo protegido pelo Sonho+"
       accessibilityViewIsModal
       importantForAccessibility="yes"
       style={styles.privacyShield}
     >
       <StatusBar style="light" backgroundColor="#06152e" translucent={false} />
-      <Text style={styles.privacyBrand}>Sonhar+</Text>
+      <Text style={styles.privacyBrand}>Sonho+</Text>
       <Text style={styles.privacyMessage}>Conteúdo protegido</Text>
     </View>
   );
@@ -132,9 +132,9 @@ function SecureRootNavigator() {
 
   if (loading || (authenticated && !readyForUser)) {
     return (
-      <View style={styles.secureBoot} accessibilityLabel="Carregando o Sonhar+">
+      <View style={styles.secureBoot} accessibilityLabel="Carregando o Sonho+">
         <ActivityIndicator color="#7BA0C8" />
-        <Text style={styles.secureBootText}>Sonhar+</Text>
+        <Text style={styles.secureBootText}>Sonho+</Text>
       </View>
     );
   }
@@ -146,9 +146,9 @@ function SecureRootNavigator() {
       );
     }
     return (
-      <View style={styles.secureBoot} accessibilityLabel="Preparando o Sonhar+">
+      <View style={styles.secureBoot} accessibilityLabel="Preparando o Sonho+">
         <ActivityIndicator color="#7BA0C8" />
-        <Text style={styles.secureBootText}>Sonhar+</Text>
+        <Text style={styles.secureBootText}>Sonho+</Text>
       </View>
     );
   }

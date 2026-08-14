@@ -1287,7 +1287,7 @@ export default function JourneyScreen() {
 
         Alert.alert(
           "Sair da conta?",
-          "Deseja deslogar do FinApp?",
+          "Deseja deslogar do Sonho+?",
           [
             {
               text: "Cancelar",

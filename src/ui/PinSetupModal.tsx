@@ -128,7 +128,7 @@ export function PinSetupModal({
   onCancel,
   onComplete,
   title = "Configurar PIN",
-  description = "Crie um PIN de 6 dígitos para acessar o Sonhar+.",
+  description = "Crie um PIN de 6 dígitos para acessar o Sonho+.",
   loading = false,
   errorMessage,
   embedded = false,

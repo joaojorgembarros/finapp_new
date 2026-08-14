@@ -34,7 +34,7 @@ const CONFIRMATION_COPY: Record<
 > = {
   "disable-lock": {
     title: "Desativar bloqueio?",
-    description: "Confirme sua identidade antes de desativar a proteção do Sonhar+.",
+    description: "Confirme sua identidade antes de desativar a proteção do Sonho+.",
   },
   "disable-biometric": {
     title: "Desativar biometria?",
@@ -60,7 +60,7 @@ const PIN_SETUP_COPY: Record<
 > = {
   "enable-lock": {
     title: "Criar PIN de acesso",
-    description: "Crie um PIN de 6 dígitos para ativar o bloqueio do Sonhar+.",
+    description: "Crie um PIN de 6 dígitos para ativar o bloqueio do Sonho+.",
   },
   "configure-pin": {
     title: "Configurar PIN",
@@ -145,9 +145,9 @@ export function SecuritySettingsCard() {
 
     const changed = await run(
       () => appLock.setLockEnabled(true),
-      "Não foi possível ativar o bloqueio do Sonhar+. Tente novamente.",
+      "Não foi possível ativar o bloqueio do Sonho+. Tente novamente.",
     );
-    if (changed) setStatusMessage("Bloqueio do Sonhar+ ativado.");
+    if (changed) setStatusMessage("Bloqueio do Sonho+ ativado.");
   }
 
   async function requestBiometricChange(nextEnabled: boolean) {
@@ -155,7 +155,7 @@ export function SecuritySettingsCard() {
       if (config.enabled && !pinConfigured) {
         Alert.alert(
           "Biometria necessária",
-          "Configure um PIN ou desative o bloqueio do Sonhar+ antes de remover seu único método de acesso.",
+          "Configure um PIN ou desative o bloqueio do Sonho+ antes de remover seu único método de acesso.",
         );
         return;
       }
@@ -177,7 +177,7 @@ export function SecuritySettingsCard() {
     try {
       const result = await appLock.enableBiometrics();
       if (result.success) {
-        setStatusMessage("Biometria ativada para proteger o Sonhar+.");
+        setStatusMessage("Biometria ativada para proteger o Sonho+.");
       } else if (result.status !== "cancelled") {
         Alert.alert(
           "Não foi possível confirmar",
@@ -205,7 +205,7 @@ export function SecuritySettingsCard() {
     if (config.enabled && !config.biometricEnabled) {
       Alert.alert(
         "PIN necessário",
-        "Ative a biometria ou desative o bloqueio do Sonhar+ antes de remover seu único método de acesso.",
+        "Ative a biometria ou desative o bloqueio do Sonho+ antes de remover seu único método de acesso.",
       );
       return;
     }
@@ -223,7 +223,7 @@ export function SecuritySettingsCard() {
       setPinSetupAction(null);
       setStatusMessage(
         action === "enable-lock"
-          ? "PIN criado e bloqueio do Sonhar+ ativado."
+          ? "PIN criado e bloqueio do Sonho+ ativado."
           : action === "replace-pin"
             ? "PIN alterado com segurança."
             : "PIN configurado como alternativa de acesso.",
@@ -241,7 +241,7 @@ export function SecuritySettingsCard() {
     const action = confirmationAction;
     if (action === "disable-lock") {
       await appLock.setLockEnabled(false);
-      setStatusMessage("Bloqueio do Sonhar+ desativado.");
+      setStatusMessage("Bloqueio do Sonho+ desativado.");
     } else if (action === "disable-biometric") {
       await appLock.disableBiometrics();
       setStatusMessage("Biometria desativada.");
@@ -321,14 +321,14 @@ export function SecuritySettingsCard() {
             <Ionicons name="lock-closed-outline" size={19} color={OB.primary} accessible={false} />
           </View>
           <View style={styles.settingCopy}>
-            <Text style={styles.settingTitle}>Bloquear o Sonhar+</Text>
+            <Text style={styles.settingTitle}>Bloquear o Sonho+</Text>
             <Text style={styles.settingSubtitle}>Exige biometria ou PIN para acessar seus dados.</Text>
           </View>
           <Switch
             value={config.enabled}
             onValueChange={(value) => void requestLockChange(value)}
             disabled={busy}
-            accessibilityLabel="Bloquear o Sonhar+"
+            accessibilityLabel="Bloquear o Sonho+"
             accessibilityHint="Ativa ou desativa a proteção local do aplicativo"
             accessibilityState={{ checked: config.enabled, disabled: busy }}
             hitSlop={8}
