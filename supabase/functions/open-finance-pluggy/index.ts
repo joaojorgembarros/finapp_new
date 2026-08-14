@@ -118,7 +118,7 @@ const corsHeaders = {
 };
 
 let pluggyApiKeyCache: { token: string; expiresAt: number } | null = null;
-const pluggyOauthRedirectUri = "finapp://open-finance";
+const pluggyOauthRedirectUri = "sonhomais://open-finance";
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {

@@ -153,4 +153,17 @@ describe("open-finance-pluggy modern Supabase credentials", () => {
     expect(body).toContain('"configured":false');
     expect(body).not.toContain(LEAK_MARKER);
   });
+
+  it("exposes the updated Sonho+ OAuth redirect URI in diagnostics and excludes legacy scheme", async () => {
+    const { handler } = await loadHandler(validEnvironment());
+    const response = await handler(new Request(
+      "https://project.example.test/functions/v1/open-finance-pluggy/config",
+    ));
+    const data = (await response.json()) as { diagnostics: { code: string; message: string }[] };
+
+    expect(response.status).toBe(200);
+    const redirectCheck = data.diagnostics.find((item) => item.code === "backend_oauth_redirect");
+    expect(redirectCheck?.message).toBe("oauthRedirectUri configurado como sonhomais://open-finance.");
+    expect(JSON.stringify(data)).not.toContain("finapp://open-finance");
+  });
 });
