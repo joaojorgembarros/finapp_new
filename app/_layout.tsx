@@ -1,12 +1,187 @@
 // app/_layout.tsx
 import React from "react";
-import { Platform, StatusBar as NativeStatusBar } from "react-native";
+import {
+  ActivityIndicator,
+  Modal,
+  Platform,
+  StatusBar as NativeStatusBar,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { Stack } from "expo-router";
 import * as NavigationBar from "expo-navigation-bar";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { SessionProvider } from "../src/providers/SessionProvider";
+import { FullWindowOverlay } from "react-native-screens";
+import { getNextMountedProtectedUserId } from "../src/lib/appLockLifecycle";
+import { SessionProvider, useSession } from "../src/providers/SessionProvider";
+import { AppLockProvider, useAppLock } from "../src/providers/AppLockProvider";
+import { AppLockScreen } from "../src/ui/AppLockScreen";
 import { theme } from "../src/ui/theme";
+
+function PrivacyShield() {
+  return (
+    <View
+      accessible
+      accessibilityLabel="Conteúdo protegido pelo Sonhar+"
+      accessibilityViewIsModal
+      importantForAccessibility="yes"
+      style={styles.privacyShield}
+    >
+      <StatusBar style="light" backgroundColor="#06152e" translucent={false} />
+      <Text style={styles.privacyBrand}>Sonhar+</Text>
+      <Text style={styles.privacyMessage}>Conteúdo protegido</Text>
+    </View>
+  );
+}
+
+function SecuritySurfaceContent({
+  locked,
+  privacyCovered,
+}: {
+  locked: boolean;
+  privacyCovered: boolean;
+}) {
+  return (
+    <View
+      accessibilityViewIsModal
+      importantForAccessibility="yes"
+      style={styles.securitySurface}
+    >
+      {locked ? (
+        <View
+          accessibilityElementsHidden={privacyCovered}
+          importantForAccessibility={privacyCovered ? "no-hide-descendants" : "auto"}
+          pointerEvents={privacyCovered ? "none" : "auto"}
+          style={styles.lockSurface}
+        >
+          <AppLockScreen windowOverlayHost />
+        </View>
+      ) : null}
+      {privacyCovered ? (
+        <View style={StyleSheet.absoluteFill}>
+          <PrivacyShield />
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function AppSecuritySurface({
+  locked,
+  privacyCovered,
+}: {
+  locked: boolean;
+  privacyCovered: boolean;
+}) {
+  if (Platform.OS === "ios") {
+    return (
+      <FullWindowOverlay unstable_accessibilityContainerViewIsModal>
+        <SecuritySurfaceContent
+          locked={locked}
+          privacyCovered={privacyCovered}
+        />
+      </FullWindowOverlay>
+    );
+  }
+
+  if (Platform.OS === "android") {
+    return (
+      <Modal
+        visible
+        animationType="none"
+        hardwareAccelerated
+        presentationStyle="fullScreen"
+        statusBarTranslucent={false}
+        navigationBarTranslucent={false}
+        onRequestClose={() => {}}
+      >
+        <SecuritySurfaceContent locked={locked} privacyCovered={privacyCovered} />
+      </Modal>
+    );
+  }
+
+  return (
+    <View style={styles.webSecuritySurface}>
+      <SecuritySurfaceContent locked={locked} privacyCovered={privacyCovered} />
+    </View>
+  );
+}
+
+function SecureRootNavigator() {
+  const { session, loading } = useSession();
+  const { readyForUser, locked, privacyCovered } = useAppLock();
+  const authenticated = Boolean(session);
+  const userId = session?.user.id ?? null;
+  const [mountedProtectedUserId, setMountedProtectedUserId] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    setMountedProtectedUserId((currentUserId) => getNextMountedProtectedUserId({
+      mountedUserId: currentUserId,
+      userId,
+      readyForUser,
+      locked,
+      privacyCovered,
+    }));
+  }, [locked, privacyCovered, readyForUser, userId]);
+
+  const protectedTreeMounted = Boolean(
+    userId && mountedProtectedUserId === userId,
+  );
+
+  if (loading || (authenticated && !readyForUser)) {
+    return (
+      <View style={styles.secureBoot} accessibilityLabel="Carregando o Sonhar+">
+        <ActivityIndicator color="#7BA0C8" />
+        <Text style={styles.secureBootText}>Sonhar+</Text>
+      </View>
+    );
+  }
+
+  if (authenticated && !protectedTreeMounted) {
+    if (locked || privacyCovered) {
+      return (
+        <SecuritySurfaceContent locked={locked} privacyCovered={privacyCovered} />
+      );
+    }
+    return (
+      <View style={styles.secureBoot} accessibilityLabel="Preparando o Sonhar+">
+        <ActivityIndicator color="#7BA0C8" />
+        <Text style={styles.secureBootText}>Sonhar+</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.appShell}>
+      <View
+        accessibilityElementsHidden={authenticated && (locked || privacyCovered)}
+        importantForAccessibility={
+          authenticated && (locked || privacyCovered) ? "no-hide-descendants" : "auto"
+        }
+        pointerEvents={authenticated && (locked || privacyCovered) ? "none" : "auto"}
+        style={styles.navigatorHost}
+      >
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="index" />
+          <Stack.Screen name="+not-found" />
+          <Stack.Protected guard={!authenticated}>
+            <Stack.Screen name="(auth)" />
+          </Stack.Protected>
+          <Stack.Protected guard={authenticated}>
+            <Stack.Screen name="(app)" />
+            <Stack.Screen name="(onboarding)" />
+            <Stack.Screen name="reset-password" />
+          </Stack.Protected>
+        </Stack>
+      </View>
+      {authenticated && protectedTreeMounted && (locked || privacyCovered) ? (
+        <AppSecuritySurface locked={locked} privacyCovered={privacyCovered} />
+      ) : null}
+    </View>
+  );
+}
 
 export default function RootLayout() {
   React.useEffect(() => {
@@ -21,9 +196,65 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <SessionProvider>
-        <StatusBar style="dark" backgroundColor={theme.colors.bg0} translucent={false} />
-        <Stack screenOptions={{ headerShown: false }} />
+        <AppLockProvider>
+          <StatusBar style="dark" backgroundColor={theme.colors.bg0} translucent={false} />
+          <SecureRootNavigator />
+        </AppLockProvider>
       </SessionProvider>
     </SafeAreaProvider>
   );
 }
+
+const styles = StyleSheet.create({
+  appShell: {
+    flex: 1,
+    backgroundColor: "#06152e",
+  },
+  navigatorHost: {
+    flex: 1,
+  },
+  secureBoot: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 14,
+    backgroundColor: "#06152e",
+  },
+  secureBootText: {
+    color: "rgba(255,255,255,0.93)",
+    fontSize: 20,
+    fontWeight: "900",
+  },
+  privacyShield: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#06152e",
+  },
+  privacyBrand: {
+    color: "#FFFFFF",
+    fontSize: 24,
+    lineHeight: 30,
+    fontWeight: "900",
+  },
+  privacyMessage: {
+    color: "rgba(218,231,244,0.88)",
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "800",
+  },
+  securitySurface: {
+    flex: 1,
+    width: "100%",
+    height: "100%",
+    backgroundColor: "#06152e",
+  },
+  lockSurface: {
+    flex: 1,
+  },
+  webSecuritySurface: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 10_000,
+  },
+});

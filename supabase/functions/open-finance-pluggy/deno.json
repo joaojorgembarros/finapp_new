@@ -1,0 +1,8 @@
+{
+  "imports": {
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@2.95.3",
+    "../_shared/supabaseApiKeys": "../_shared/supabaseApiKeys.ts",
+    "../_shared/supabaseClientFetch": "../_shared/supabaseClientFetch.ts",
+    "../../../src/lib/open-finance-contract": "../../../src/lib/open-finance-contract.ts"
+  }
+}

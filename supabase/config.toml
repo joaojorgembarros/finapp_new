@@ -1,0 +1,10 @@
+project_id = "finapp-main"
+
+[functions.invite-sender]
+verify_jwt = true
+
+[functions.open-finance-pluggy]
+verify_jwt = false
+
+[functions.delete-account]
+verify_jwt = true

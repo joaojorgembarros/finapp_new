@@ -5,6 +5,8 @@ import { useSession } from "../src/providers/SessionProvider";
 import { supabase } from "../src/lib/supabase";
 import { theme } from "../src/ui/theme";
 import { useKeyboardAwareScroll } from "../src/hooks/useKeyboardAwareScroll";
+import { getPasswordUpdateErrorMessage, validatePassword } from "../src/lib/authValidation";
+import { PasswordSecurityGuide } from "../src/ui/PasswordSecurityGuide";
 
 export default function ResetPasswordScreen() {
   const { session, loading } = useSession();
@@ -13,12 +15,23 @@ export default function ResetPasswordScreen() {
   const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
   const confirmRef = useRef<TextInput>(null);
-  const valid = useMemo(() => password.length >= 8 && password === confirm, [confirm, password]);
+  const passwordValidation = useMemo(() => validatePassword(password), [password]);
+  const passwordsMismatch = confirm.length > 0 && password !== confirm;
+  const valid = passwordValidation.isValid && password === confirm;
 
   if (!loading && !session) return <Redirect href="/(auth)/login" />;
 
   async function save() {
-    if (!valid || busy) return;
+    if (busy) return;
+    const finalPasswordValidation = validatePassword(password);
+    if (!finalPasswordValidation.isValid) {
+      Alert.alert("Senha insegura", "Sua senha ainda não atende aos requisitos de segurança.");
+      return;
+    }
+    if (password !== confirm) {
+      Alert.alert("Confira as senhas", "As senhas não coincidem.");
+      return;
+    }
     try {
       setBusy(true);
       const { error } = await supabase.auth.updateUser({ password });
@@ -26,8 +39,8 @@ export default function ResetPasswordScreen() {
       Alert.alert("Senha atualizada", "Sua nova senha já pode ser usada.", [
         { text: "Continuar", onPress: () => router.replace("/") },
       ]);
-    } catch (error: any) {
-      Alert.alert("Erro", error?.message ?? "Não foi possível atualizar sua senha.");
+    } catch (error: unknown) {
+      Alert.alert("Não foi possível atualizar", getPasswordUpdateErrorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -42,12 +55,16 @@ export default function ResetPasswordScreen() {
       onScrollBeginDrag={cancelPendingScroll}
     >
       <Text style={{ color: theme.colors.text, fontSize: 28, fontWeight: "900" }}>Criar nova senha</Text>
-      <Text style={{ color: theme.colors.muted, fontWeight: "600" }}>Use pelo menos 8 caracteres.</Text>
+      <Text style={{ color: theme.colors.muted, fontWeight: "600" }}>Crie uma senha segura para proteger sua conta.</Text>
       <View onLayout={registerField("password")}>
         <TextInput
           value={password}
           onChangeText={setPassword}
           secureTextEntry
+          autoCapitalize="none"
+          autoCorrect={false}
+          autoComplete="new-password"
+          accessibilityLabel="Nova senha"
           placeholder="Nova senha"
           returnKeyType="next"
           onFocus={() => focusField("password")}
@@ -56,12 +73,17 @@ export default function ResetPasswordScreen() {
           style={{ backgroundColor: "#fff", borderWidth: 1, borderColor: theme.colors.border, borderRadius: 14, padding: 14 }}
         />
       </View>
+      <PasswordSecurityGuide validation={passwordValidation} />
       <View onLayout={registerField("confirm")}>
         <TextInput
           ref={confirmRef}
           value={confirm}
           onChangeText={setConfirm}
           secureTextEntry
+          autoCapitalize="none"
+          autoCorrect={false}
+          autoComplete="new-password"
+          accessibilityLabel="Confirmar nova senha"
           placeholder="Confirmar nova senha"
           returnKeyType="done"
           onFocus={() => focusField("confirm")}
@@ -73,7 +95,18 @@ export default function ResetPasswordScreen() {
           style={{ backgroundColor: "#fff", borderWidth: 1, borderColor: theme.colors.border, borderRadius: 14, padding: 14 }}
         />
       </View>
-      <Pressable disabled={!valid || busy} onPress={save} style={{ borderRadius: 14, padding: 15, alignItems: "center", backgroundColor: valid ? theme.colors.primary : theme.colors.border }}>
+      {passwordsMismatch ? (
+        <Text style={{ color: theme.colors.bad, fontSize: 12, fontWeight: "800" }} accessibilityLiveRegion="polite">
+          As senhas não coincidem.
+        </Text>
+      ) : null}
+      <Pressable
+        disabled={!valid || busy}
+        onPress={save}
+        accessibilityRole="button"
+        accessibilityState={{ disabled: !valid || busy, busy }}
+        style={{ borderRadius: 14, padding: 15, alignItems: "center", backgroundColor: valid ? theme.colors.primary : theme.colors.border }}
+      >
         <Text style={{ color: "#fff", fontWeight: "900" }}>{busy ? "Salvando..." : "Salvar senha"}</Text>
       </Pressable>
     </ScrollView>

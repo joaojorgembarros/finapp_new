@@ -33,6 +33,12 @@ import Svg, {
 import { supabase } from "../../src/lib/supabase";
 import { requestPasswordReset } from "../../src/lib/auth";
 import { LEGAL_URLS, openLegalUrl } from "../../src/lib/legal";
+import {
+  getLoginErrorMessage,
+  getPasswordResetRequestErrorMessage,
+  isValidEmail,
+  normalizeEmail,
+} from "../../src/lib/authValidation";
 
 const T = {
   primary: "#0C2348",
@@ -49,11 +55,6 @@ const T = {
 } as const;
 
 type FocusKey = "email" | "password" | null;
-
-function isValidEmail(s: string) {
-  const x = s.trim();
-  return x.includes("@") && x.includes(".");
-}
 
 function AbstractBackground() {
   return (
@@ -273,28 +274,28 @@ export default function LoginScreen() {
     try {
       setLoading(true);
       const { data, error } = await supabase.auth.signInWithPassword({
-        email: email.trim().toLowerCase(),
+        email: normalizeEmail(email),
         password: pass,
       });
       if (error) throw error;
       if (!data.user?.id) throw new Error("Não foi possível identificar sua conta.");
       router.replace("/");
-    } catch (err: any) {
-      Alert.alert("Erro ao entrar", err?.message ?? "Não foi possível entrar agora.");
+    } catch (error: unknown) {
+      Alert.alert("Não foi possível entrar", getLoginErrorMessage(error));
     } finally {
       setLoading(false);
     }
   }
 
   async function onForgot() {
-    const e = email.trim().toLowerCase();
+    const e = normalizeEmail(email);
     if (!isValidEmail(e)) return Alert.alert("Recuperar senha", "Digite seu e-mail primeiro.");
     try {
       setLoading(true);
       await requestPasswordReset(e);
       Alert.alert("Enviado", "Te mandei um e-mail para redefinir sua senha.");
-    } catch (err: any) {
-      Alert.alert("Erro", err?.message ?? "Não foi possível enviar agora.");
+    } catch (error: unknown) {
+      Alert.alert("Não foi possível enviar", getPasswordResetRequestErrorMessage(error));
     } finally {
       setLoading(false);
     }

@@ -20,13 +20,16 @@ import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { OB, OnboardingBackground } from "../../src/ui/OnboardingKit";
 import { supabase } from "../../src/lib/supabase";
+import {
+  getEmailDomainSuggestion,
+  getSignupErrorMessage,
+  isValidEmail,
+  normalizeEmail,
+  validateSignupCredentials,
+} from "../../src/lib/authValidation";
+import { PasswordSecurityGuide } from "../../src/ui/PasswordSecurityGuide";
 
 type FocusKey = "name" | "email" | "password" | "confirm" | null;
-
-function isValidEmail(value: string) {
-  const email = value.trim();
-  return email.includes("@") && email.includes(".");
-}
 
 function AuthField({
   icon,
@@ -41,6 +44,7 @@ function AuthField({
   onBlur,
   onLayout,
   right,
+  autoComplete,
   returnKeyType,
   onSubmitEditing,
 }: {
@@ -56,6 +60,7 @@ function AuthField({
   onBlur: () => void;
   onLayout?: (y: number) => void;
   right?: React.ReactNode;
+  autoComplete?: TextInputProps["autoComplete"];
   returnKeyType?: TextInputProps["returnKeyType"];
   onSubmitEditing?: TextInputProps["onSubmitEditing"];
 }) {
@@ -71,8 +76,10 @@ function AuthField({
           placeholderTextColor={OB.support}
           keyboardType={keyboardType}
           secureTextEntry={secureTextEntry}
-          autoCapitalize={keyboardType === "email-address" ? "none" : "words"}
+          autoCapitalize={keyboardType === "email-address" || typeof secureTextEntry === "boolean" ? "none" : "words"}
+          autoComplete={autoComplete}
           autoCorrect={false}
+          accessibilityLabel={label}
           onFocus={onFocus}
           onBlur={onBlur}
           returnKeyType={returnKeyType}
@@ -104,11 +111,21 @@ export default function SignupScreen() {
   const [keyboardInset, setKeyboardInset] = useState(0);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [emailTouched, setEmailTouched] = useState(false);
 
-  const canSubmit = useMemo(
-    () => name.trim().length >= 2 && isValidEmail(email) && password.length >= 6 && password === confirm && !loading,
-    [confirm, email, loading, name, password]
+  const credentialsValidation = useMemo(
+    () => validateSignupCredentials({ email, password, confirmPassword: confirm }),
+    [confirm, email, password]
   );
+  const passwordValidation = credentialsValidation.password;
+  const emailSuggestion = useMemo(() => getEmailDomainSuggestion(email), [email]);
+  const formValid = useMemo(
+    () => name.trim().length >= 2 && credentialsValidation.isValid,
+    [credentialsValidation.isValid, name]
+  );
+  const canSubmit = formValid && !loading;
+  const showEmailError = emailTouched && !isValidEmail(email);
+  const passwordsMismatch = confirm.length > 0 && password !== confirm;
 
   const clearPendingScroll = useCallback(() => {
     if (pendingScrollRef.current === null) return;
@@ -128,7 +145,7 @@ export default function SignupScreen() {
     const y = fieldY.current[key];
     if (typeof y !== "number") return;
     const fieldTopOnPage = cardY.current + formY.current + y;
-    const targetTop = key === "confirm" ? 248 : key === "password" ? 260 : 18;
+    const targetTop = key === "confirm" ? 150 : key === "password" ? 80 : 18;
 
     pendingScrollRef.current = setTimeout(() => {
       pendingScrollRef.current = null;
@@ -195,12 +212,31 @@ export default function SignupScreen() {
   }
 
   async function onSignup() {
-    if (!canSubmit) return;
+    if (loading) return;
+
+    const finalValidation = validateSignupCredentials({ email, password, confirmPassword: confirm });
+    if (name.trim().length < 2) {
+      Alert.alert("Confira seu nome", "Informe seu nome para criar a conta.");
+      return;
+    }
+    if (!finalValidation.emailValid) {
+      setEmailTouched(true);
+      Alert.alert("E-mail inválido", "Digite um e-mail válido.");
+      return;
+    }
+    if (!finalValidation.password.isValid) {
+      Alert.alert("Senha insegura", "Sua senha ainda não atende aos requisitos de segurança.");
+      return;
+    }
+    if (!finalValidation.passwordsMatch) {
+      Alert.alert("Confira as senhas", "As senhas não coincidem.");
+      return;
+    }
 
     try {
       setLoading(true);
       const { data, error } = await supabase.auth.signUp({
-        email: email.trim().toLowerCase(),
+        email: finalValidation.normalizedEmail,
         password,
         options: { data: { full_name: name.trim() } },
       });
@@ -217,8 +253,8 @@ export default function SignupScreen() {
         "Enviamos um link de confirmação para seu e-mail. Depois de confirmar, volte ao app para entrar."
       );
       router.replace("/(auth)/login");
-    } catch (error: any) {
-      Alert.alert("Erro ao criar conta", error?.message ?? "Não foi possível criar sua conta agora.");
+    } catch (error: unknown) {
+      Alert.alert("Não foi possível criar a conta", getSignupErrorMessage(error));
     } finally {
       setLoading(false);
     }
@@ -279,6 +315,7 @@ export default function SignupScreen() {
                   value={name}
                   onChangeText={setName}
                   placeholder="Seu nome completo"
+                  autoComplete="name"
                   focused={focused === "name"}
                   onFocus={() => focusField("name")}
                   onBlur={() => blurField("name")}
@@ -286,66 +323,111 @@ export default function SignupScreen() {
                     fieldY.current.name = y;
                   }}
                 />
-                <AuthField
-                  icon="mail-outline"
-                  label="E-mail"
-                  value={email}
-                  onChangeText={setEmail}
-                  placeholder="seu@email.com"
-                  keyboardType="email-address"
-                  focused={focused === "email"}
-                  onFocus={() => focusField("email")}
-                  onBlur={() => blurField("email")}
-                  onLayout={(y) => {
-                    fieldY.current.email = y;
-                  }}
-                />
-                <AuthField
-                  icon="lock-closed-outline"
-                  label="Senha"
-                  value={password}
-                  onChangeText={setPassword}
-                  placeholder="Mínimo de 6 caracteres"
-                  secureTextEntry={!showPassword}
-                  focused={focused === "password"}
-                  onFocus={() => focusField("password")}
-                  onBlur={() => blurField("password")}
-                  onLayout={(y) => {
-                    fieldY.current.password = y;
-                  }}
-                  right={
-                    <Pressable onPress={() => setShowPassword((value) => !value)} style={styles.eyeButton} hitSlop={10}>
-                      <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={19} color={showPassword ? OB.primary : OB.support} />
+                <View onLayout={(event) => { fieldY.current.email = event.nativeEvent.layout.y; }}>
+                  <AuthField
+                    icon="mail-outline"
+                    label="E-mail"
+                    value={email}
+                    onChangeText={setEmail}
+                    placeholder="seu@email.com"
+                    keyboardType="email-address"
+                    autoComplete="email"
+                    focused={focused === "email"}
+                    onFocus={() => focusField("email")}
+                    onBlur={() => {
+                      setEmail(normalizeEmail(email));
+                      setEmailTouched(true);
+                      blurField("email");
+                    }}
+                  />
+                  {emailSuggestion ? (
+                    <Pressable
+                      onPress={() => {
+                        setEmail(emailSuggestion);
+                        setEmailTouched(true);
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Corrigir e-mail para ${emailSuggestion}`}
+                      style={({ pressed }) => [styles.emailSuggestion, pressed && styles.helperPressed]}
+                    >
+                      <Ionicons name="bulb-outline" size={14} color={OB.primary} />
+                      <Text style={styles.emailSuggestionText}>Você quis dizer <Text style={styles.emailSuggestionStrong}>{emailSuggestion}</Text>?</Text>
                     </Pressable>
-                  }
-                />
-                <AuthField
-                  icon="shield-checkmark-outline"
-                  label="Confirmar senha"
-                  value={confirm}
-                  onChangeText={setConfirm}
-                  placeholder="Repita sua senha"
-                  secureTextEntry={!showConfirm}
-                  focused={focused === "confirm"}
-                  onFocus={() => focusField("confirm")}
-                  onBlur={() => blurField("confirm")}
-                  returnKeyType="done"
-                  onSubmitEditing={() => {
-                    Keyboard.dismiss();
-                    if (canSubmit) void onSignup();
-                  }}
-                  onLayout={(y) => {
-                    fieldY.current.confirm = y;
-                  }}
-                  right={
-                    <Pressable onPress={() => setShowConfirm((value) => !value)} style={styles.eyeButton} hitSlop={10}>
-                      <Ionicons name={showConfirm ? "eye-off-outline" : "eye-outline"} size={19} color={showConfirm ? OB.primary : OB.support} />
-                    </Pressable>
-                  }
-                />
+                  ) : null}
+                  {showEmailError ? (
+                    <Text style={styles.fieldError} accessibilityLiveRegion="polite">Digite um e-mail válido.</Text>
+                  ) : null}
+                </View>
+                <View onLayout={(event) => { fieldY.current.password = event.nativeEvent.layout.y; }}>
+                  <AuthField
+                    icon="lock-closed-outline"
+                    label="Senha"
+                    value={password}
+                    onChangeText={setPassword}
+                    placeholder="Crie uma senha forte"
+                    secureTextEntry={!showPassword}
+                    autoComplete="new-password"
+                    focused={focused === "password"}
+                    onFocus={() => focusField("password")}
+                    onBlur={() => blurField("password")}
+                    right={
+                      <Pressable
+                        onPress={() => setShowPassword((value) => !value)}
+                        style={styles.eyeButton}
+                        hitSlop={10}
+                        accessibilityRole="button"
+                        accessibilityLabel={showPassword ? "Ocultar senha" : "Mostrar senha"}
+                      >
+                        <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={19} color={showPassword ? OB.primary : OB.support} />
+                      </Pressable>
+                    }
+                  />
+                  {focused === "password" || password.length > 0 ? (
+                    <PasswordSecurityGuide validation={passwordValidation} />
+                  ) : null}
+                </View>
+                <View onLayout={(event) => { fieldY.current.confirm = event.nativeEvent.layout.y; }}>
+                  <AuthField
+                    icon="shield-checkmark-outline"
+                    label="Confirmar senha"
+                    value={confirm}
+                    onChangeText={setConfirm}
+                    placeholder="Repita sua senha"
+                    secureTextEntry={!showConfirm}
+                    autoComplete="new-password"
+                    focused={focused === "confirm"}
+                    onFocus={() => focusField("confirm")}
+                    onBlur={() => blurField("confirm")}
+                    returnKeyType="done"
+                    onSubmitEditing={() => {
+                      Keyboard.dismiss();
+                      if (canSubmit) void onSignup();
+                    }}
+                    right={
+                      <Pressable
+                        onPress={() => setShowConfirm((value) => !value)}
+                        style={styles.eyeButton}
+                        hitSlop={10}
+                        accessibilityRole="button"
+                        accessibilityLabel={showConfirm ? "Ocultar confirmação da senha" : "Mostrar confirmação da senha"}
+                      >
+                        <Ionicons name={showConfirm ? "eye-off-outline" : "eye-outline"} size={19} color={showConfirm ? OB.primary : OB.support} />
+                      </Pressable>
+                    }
+                  />
+                  {passwordsMismatch ? (
+                    <Text style={styles.fieldError} accessibilityLiveRegion="polite">As senhas não coincidem.</Text>
+                  ) : null}
+                </View>
               </View>
 
-              <Pressable onPress={onSignup} disabled={!canSubmit} style={[styles.primaryTouch, !canSubmit && styles.disabled]}>
+              <Pressable
+                onPress={onSignup}
+                disabled={!canSubmit}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: !canSubmit, busy: loading }}
+                style={[styles.primaryTouch, !formValid && styles.disabled]}
+              >
                 <LinearGradient colors={["#06152e", OB.primary, "#163870"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.primaryButton}>
                   {loading ? (
                     <View style={styles.loadingContent}>
@@ -494,6 +576,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  emailSuggestion: {
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 3,
+  },
+  helperPressed: { opacity: 0.7 },
+  emailSuggestionText: { flex: 1, color: OB.support, fontSize: 11, lineHeight: 16, fontWeight: "700" },
+  emailSuggestionStrong: { color: OB.primary, fontWeight: "900" },
+  fieldError: { color: "#A33A3A", fontSize: 11, lineHeight: 16, fontWeight: "800", marginTop: 6, paddingHorizontal: 3 },
   primaryTouch: {
     borderRadius: 16,
     marginTop: 18,

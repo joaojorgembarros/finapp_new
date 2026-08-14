@@ -27,6 +27,10 @@ export async function hasCompletedNewOnboarding(userId: string) {
   return (await AsyncStorage.getItem(keyFor(userId))) === "done";
 }
 
+export async function clearNewOnboardingState(userId: string) {
+  await AsyncStorage.removeItem(keyFor(userId));
+}
+
 export async function saveNewOnboardingDraft(dreams: string[], values: Record<string, string>) {
   const { error } = await supabase.auth.updateUser({
     data: {

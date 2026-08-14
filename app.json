@@ -18,6 +18,13 @@
           "cameraPermission": false,
           "microphonePermission": false
         }
+      ],
+      "expo-secure-store",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Permitir que o Sonhar+ use o Face ID para proteger seus dados financeiros."
+        }
       ]
     ],
     "splash": {

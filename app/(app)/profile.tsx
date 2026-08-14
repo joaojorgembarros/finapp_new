@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Image, Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
@@ -6,13 +6,24 @@ import * as FileSystem from "expo-file-system/legacy";
 import { router } from "expo-router";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
 import { ScreenHeaderCard } from "../../src/ui/ScreenHeaderCard";
+import { SecuritySettingsCard } from "../../src/ui/SecuritySettingsCard";
+import { SecurityConfirmationModal } from "../../src/ui/SecurityConfirmationModal";
+import { AccountDeletionModal } from "../../src/ui/AccountDeletionModal";
 import { useSession } from "../../src/providers/SessionProvider";
+import { useAppLock } from "../../src/providers/AppLockProvider";
 import { useKeyboardAwareScroll } from "../../src/hooks/useKeyboardAwareScroll";
 import { expectedMonthlyIncomeCents, EmploymentType, getProfile, upsertProfile } from "../../src/lib/profile";
 import { formatBRLFromCents, formatBRLInputFromDigits, parseBRLToCents } from "../../src/lib/format";
 import { supabase } from "../../src/lib/supabase";
-import { deleteOwnAccount, requestPasswordReset } from "../../src/lib/auth";
+import { requestPasswordReset } from "../../src/lib/auth";
+import {
+  AccountDeletionError,
+  createSupabaseAccountDeletionRunner,
+  getAccountDeletionMessage,
+  shouldRequireAccountDeletionLocalIdentity,
+} from "../../src/lib/accountDeletion";
 import { LEGAL_URLS, openLegalUrl } from "../../src/lib/legal";
+import { getPasswordResetRequestErrorMessage, isValidEmail, normalizeEmail } from "../../src/lib/authValidation";
 
 const TYPES: EmploymentType[] = ["CLT", "PJ", "Autônomo", "Estudante", "Outro"];
 
@@ -56,7 +67,14 @@ function extensionFromMime(mimeType?: string | null) {
 }
 
 export default function OnboardingProfileScreen() {
-  const { session, userId, signOut } = useSession();
+  const {
+    session,
+    userId,
+    signOut,
+    clearExpiredSessionLocally,
+    finalizeDeletedAccountLocally,
+  } = useSession();
+  const appLock = useAppLock();
   const { scrollRef, keyboardInset, registerField, focusField, cancelPendingScroll } = useKeyboardAwareScroll<"personal" | "financial">();
   const userMeta = session?.user?.user_metadata as Record<string, any> | undefined;
   const email = session?.user?.email || "";
@@ -75,6 +93,23 @@ export default function OnboardingProfileScreen() {
   const [fixed, setFixed] = useState("");
   const [variableAvg, setVariableAvg] = useState("");
   const [employment, setEmployment] = useState<EmploymentType>("CLT");
+  const [accountDeletionVisible, setAccountDeletionVisible] = useState(false);
+  const [accountDeletionSecurityVisible, setAccountDeletionSecurityVisible] = useState(false);
+  const [accountDeletionLoading, setAccountDeletionLoading] = useState(false);
+  const [accountDeletionError, setAccountDeletionError] = useState<string | null>(null);
+  const [accountDeletionSecurityError, setAccountDeletionSecurityError] = useState<string | null>(null);
+  const accountDeletionRunnerRef = useRef<ReturnType<typeof createSupabaseAccountDeletionRunner> | null>(null);
+  const accountDeletionOperationRef = useRef<Promise<void> | null>(null);
+  const accountDeletionExpectedUserIdRef = useRef<string | null>(null);
+  const accountDeletionSecurityHandoffRef = useRef(false);
+  const accountDeletionModalHandoffRef = useRef(false);
+
+  if (!accountDeletionRunnerRef.current && userId) {
+    accountDeletionRunnerRef.current = createSupabaseAccountDeletionRunner(
+      userId,
+      finalizeDeletedAccountLocally,
+    );
+  }
 
   useEffect(() => {
     let alive = true;
@@ -109,13 +144,9 @@ export default function OnboardingProfileScreen() {
   });
   const previewName = name.trim() || email || "Usuário";
   const cleanAvatarUrl = avatarUrl.trim();
-  const cleanEmail = accountEmail.trim().toLowerCase();
+  const cleanEmail = normalizeEmail(accountEmail);
+  const emailChanged = cleanEmail.toLowerCase() !== normalizeEmail(email).toLowerCase();
   const cleanPhone = phone.trim();
-
-  function isValidEmail(value: string) {
-    const normalized = value.trim();
-    return normalized.includes("@") && normalized.includes(".");
-  }
 
   async function saveProfile() {
     if (!userId) return;
@@ -128,7 +159,7 @@ export default function OnboardingProfileScreen() {
 
     try {
       setBusy(true);
-      if (cleanEmail !== email.toLowerCase()) {
+      if (emailChanged) {
         await supabase.auth.updateUser({ email: cleanEmail });
       }
 
@@ -147,7 +178,7 @@ export default function OnboardingProfileScreen() {
       });
       Alert.alert(
         "Perfil",
-        cleanEmail !== email.toLowerCase()
+        emailChanged
           ? "Dados atualizados. Confirme o novo e-mail pelo link enviado para concluir a alteração."
           : "Dados atualizados."
       );
@@ -211,14 +242,21 @@ export default function OnboardingProfileScreen() {
     try {
       await requestPasswordReset(email);
       Alert.alert("Senha", "Enviamos um link de recuperação para seu e-mail.");
-    } catch (error: any) {
-      Alert.alert("Erro", error?.message ?? "Não foi possível enviar o link agora.");
+    } catch (error: unknown) {
+      Alert.alert("Não foi possível enviar", getPasswordResetRequestErrorMessage(error));
     }
   }
 
   async function logout() {
-    await signOut();
+    const result = await signOut();
+    if (result.activeAccountChanged) return;
     router.replace("/(auth)/login");
+    if (!result.remoteSignOutCompleted) {
+      Alert.alert(
+        "Sessão encerrada neste aparelho",
+        "Não foi possível confirmar a saída dos outros dispositivos. Tente novamente quando estiver conectado.",
+      );
+    }
   }
 
   function openLegalDocument(url: string) {
@@ -227,26 +265,140 @@ export default function OnboardingProfileScreen() {
     });
   }
 
-  function confirmAccountDeletion() {
-    Alert.alert(
-      "Excluir conta definitivamente?",
-      "Seus dados pessoais serão removidos. Esta ação não pode ser desfeita.",
-      [
-        { text: "Cancelar", style: "cancel" },
-        {
-          text: "Excluir conta",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await deleteOwnAccount();
-              router.replace("/(auth)/login");
-            } catch (error: any) {
-              Alert.alert("Erro ao excluir conta", error?.message ?? "Não foi possível excluir sua conta agora.");
-            }
-          },
-        },
-      ],
+  const requiresLocalIdentity = shouldRequireAccountDeletionLocalIdentity({
+    platform: Platform.OS,
+    appLockSupported: appLock.supported,
+    appLockEnabled: appLock.config.enabled,
+    hasPin: appLock.hasPin,
+    biometricEnabled: appLock.config.biometricEnabled,
+    biometricAvailable: appLock.biometricCapabilities.available,
+  });
+
+  function openAccountDeletion() {
+    if (!userId || busy || uploadingAvatar) return;
+    accountDeletionRunnerRef.current = createSupabaseAccountDeletionRunner(
+      userId,
+      finalizeDeletedAccountLocally,
     );
+    accountDeletionExpectedUserIdRef.current = userId;
+    setAccountDeletionError(null);
+    setAccountDeletionSecurityError(null);
+    setAccountDeletionVisible(true);
+  }
+
+  function showPendingAccountDeletionSecurity() {
+    if (!accountDeletionSecurityHandoffRef.current) return;
+    accountDeletionSecurityHandoffRef.current = false;
+    setAccountDeletionSecurityVisible(true);
+  }
+
+  function showPendingAccountDeletionModal() {
+    if (!accountDeletionModalHandoffRef.current) return;
+    accountDeletionModalHandoffRef.current = false;
+    setAccountDeletionVisible(true);
+  }
+
+  function returnFromDeletionSecurity() {
+    accountDeletionModalHandoffRef.current = true;
+    setAccountDeletionSecurityVisible(false);
+    if (Platform.OS !== "ios") setTimeout(showPendingAccountDeletionModal, 0);
+  }
+
+  function executeAccountDeletion(): Promise<void> {
+    if (accountDeletionOperationRef.current) return accountDeletionOperationRef.current;
+    if (!accountDeletionRunnerRef.current) return Promise.resolve();
+
+    const operation = (async () => {
+      setAccountDeletionLoading(true);
+      setAccountDeletionError(null);
+      try {
+        const result = await accountDeletionRunnerRef.current?.();
+        setAccountDeletionVisible(false);
+        setAccountDeletionSecurityVisible(false);
+        if (result?.localCleanup === "different-user") return;
+        router.replace("/(auth)/login");
+        Alert.alert("Conta excluída", "Sua conta foi excluída.");
+      } catch (error: unknown) {
+        if (error instanceof AccountDeletionError && error.code === "session-expired") {
+          const expectedUserId = accountDeletionExpectedUserIdRef.current;
+          setAccountDeletionVisible(false);
+          setAccountDeletionSecurityVisible(false);
+          const cleanupResult = expectedUserId
+            ? await clearExpiredSessionLocally(expectedUserId)
+            : "failed";
+          if (cleanupResult === "cleared") {
+            router.replace("/(auth)/login");
+            Alert.alert("Sessão expirada", getAccountDeletionMessage(error));
+          } else if (cleanupResult === "different-user") {
+            Alert.alert(
+              "Conta ativa alterada",
+              "A conta ativa mudou. Abra novamente a exclusão no perfil da conta correta.",
+            );
+          } else {
+            router.replace("/(auth)/login");
+            Alert.alert(
+              "Sessão expirada",
+              "Entre novamente para continuar. Se esta sessão reaparecer, feche e abra o app antes de tentar de novo.",
+            );
+          }
+          return;
+        }
+        const message = getAccountDeletionMessage(error);
+        if (requiresLocalIdentity) {
+          setAccountDeletionSecurityError(message);
+          setAccountDeletionSecurityVisible(true);
+          setAccountDeletionVisible(false);
+        } else {
+          setAccountDeletionError(message);
+          setAccountDeletionVisible(true);
+          setAccountDeletionSecurityVisible(false);
+        }
+      } finally {
+        setAccountDeletionLoading(false);
+      }
+    })().finally(() => {
+      accountDeletionOperationRef.current = null;
+    });
+
+    accountDeletionOperationRef.current = operation;
+    return operation;
+  }
+
+  function requestAccountDeletion() {
+    if (accountDeletionLoading) return;
+    setAccountDeletionError(null);
+    if (requiresLocalIdentity) {
+      accountDeletionSecurityHandoffRef.current = true;
+      setAccountDeletionVisible(false);
+      // iOS presents the next native Modal only after onDismiss. Other
+      // platforms use the guarded next-tick handoff because onDismiss is iOS-only.
+      if (Platform.OS !== "ios") setTimeout(showPendingAccountDeletionSecurity, 0);
+      return;
+    }
+    void executeAccountDeletion();
+  }
+
+  async function confirmDeletionWithBiometrics() {
+    setAccountDeletionSecurityError(null);
+    const result = await appLock.verifyIdentityWithBiometrics();
+    if (!result.success) {
+      if (result.status === "cancelled") return;
+      setAccountDeletionSecurityError(
+        result.message ?? "Não foi possível confirmar sua identidade.",
+      );
+      return;
+    }
+    await executeAccountDeletion();
+  }
+
+  async function confirmDeletionWithPin(pin: string) {
+    setAccountDeletionSecurityError(null);
+    const result = await appLock.verifyIdentityWithPin(pin);
+    if (!result.success) {
+      setAccountDeletionSecurityError(result.message ?? "PIN incorreto. Tente novamente.");
+      return;
+    }
+    await executeAccountDeletion();
   }
 
   return (
@@ -377,6 +529,8 @@ export default function OnboardingProfileScreen() {
             </View>
           </View>
 
+          <SecuritySettingsCard />
+
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Conta</Text>
             <Pressable onPress={resetPassword} style={styles.settingRow}>
@@ -403,6 +557,21 @@ export default function OnboardingProfileScreen() {
               </View>
               <Ionicons name="open-outline" size={18} color={OB.support} />
             </Pressable>
+            <Pressable
+              onPress={openAccountDeletion}
+              disabled={busy || uploadingAvatar}
+              accessibilityRole="button"
+              accessibilityLabel="Excluir minha conta"
+              accessibilityState={{ disabled: busy || uploadingAvatar }}
+              style={[styles.deleteSettingRow, (busy || uploadingAvatar) && styles.buttonDisabled]}
+            >
+              <Ionicons name="trash-outline" size={20} color="#A33B3B" />
+              <View style={styles.settingInfo}>
+                <Text style={styles.deleteSettingTitle}>Excluir minha conta</Text>
+                <Text style={styles.settingSubtitle}>Remova permanentemente sua conta e os dados associados</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color="#A33B3B" />
+            </Pressable>
           </View>
 
           <Pressable onPress={saveProfile} disabled={busy} style={[styles.primaryButton, busy && styles.buttonDisabled]}>
@@ -412,11 +581,41 @@ export default function OnboardingProfileScreen() {
             <Ionicons name="log-out-outline" size={20} color="#B94A4A" />
             <Text style={styles.dangerText}>Sair da conta</Text>
           </Pressable>
-          <Pressable onPress={confirmAccountDeletion} style={styles.deleteButton}>
-            <Ionicons name="trash-outline" size={20} color="#B94A4A" />
-            <Text style={styles.dangerText}>Excluir minha conta</Text>
-          </Pressable>
         </ScrollView>
+        <AccountDeletionModal
+          visible={accountDeletionVisible}
+          loading={accountDeletionLoading}
+          errorMessage={accountDeletionError}
+          onCancel={() => {
+            if (accountDeletionLoading) return;
+            setAccountDeletionVisible(false);
+            setAccountDeletionError(null);
+          }}
+          onDismiss={showPendingAccountDeletionSecurity}
+          onRequestDeletion={requestAccountDeletion}
+        />
+        <SecurityConfirmationModal
+          visible={accountDeletionSecurityVisible}
+          title="Confirme sua identidade"
+          description="Use a proteção local do Sonhar+ antes de excluir sua conta permanentemente."
+          onCancel={() => {
+            if (accountDeletionLoading) return;
+            setAccountDeletionSecurityError(null);
+            returnFromDeletionSecurity();
+          }}
+          onDismiss={showPendingAccountDeletionModal}
+          showBiometric={appLock.config.biometricEnabled}
+          biometricAvailable={appLock.biometricCapabilities.available}
+          biometricLabel={appLock.biometricCapabilities.actionLabel}
+          onBiometric={confirmDeletionWithBiometrics}
+          pinEnabled={appLock.hasPin}
+          onConfirmPin={confirmDeletionWithPin}
+          loading={accountDeletionLoading || appLock.busy}
+          message={accountDeletionLoading ? "Excluindo sua conta..." : null}
+          errorMessage={accountDeletionSecurityError}
+          cooldownSeconds={Math.ceil(appLock.cooldownRemainingMs / 1_000)}
+          cooldownKey={appLock.attempts.cooldownUntilMs ?? appLock.attempts.failedAttempts}
+        />
       </KeyboardAvoidingView>
     </OnboardingShell>
   );
@@ -649,16 +848,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "900",
   },
-  deleteButton: {
-    minHeight: 54,
+  deleteSettingRow: {
+    minHeight: 62,
     borderRadius: 16,
     paddingHorizontal: 14,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
+    gap: 12,
     borderWidth: 1,
-    borderColor: "#E8A2A2",
-    backgroundColor: "transparent",
+    borderColor: "#F1C2C2",
+    backgroundColor: "#FFF7F7",
+  },
+  deleteSettingTitle: {
+    color: "#A33B3B",
+    fontSize: 14,
+    fontWeight: "900",
   },
 });

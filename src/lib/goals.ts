@@ -5,6 +5,13 @@ const sb: any = supabase;
 const signedPhotoUrlCache = new Map<string, { url: string; expiresAt: number }>();
 const SIGNED_PHOTO_CACHE_MS = 50 * 60 * 1000;
 
+export function clearSignedGoalPhotoCacheForUser(userId: string) {
+  for (const path of signedPhotoUrlCache.keys()) {
+    const segments = path.split("/");
+    if (segments[1] === userId) signedPhotoUrlCache.delete(path);
+  }
+}
+
 export type GoalProgress = {
   id: string;
   household_id: string;
