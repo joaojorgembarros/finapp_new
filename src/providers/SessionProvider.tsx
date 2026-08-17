@@ -2,7 +2,8 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { AppState, Platform, Linking } from "react-native";
 import { Session } from "@supabase/supabase-js";
-import { bootstrapInitialRecovery, setupLinkingListener, processRecoveryUrl } from "../lib/recoveryHandler";
+import { setupLinkingListener, processRecoveryUrl } from "../lib/recoveryHandler";
+import { parseRecoveryUrl } from "../lib/recoveryLink";
 import { appLockStorage } from "../lib/appLockStorage";
 import { clearSignedGoalPhotoCacheForUser } from "../lib/goals";
 import { clearNewOnboardingState } from "../lib/newOnboarding";
@@ -32,6 +33,12 @@ type Ctx = {
   finalizeDeletedAccountLocally: (
     deletedUserId: string,
   ) => Promise<LocalSessionClearResult>;
+  // If a recovery link established a session while the protected tree was not ready,
+  // this path contains the pathname (eg. '/reset-password') that should be navigated
+  // once the authenticated/protected navigation tree becomes available.
+  pendingRecoveryPath?: string | null;
+  // Consume and clear the pending recovery (returns the current path then clears it)
+  consumePendingRecovery?: () => string | null;
 };
 
 const SessionContext = createContext<Ctx | null>(null);
@@ -114,6 +121,18 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const deletedAccountUserIdRef = useRef<string | null>(null);
   const pendingDeletedAccountCleanupRef = useRef<string | null>(null);
   const pendingLocalSessionCleanupRef = useRef<string | null>(null);
+
+  // Pending recovery path produced when a recovery link is processed and a session
+  // is established while the protected tree is not yet available. The navigation
+  // should be performed later by the navigation layer when it is safe.
+  const [pendingRecoveryPath, setPendingRecoveryPath] = useState<string | null>(null);
+  const pendingRecoveryRef = useRef<string | null>(null);
+  const consumePendingRecovery = useCallback(() => {
+    const p = pendingRecoveryRef.current ?? pendingRecoveryPath;
+    pendingRecoveryRef.current = null;
+    setPendingRecoveryPath(null);
+    return p ?? null;
+  }, [pendingRecoveryPath]);
 
   const clearLocalSessionForUser = useCallback(async (
     expectedUserId: string,
@@ -230,11 +249,29 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
 
     const tryHandleInitialAndListen = async () => {
-      // Try initial URL first to cover cold start
+      // Try initial URL first to cover cold start. We need both the URL and
+      // the process result: if a recovery link establishes a session we must
+      // record a pending recovery navigation instead of navigating immediately.
       try {
-        await bootstrapInitialRecovery(supabase, Linking, dedupeState);
+        const initial = await Linking.getInitialURL();
+        if (initial) {
+          try {
+            // attempt to process the recovery link (may call supabase.auth.setSession)
+            const res = await processRecoveryUrl(supabase, initial, dedupeState);
+            if (res && (res as any).processed) {
+              const parsed = parseRecoveryUrl(initial);
+              if (parsed && parsed.pathname && parsed.pathname.includes("reset-password")) {
+                // store pending recovery: keep in ref and state so navigation layer can observe
+                pendingRecoveryRef.current = parsed.pathname;
+                setPendingRecoveryPath(parsed.pathname);
+              }
+            }
+          } catch {
+            // ignore failures from recovery processing; fallthrough to normal restore
+          }
+        }
       } catch {
-        // ignore
+        // ignore Linking.getInitialURL failures
       }
 
       // Now restore session from storage / Supabase as usual
@@ -268,7 +305,14 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       const onUrl = async (url: string) => {
         // processRecoveryUrl returns processed/duplicate etc.
         try {
-          await processRecoveryUrl(supabase, url, dedupeState);
+          const res = await processRecoveryUrl(supabase, url, dedupeState);
+          if (res && (res as any).processed) {
+            const parsed = parseRecoveryUrl(url);
+            if (parsed && parsed.pathname && parsed.pathname.includes("reset-password")) {
+              pendingRecoveryRef.current = parsed.pathname;
+              setPendingRecoveryPath(parsed.pathname);
+            }
+          }
         } catch {
           // swallow
         }
@@ -441,8 +485,10 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       signOut,
       clearExpiredSessionLocally,
       finalizeDeletedAccountLocally,
+      pendingRecoveryPath,
+      consumePendingRecovery,
     }),
-    [session, loading, signOut, clearExpiredSessionLocally, finalizeDeletedAccountLocally]
+    [session, loading, signOut, clearExpiredSessionLocally, finalizeDeletedAccountLocally, pendingRecoveryPath, consumePendingRecovery]
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

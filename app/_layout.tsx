@@ -9,7 +9,8 @@ import {
   Text,
   View,
 } from "react-native";
-import { Stack } from "expo-router";
+import { Stack, router } from "expo-router";
+import { PendingRecoveryNavigator } from "../src/lib/pendingRecoveryController";
 import * as NavigationBar from "expo-navigation-bar";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -110,7 +111,7 @@ function AppSecuritySurface({
 }
 
 function SecureRootNavigator() {
-  const { session, loading } = useSession();
+  const { session, loading, pendingRecoveryPath, consumePendingRecovery } = useSession();
   const { readyForUser, locked, privacyCovered } = useAppLock();
   const authenticated = Boolean(session);
   const userId = session?.user.id ?? null;
@@ -126,9 +127,40 @@ function SecureRootNavigator() {
     }));
   }, [locked, privacyCovered, readyForUser, userId]);
 
+
   const protectedTreeMounted = Boolean(
     userId && mountedProtectedUserId === userId,
   );
+
+  // Observe pending recovery and navigate only when it's safe: the protected
+  // tree must be mounted and App Lock/privacy must not block rendering. The
+  // SessionProvider records pendingRecoveryPath when a recovery link established
+  // a session while the protected navigation tree was not yet available.
+  const pendingRecoveryNavigatorRef = React.useRef<PendingRecoveryNavigator | null>(null);
+  if (!pendingRecoveryNavigatorRef.current) pendingRecoveryNavigatorRef.current = new PendingRecoveryNavigator();
+
+  React.useEffect(() => {
+    const navigator = pendingRecoveryNavigatorRef.current!;
+    if (!pendingRecoveryPath) return;
+    if (loading) return;
+    if (!session) return;
+    if (!protectedTreeMounted) return;
+    if (locked || privacyCovered) return; // respect App Lock / Privacy Shield
+
+    // Capture the pending path at call time to avoid races with later changes
+    const pathSnapshot = pendingRecoveryPath;
+
+    void navigator.tryNavigate({
+      pendingPath: pathSnapshot,
+      loading,
+      authenticated: authenticated,
+      protectedTreeMounted,
+      locked,
+      privacyCovered,
+      navigate: async (p: string) => await router.replace(p),
+      consume: () => (consumePendingRecovery ? consumePendingRecovery() : null),
+    });
+  }, [pendingRecoveryPath, loading, session, protectedTreeMounted, locked, privacyCovered, consumePendingRecovery, authenticated]);
 
   if (loading || (authenticated && !readyForUser)) {
     return (
