@@ -1,7 +1,8 @@
 // src/providers/SessionProvider.tsx
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { AppState, Platform } from "react-native";
+import { AppState, Platform, Linking } from "react-native";
 import { Session } from "@supabase/supabase-js";
+import { bootstrapInitialRecovery, setupLinkingListener, processRecoveryUrl } from "../lib/recoveryHandler";
 import { appLockStorage } from "../lib/appLockStorage";
 import { clearSignedGoalPhotoCacheForUser } from "../lib/goals";
 import { clearNewOnboardingState } from "../lib/newOnboarding";
@@ -224,7 +225,19 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
-    const loadSession = async () => {
+    // Dedup state (in-memory) allows later distinct links to be processed while skipping immediate duplicates
+    const dedupeState = { lastSig: null as string | null, lastAt: null as number | null };
+
+
+    const tryHandleInitialAndListen = async () => {
+      // Try initial URL first to cover cold start
+      try {
+        await bootstrapInitialRecovery(supabase, Linking, dedupeState);
+      } catch {
+        // ignore
+      }
+
+      // Now restore session from storage / Supabase as usual
       const startingRevision = authRevisionRef.current;
       try {
         const { data, error } = await supabase.auth.getSession();
@@ -250,9 +263,24 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       } finally {
         if (mounted) setLoading(false);
       }
+
+      // Listener for in-app links (app already open)
+      const onUrl = async (url: string) => {
+        // processRecoveryUrl returns processed/duplicate etc.
+        try {
+          await processRecoveryUrl(supabase, url, dedupeState);
+        } catch {
+          // swallow
+        }
+      };
+
+      const cleanup = setupLinkingListener(Linking, (u: string) => onUrl(u));
+
+      return cleanup;
     };
 
-    loadSession();
+    let cleanupListener: (() => void) | undefined;
+    tryHandleInitialAndListen().then((cleanup) => { cleanupListener = cleanup as (() => void) | undefined; }).catch(() => {});
 
     const { data: sub } = supabase.auth.onAuthStateChange((event, sess) => {
       authRevisionRef.current += 1;
@@ -277,6 +305,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     return () => {
       mounted = false;
       sub.subscription.unsubscribe();
+      try { if (cleanupListener) cleanupListener(); } catch { }
     };
   }, []);
 
