@@ -1,4 +1,15 @@
-export const OPEN_FINANCE_PROVIDER = "pluggy" as const;
+export const OPEN_FINANCE_PROVIDERS = ["pluggy", "polp"] as const;
+
+export type OpenFinanceProvider = (typeof OPEN_FINANCE_PROVIDERS)[number];
+
+/**
+ * Provider used by the existing Pluggy Edge Function.
+ *
+ * Keep this export while the current frontend is Pluggy-backed. New shared code
+ * should use `OpenFinanceProvider` instead of deriving the provider type from
+ * this compatibility constant.
+ */
+export const OPEN_FINANCE_PROVIDER = "pluggy" as const satisfies OpenFinanceProvider;
 
 export const OPEN_FINANCE_ENDPOINTS = {
   config: "/config",
@@ -9,7 +20,6 @@ export const OPEN_FINANCE_ENDPOINTS = {
   webhook: "/webhook",
 } as const;
 
-export type OpenFinanceProvider = typeof OPEN_FINANCE_PROVIDER;
 export type OpenFinanceConfigurationStatus =
   | "ready"
   | "disabled"
@@ -53,13 +63,128 @@ export type OpenFinanceSyncStatus = "idle" | "syncing" | "success" | "error";
 export type OpenFinanceTransactionDirection = "income" | "expense";
 export type OpenFinanceWidgetMode = "create" | "update";
 
-export type OpenFinanceInstitution = {
+export type OpenFinanceDate = string & { readonly __openFinanceDate: unique symbol };
+
+export type OpenFinanceExternalTransactionIdentity = {
+  provider: OpenFinanceProvider;
+  /** UUID of the local `bank_connections` row. */
+  internalConnectionId: string;
+  /** Connection/item/consent identifier assigned by the provider, when one exists. */
+  externalConnectionId: string | null;
+  /** Account identifier assigned by the provider. */
+  externalAccountId: string;
+  /** Transaction identifier assigned by the provider. */
+  externalTransactionId: string;
+};
+
+export type OpenFinanceTransactionFingerprintInput =
+  OpenFinanceExternalTransactionIdentity & {
+    occurredOn: string;
+    amountCents: number;
+  };
+
+export function isOpenFinanceProvider(value: unknown): value is OpenFinanceProvider {
+  return typeof value === "string" && OPEN_FINANCE_PROVIDERS.some((provider) => provider === value);
+}
+
+export function isOpenFinanceDate(value: unknown): value is OpenFinanceDate {
+  if (typeof value !== "string") return false;
+
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (year < 1 || month < 1 || month > 12 || day < 1) return false;
+
+  const isLeapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, isLeapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return day <= daysInMonth[month - 1];
+}
+
+export function parseOpenFinanceDate(value: unknown): OpenFinanceDate {
+  if (!isOpenFinanceDate(value)) {
+    throw new RangeError("Open Finance date must be a valid YYYY-MM-DD calendar date.");
+  }
+
+  return value;
+}
+
+function assertIdentityPart(name: string, value: string) {
+  if (value.trim().length === 0) {
+    throw new TypeError(`${name} must be a non-empty identifier.`);
+  }
+}
+
+function serializeIdentityPart(value: string | null) {
+  return value === null ? "n" : `s${value.length}:${value}`;
+}
+
+function serializeTransactionIdentity(
+  identity: OpenFinanceExternalTransactionIdentity,
+  suffix: readonly (string | null)[] = [],
+) {
+  if (!isOpenFinanceProvider(identity.provider)) {
+    throw new TypeError("provider must be a supported Open Finance provider.");
+  }
+
+  assertIdentityPart("internalConnectionId", identity.internalConnectionId);
+  if (identity.externalConnectionId !== null) {
+    assertIdentityPart("externalConnectionId", identity.externalConnectionId);
+  }
+  assertIdentityPart("externalAccountId", identity.externalAccountId);
+  assertIdentityPart("externalTransactionId", identity.externalTransactionId);
+
+  return [
+    identity.provider,
+    identity.internalConnectionId,
+    identity.externalConnectionId,
+    identity.externalAccountId,
+    identity.externalTransactionId,
+    ...suffix,
+  ].map(serializeIdentityPart).join("|");
+}
+
+export function buildOpenFinanceExternalTransactionIdentityKey(
+  identity: OpenFinanceExternalTransactionIdentity,
+) {
+  return `open-finance-transaction-identity:v1|${serializeTransactionIdentity(identity)}`;
+}
+
+export function buildOpenFinanceTransactionFingerprint(
+  input: OpenFinanceTransactionFingerprintInput,
+) {
+  const occurredOn = parseOpenFinanceDate(input.occurredOn);
+  if (!Number.isSafeInteger(input.amountCents) || input.amountCents <= 0) {
+    throw new RangeError("amountCents must be a positive safe integer.");
+  }
+
+  return `open-finance-transaction-fingerprint:v1|${serializeTransactionIdentity(input, [
+    occurredOn,
+    String(input.amountCents),
+  ])}`;
+}
+
+type OpenFinanceInstitutionBase = {
   id: string;
   name: string;
   displayName: string;
-  provider: OpenFinanceProvider;
+};
+
+export type OpenFinancePluggyInstitution = OpenFinanceInstitutionBase & {
+  provider: "pluggy";
   connectorId: number | null;
 };
+
+export type OpenFinancePolpInstitution = OpenFinanceInstitutionBase & {
+  provider: "polp";
+  connectorId: null;
+};
+
+export type OpenFinanceInstitution =
+  | OpenFinancePluggyInstitution
+  | OpenFinancePolpInstitution;
 
 export type OpenFinanceConsent = {
   id: string;
@@ -102,12 +227,10 @@ export type OpenFinanceImportedTransaction = {
   rawPayload: Record<string, unknown> | null;
 };
 
-export type OpenFinanceConnection = {
+type OpenFinanceConnectionBase = {
   id: string;
   householdId: string;
   userId: string;
-  provider: OpenFinanceProvider;
-  institution: OpenFinanceInstitution;
   accountName: string;
   accountMask: string;
   externalConnectionId: string | null;
@@ -123,6 +246,20 @@ export type OpenFinanceConnection = {
   updatedAt: string;
   rawPayload: Record<string, unknown> | null;
 };
+
+export type OpenFinancePluggyConnection = OpenFinanceConnectionBase & {
+  provider: "pluggy";
+  institution: OpenFinancePluggyInstitution;
+};
+
+export type OpenFinancePolpConnection = OpenFinanceConnectionBase & {
+  provider: "polp";
+  institution: OpenFinancePolpInstitution;
+};
+
+export type OpenFinanceConnection =
+  | OpenFinancePluggyConnection
+  | OpenFinancePolpConnection;
 
 export type OpenFinanceRuntime = {
   enabled: boolean;
@@ -157,8 +294,8 @@ export type OpenFinanceStartConnectionRequest = {
   connectionId?: string | null;
 };
 
-export type OpenFinanceStartConnectionResponse = {
-  provider: OpenFinanceProvider;
+export type OpenFinancePluggyStartConnectionResponse = {
+  provider: "pluggy";
   mode: OpenFinanceWidgetMode;
   connectToken: string;
   expiresAt: string | null;
@@ -173,6 +310,18 @@ export type OpenFinanceStartConnectionResponse = {
     cnpj?: string;
   } | null;
 };
+
+export type OpenFinancePolpStartConnectionResponse = {
+  provider: "polp";
+  mode: OpenFinanceWidgetMode;
+  consentId: string;
+  authorizationUrl: string;
+  expiresAt: string | null;
+};
+
+export type OpenFinanceStartConnectionResponse =
+  | OpenFinancePluggyStartConnectionResponse
+  | OpenFinancePolpStartConnectionResponse;
 
 export type OpenFinanceCompleteConnectionRequest = {
   householdId: string;

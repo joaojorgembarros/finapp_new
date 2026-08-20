@@ -4,17 +4,19 @@ import { resolveSupabaseSecretKey } from "../_shared/supabaseApiKeys";
 import { createSupabaseSecretKeyFetch } from "../_shared/supabaseClientFetch";
 
 import {
+  buildOpenFinanceTransactionFingerprint,
+  isOpenFinanceDate,
   OPEN_FINANCE_PROVIDER,
   OpenFinanceApiErrorPayload,
   OpenFinanceBackendConfigResponse,
   OpenFinanceConfigurationCheck,
-  OpenFinanceConnection,
   OpenFinanceConnectionStatus,
   OpenFinanceConsent,
   OpenFinanceConsentStatus,
   OpenFinanceDisconnectConnectionResponse,
-  OpenFinanceInstitution,
   OpenFinanceListConnectionsResponse,
+  OpenFinancePluggyConnection,
+  OpenFinancePluggyInstitution,
   OpenFinanceStartConnectionResponse,
   OpenFinanceSyncMonthResponse,
   OpenFinanceSyncRun,
@@ -363,9 +365,19 @@ function normalizeDate(value: unknown) {
 }
 
 function toYmd(value: unknown) {
-  const iso = normalizeDate(value);
-  if (!iso) return null;
-  return iso.slice(0, 10);
+  const raw = asString(value).trim();
+  const match = /^(\d{4}-\d{2}-\d{2})(?:$|T)/.exec(raw);
+  const datePart = match?.[1];
+
+  if (!datePart || !isOpenFinanceDate(datePart)) {
+    return null;
+  }
+
+  if (raw === datePart) {
+    return datePart;
+  }
+
+  return normalizeDate(raw) ? datePart : null;
 }
 
 function nowIso() {
@@ -379,25 +391,21 @@ function maskAccount(value: unknown, fallbackSource: unknown) {
 }
 
 function monthRange(monthKey: string) {
-  const [yearRaw, monthRaw] = monthKey.split("-");
-  const year = Number(yearRaw);
-  const month = Number(monthRaw);
+  const match = /^(\d{4})-(\d{2})$/.exec(monthKey);
+  const year = Number(match?.[1]);
+  const month = Number(match?.[2]);
 
-  if (!Number.isFinite(year) || !Number.isFinite(month)) {
+  if (!match || !isOpenFinanceDate(`${monthKey}-01`)) {
     throw new HttpError(400, "Mês inválido.");
   }
 
-  const from = new Date(year, month - 1, 1);
-  const to = new Date(year, month, 1);
+  const nextYear = month === 12 ? year + 1 : year;
+  const nextMonth = month === 12 ? 1 : month + 1;
 
   return {
-    from: from.toISOString().slice(0, 10),
-    to: to.toISOString().slice(0, 10),
+    from: `${monthKey}-01`,
+    to: `${String(nextYear).padStart(4, "0")}-${String(nextMonth).padStart(2, "0")}-01`,
   };
-}
-
-function buildDuplicateKey(externalTransactionId: string, occurredOn: string, amountCents: number) {
-  return `${externalTransactionId}|${occurredOn}|${amountCents}`;
 }
 
 function deriveConsentStatus(
@@ -443,7 +451,7 @@ function mapItemStatus(item: PluggyItem): OpenFinanceConnectionStatus {
   return "connected";
 }
 
-function buildInstitution(item: PluggyItem, account: PluggyAccount): OpenFinanceInstitution {
+function buildInstitution(item: PluggyItem, account: PluggyAccount): OpenFinancePluggyInstitution {
   const connector = toJsonObject(item.connector) ?? {};
   const connectorId = Number(
     connector.id ??
@@ -520,7 +528,7 @@ function mapConnectionPayload(
   row: ConnectionRow,
   consentRow: ConsentRow | null,
   syncRunRow: SyncRunRow | null
-): OpenFinanceConnection {
+): OpenFinancePluggyConnection {
   const consent = mapConsentPayload(row.id, consentRow);
   const lastSyncRun = mapSyncRun(syncRunRow);
   const consentStatus = deriveConsentStatus(
@@ -645,6 +653,7 @@ async function listConnectionsForHousehold(
   const { data: connectionData, error: connectionError } = await admin
     .from("bank_connections")
     .select("*")
+    .eq("provider", OPEN_FINANCE_PROVIDER)
     .eq("household_id", householdId)
     .neq("status", "disconnected")
     .order("created_at", { ascending: false });
@@ -660,10 +669,12 @@ async function listConnectionsForHousehold(
       admin
         .from("bank_connection_consents")
         .select("*")
+        .eq("provider", OPEN_FINANCE_PROVIDER)
         .in("connection_id", connections),
       admin
         .from("bank_sync_runs")
         .select("*")
+        .eq("provider", OPEN_FINANCE_PROVIDER)
         .in("connection_id", connections)
         .order("started_at", { ascending: false }),
     ])
@@ -757,6 +768,7 @@ async function updateSyncRun(
       raw_payload: rawPayload,
     })
     .eq("id", runId)
+    .eq("provider", OPEN_FINANCE_PROVIDER)
     .select("*")
     .single();
 
@@ -782,6 +794,7 @@ async function updateConnectionsByItem(
       status: input.status,
       last_synced_at: input.lastSyncedAt ?? null,
     })
+    .eq("provider", OPEN_FINANCE_PROVIDER)
     .eq("household_id", input.householdId)
     .eq("external_connection_id", input.itemId);
 
@@ -800,6 +813,7 @@ async function revokeConsentsByItem(
   const { data: connections, error: connectionsError } = await admin
     .from("bank_connections")
     .select("id")
+    .eq("provider", OPEN_FINANCE_PROVIDER)
     .eq("household_id", input.householdId)
     .eq("external_connection_id", input.itemId);
 
@@ -818,11 +832,67 @@ async function revokeConsentsByItem(
         revoked_at: nowIso(),
       },
     })
+    .eq("provider", OPEN_FINANCE_PROVIDER)
     .in("connection_id", ids);
 
   if (error) {
     throw new HttpError(500, error.message);
   }
+}
+
+async function persistPluggyConsent(
+  admin: SupabaseAdmin,
+  payload: {
+    connection_id: string;
+    household_id: string;
+    created_by: string;
+    provider: "pluggy";
+    external_consent_id: string | null;
+    status: OpenFinanceConsentStatus;
+    granted_at: string;
+    expires_at: string | null;
+    raw_payload: PluggyConsent;
+  },
+) {
+  const updateExisting = () => admin
+    .from("bank_connection_consents")
+    .update(payload)
+    .eq("connection_id", payload.connection_id)
+    .eq("provider", OPEN_FINANCE_PROVIDER)
+    .select("id");
+
+  const { data: updated, error: updateError } = await updateExisting();
+
+  if (updateError) {
+    throw new HttpError(500, updateError.message);
+  }
+
+  if (((updated as { id: string }[] | null) ?? []).length > 0) {
+    return;
+  }
+
+  const { error: insertError } = await admin
+    .from("bank_connection_consents")
+    .insert(payload);
+
+  if (!insertError) {
+    return;
+  }
+
+  // A concurrent Pluggy completion may have inserted the same connection.
+  // Retry only a provider-scoped update; never resolve the UNIQUE(connection_id)
+  // conflict by overwriting a row owned by another provider.
+  if (insertError.code === "23505") {
+    const { data: retried, error: retryError } = await updateExisting();
+    if (retryError) {
+      throw new HttpError(500, retryError.message);
+    }
+    if (((retried as { id: string }[] | null) ?? []).length > 0) {
+      return;
+    }
+  }
+
+  throw new HttpError(500, insertError.message);
 }
 
 async function upsertConnectionsFromItem(
@@ -912,31 +982,22 @@ async function upsertConnectionsFromItem(
       );
       const externalConsentId = asString(latestConsent.id) || null;
 
-      const { error: consentError } = await admin.from("bank_connection_consents").upsert(
-        {
-          connection_id: connectionRow.id,
-          household_id: input.householdId,
-          created_by: input.userId,
-          provider: OPEN_FINANCE_PROVIDER,
-          external_consent_id: externalConsentId,
-          status: deriveConsentStatus(
-            consentExpiresAt,
-            asString(latestConsent.status, "active"),
-            normalizeDate(latestConsent.revokedAt ?? latestConsent.revoked_at)
-          ),
-          granted_at:
-            normalizeDate(latestConsent.createdAt ?? latestConsent.created_at) ?? nowIso(),
-          expires_at: consentExpiresAt,
-          raw_payload: latestConsent,
-        },
-        {
-          onConflict: "connection_id",
-        }
-      );
-
-      if (consentError) {
-        throw new HttpError(500, consentError.message);
-      }
+      await persistPluggyConsent(admin, {
+        connection_id: connectionRow.id,
+        household_id: input.householdId,
+        created_by: input.userId,
+        provider: OPEN_FINANCE_PROVIDER,
+        external_consent_id: externalConsentId,
+        status: deriveConsentStatus(
+          consentExpiresAt,
+          asString(latestConsent.status, "active"),
+          normalizeDate(latestConsent.revokedAt ?? latestConsent.revoked_at),
+        ),
+        granted_at:
+          normalizeDate(latestConsent.createdAt ?? latestConsent.created_at) ?? nowIso(),
+        expires_at: consentExpiresAt,
+        raw_payload: latestConsent,
+      });
     }
   }
 
@@ -1058,11 +1119,16 @@ async function handleStartConnection(request: Request, admin: SupabaseAdmin) {
       .from("bank_connections")
       .select("external_connection_id")
       .eq("id", connectionId)
+      .eq("provider", OPEN_FINANCE_PROVIDER)
       .eq("household_id", householdId)
       .maybeSingle();
 
     if (error) {
       throw new HttpError(500, error.message);
+    }
+
+    if (!data) {
+      throw new HttpError(404, "Conta Pluggy conectada não encontrada.");
     }
 
     existingItemId = asString(data?.external_connection_id) || null;
@@ -1150,12 +1216,16 @@ async function handleSyncMonth(request: Request, admin: SupabaseAdmin) {
     throw new HttpError(400, "householdId, connectionId e monthKey são obrigatórios.");
   }
 
+  // Validate before creating a sync run or changing connection state.
+  monthRange(monthKey);
+
   await ensureMembership(admin, householdId, user.id);
 
   const { data: connectionData, error: connectionError } = await admin
     .from("bank_connections")
     .select("*")
     .eq("id", connectionId)
+    .eq("provider", OPEN_FINANCE_PROVIDER)
     .eq("household_id", householdId)
     .maybeSingle();
 
@@ -1198,7 +1268,7 @@ async function handleSyncMonth(request: Request, admin: SupabaseAdmin) {
 
     const connectionRaw = connectionRow.raw_payload ?? {};
     const accountRaw = toJsonObject(connectionRaw.account) ?? {};
-    const accountType = asString(accountRaw.type || accountRaw.subtype, null as unknown as string);
+    const accountType = asString(accountRaw.type || accountRaw.subtype) || null;
     const pluggyTransactions = await listTransactionsByMonth(
       connectionRow.external_account_id,
       monthKey
@@ -1208,6 +1278,7 @@ async function handleSyncMonth(request: Request, admin: SupabaseAdmin) {
     const { data: importedData, error: importedError } = await admin
       .from("imported_bank_transactions")
       .select("external_transaction_id, occurred_on, amount_cents, transaction_fingerprint")
+      .eq("provider", OPEN_FINANCE_PROVIDER)
       .eq("connection_id", connectionId)
       .gte("occurred_on", from)
       .lt("occurred_on", to);
@@ -1219,11 +1290,15 @@ async function handleSyncMonth(request: Request, admin: SupabaseAdmin) {
     const existingRows = (importedData as ImportedTransactionRow[] | null) ?? [];
     const existingDuplicateKeys = new Set(
       existingRows.map((item) =>
-        buildDuplicateKey(
-          item.external_transaction_id,
-          item.occurred_on,
-          Number(item.amount_cents ?? 0)
-        )
+        buildOpenFinanceTransactionFingerprint({
+          provider: OPEN_FINANCE_PROVIDER,
+          internalConnectionId: connectionId,
+          externalConnectionId: connectionRow.external_connection_id,
+          externalAccountId: connectionRow.external_account_id,
+          externalTransactionId: item.external_transaction_id,
+          occurredOn: item.occurred_on,
+          amountCents: Number(item.amount_cents ?? 0),
+        })
       )
     );
     const existingFingerprints = new Set(
@@ -1248,12 +1323,35 @@ async function handleSyncMonth(request: Request, admin: SupabaseAdmin) {
         ) || "Transação bancária";
       const amountCents = Math.round(Math.abs(asNumber(transaction.amount, 0)) * 100);
 
-      if (!externalTransactionId || !occurredOn || amountCents <= 0) {
+      if (!externalTransactionId) {
+        warnings.push("Transação Pluggy ignorada: ID externo ausente.");
+        continue;
+      }
+
+      if (!occurredOn) {
+        warnings.push(
+          `Transação Pluggy ${externalTransactionId} ignorada: data inválida.`,
+        );
+        continue;
+      }
+
+      if (!Number.isSafeInteger(amountCents) || amountCents <= 0) {
+        warnings.push(
+          `Transação Pluggy ${externalTransactionId} ignorada: valor inválido.`,
+        );
         continue;
       }
 
       const direction = mapTransactionDirection(transaction, accountType);
-      const fingerprint = buildDuplicateKey(externalTransactionId, occurredOn, amountCents);
+      const fingerprint = buildOpenFinanceTransactionFingerprint({
+        provider: OPEN_FINANCE_PROVIDER,
+        internalConnectionId: connectionId,
+        externalConnectionId: connectionRow.external_connection_id,
+        externalAccountId: connectionRow.external_account_id,
+        externalTransactionId,
+        occurredOn,
+        amountCents,
+      });
 
       normalizedTransactions.push({
         id: externalTransactionId,
@@ -1347,7 +1445,8 @@ async function handleSyncMonth(request: Request, admin: SupabaseAdmin) {
         status: "connected",
         last_synced_at: finishedAt,
       })
-      .eq("id", connectionId);
+      .eq("id", connectionId)
+      .eq("provider", OPEN_FINANCE_PROVIDER);
 
     const connections = await listConnectionsForHousehold(admin, householdId);
     const connection = connections.find((item) => item.id === connectionId);
@@ -1389,7 +1488,8 @@ async function handleSyncMonth(request: Request, admin: SupabaseAdmin) {
       .update({
         status: "error",
       })
-      .eq("id", connectionId);
+      .eq("id", connectionId)
+      .eq("provider", OPEN_FINANCE_PROVIDER);
 
     throw error;
   }
@@ -1418,6 +1518,7 @@ async function handleDisconnectConnection(
     .from("bank_connections")
     .select("external_connection_id")
     .eq("id", connectionId)
+    .eq("provider", OPEN_FINANCE_PROVIDER)
     .eq("household_id", householdId)
     .maybeSingle();
 
