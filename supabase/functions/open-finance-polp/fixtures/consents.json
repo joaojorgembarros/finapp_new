@@ -1,0 +1,32 @@
+[
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440002",
+    "institution_id": "550e8400-e29b-41d4-a716-446655440001",
+    "cliente_user_id": "a20e8400-e29b-41d4-a716-446655440020",
+    "status": "AWAITING_AUTHORIZATION",
+    "status_label": "Aguardando autorização",
+    "execution_status": null,
+    "flags": [],
+    "products": ["ACCOUNT", "CREDIT_CARD_ACCOUNT"],
+    "url_to_authenticate": "https://auth.example.invalid/consents/550e8400-e29b-41d4-a716-446655440002",
+    "url_to_authenticate_expires_at": "2026-08-21T15:30:00.000Z",
+    "error": null,
+    "created_at": "2026-08-21T15:00:00.000Z",
+    "updated_at": "2026-08-21T15:00:00.000Z"
+  },
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440002",
+    "institution_id": "550e8400-e29b-41d4-a716-446655440001",
+    "cliente_user_id": "a20e8400-e29b-41d4-a716-446655440020",
+    "status": "AUTHORISED",
+    "status_label": "Autorizado",
+    "execution_status": "SUCCESS",
+    "flags": [],
+    "products": ["ACCOUNT", "CREDIT_CARD_ACCOUNT"],
+    "url_to_authenticate": null,
+    "url_to_authenticate_expires_at": null,
+    "error": null,
+    "created_at": "2026-08-21T15:00:00.000Z",
+    "updated_at": "2026-08-21T15:05:00.000Z"
+  }
+]

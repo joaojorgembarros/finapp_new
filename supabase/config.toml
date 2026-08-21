@@ -6,5 +6,8 @@ major_version = 17
 [functions.open-finance-pluggy]
 verify_jwt = false
 
+[functions.open-finance-polp]
+verify_jwt = false
+
 [functions.delete-account]
 verify_jwt = true

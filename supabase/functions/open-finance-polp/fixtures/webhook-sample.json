@@ -1,0 +1,6 @@
+{
+  "event": "accounts.transactions",
+  "resource": "accounts",
+  "resource_id": "550e8400-e29b-41d4-a716-446655440003",
+  "query_parameters": "fromCreatedAt=2026-08-21T15%3A00%3A00.000Z&toCreatedAt=2026-08-21T15%3A05%3A00.000Z&fromUpdatedAt=2026-08-21T15%3A00%3A00.000Z&toUpdatedAt=2026-08-21T15%3A05%3A00.000Z"
+}

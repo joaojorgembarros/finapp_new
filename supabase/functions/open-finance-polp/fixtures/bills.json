@@ -1,0 +1,15 @@
+[
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440005",
+    "credit_card_id": "550e8400-e29b-41d4-a716-446655440004",
+    "due_date": "2026-08-27",
+    "bill_closing_date": "2026-08-20",
+    "is_instalment": false,
+    "bill_minimum_amount": { "amount": "58.99", "currency": "BRL" },
+    "bill_total_amount": { "amount": "589.90", "currency": "BRL" },
+    "payments": [],
+    "finance_charges": [],
+    "created_at": "2026-08-20T23:00:00.000Z",
+    "updated_at": "2026-08-20T23:00:00.000Z"
+  }
+]

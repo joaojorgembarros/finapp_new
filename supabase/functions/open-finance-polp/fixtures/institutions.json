@@ -1,0 +1,12 @@
+[
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440001",
+    "name": "Banco Exemplo Open Finance",
+    "description": "Instituição fictícia para testes locais",
+    "logo_url": "https://assets.example.invalid/bank.svg",
+    "status": "OPERATIONAL",
+    "type": "BOTH",
+    "credentials": ["cpf", "cnpj"],
+    "updated_at": "2026-08-20T12:00:00.000Z"
+  }
+]

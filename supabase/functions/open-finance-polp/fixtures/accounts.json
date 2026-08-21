@@ -1,0 +1,20 @@
+[
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440003",
+    "consent_id": "550e8400-e29b-41d4-a716-446655440002",
+    "number": "123456",
+    "branch_code": "0001",
+    "check_digit": "7",
+    "type": "CONTA_DEPOSITO_A_VISTA",
+    "compe_code": "999",
+    "subtype": "INDIVIDUAL",
+    "currency": "BRL",
+    "identification": null,
+    "balance": {
+      "available_amount": { "amount": "1500.25", "currency": "BRL" }
+    },
+    "overdraft_limit": null,
+    "created_at": "2026-08-21T15:06:00.000Z",
+    "updated_at": "2026-08-21T15:06:00.000Z"
+  }
+]

@@ -1,0 +1,22 @@
+[
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440004",
+    "consent_id": "550e8400-e29b-41d4-a716-446655440002",
+    "name": "Cartão Platinum Exemplo",
+    "credit_card_network": "VISA",
+    "product_type": "PLATINUM",
+    "product_additional_info": null,
+    "network_additional_info": null,
+    "payment_methods": [
+      {
+        "identification_number": "4242",
+        "is_multiple_credit_card": false
+      }
+    ],
+    "identification": null,
+    "limits": [],
+    "simulated_bill_total_amount": { "amount": "89.90", "currency": "BRL" },
+    "created_at": "2026-08-21T15:07:00.000Z",
+    "updated_at": "2026-08-21T15:07:00.000Z"
+  }
+]
