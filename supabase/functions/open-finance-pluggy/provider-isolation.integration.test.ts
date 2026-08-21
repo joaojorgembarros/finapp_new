@@ -234,12 +234,32 @@ function createMemoryClient(initialRows: Record<string, Row[]>) {
     data: { user: { id: "user-1" } },
     error: null,
   }));
+  const rpc = vi.fn(async (functionName: string, args: Row) => {
+    if (functionName !== "import_open_finance_transaction") {
+      return {
+        data: null,
+        error: { message: `Unexpected RPC: ${functionName}` },
+      };
+    }
+
+    const externalTransactionId = String(args.p_external_transaction_id);
+    return {
+      data: [{
+        imported_bank_transaction_id: `imported-${externalTransactionId}`,
+        transaction_id: `transaction-${externalTransactionId}`,
+        inserted: true,
+        content_changed: false,
+      }],
+      error: null,
+    };
+  });
   const client = {
     auth: { getUser },
     from: (table: string) => new MemoryQuery(table, state, operations),
+    rpc,
   };
 
-  return { client, state, operations };
+  return { client, state, operations, getUser, rpc };
 }
 
 function installRuntime() {
@@ -730,7 +750,7 @@ describe("open-finance-pluggy provider isolation", () => {
     },
   );
 
-  it("rejects invalid calendar dates and stores a provider/context-aware fingerprint", async () => {
+  it("rejects invalid transactions and imports the valid one exclusively through the RPC", async () => {
     const polpFingerprint = buildOpenFinanceTransactionFingerprint({
       provider: "polp",
       internalConnectionId: "polp-connection",
@@ -808,10 +828,19 @@ describe("open-finance-pluggy provider isolation", () => {
         householdId: "household-1",
         connectionId: "pluggy-connection",
         monthKey: "2026-02",
+        created_by: "attacker-body-user",
+        createdBy: "attacker-body-user",
+        userId: "attacker-body-user",
+        actorId: "attacker-body-user",
       }),
     }));
 
-    const responseBody = (await response.json()) as { warnings: string[] };
+    const responseBody = (await response.json()) as {
+      inserted: number;
+      duplicates: number;
+      warnings: string[];
+      transactions: { fingerprint: string }[];
+    };
 
     expect(response.status).toBe(200);
     expect(responseBody.warnings).toContain(
@@ -820,17 +849,10 @@ describe("open-finance-pluggy provider isolation", () => {
     expect(responseBody.warnings).toContain(
       "Transação Pluggy unsafe-amount-transaction ignorada: valor inválido.",
     );
-    expect(database.state.transactions).toHaveLength(1);
-    expect(database.state.transactions[0]).toEqual(expect.objectContaining({
-      occurred_on: "2026-02-28",
-      amount_cents: 1250,
-    }));
-
-    const pluggyImports = database.state.imported_bank_transactions.filter(
-      (row) => row.provider === "pluggy",
-    );
-    expect(pluggyImports).toHaveLength(1);
-    expect(pluggyImports[0].transaction_fingerprint).toBe(
+    expect(responseBody.inserted).toBe(1);
+    expect(responseBody.duplicates).toBe(0);
+    expect(responseBody.transactions).toHaveLength(1);
+    expect(responseBody.transactions[0].fingerprint).toBe(
       buildOpenFinanceTransactionFingerprint({
         provider: "pluggy",
         internalConnectionId: "pluggy-connection",
@@ -841,7 +863,36 @@ describe("open-finance-pluggy provider isolation", () => {
         amountCents: 1250,
       }),
     );
-    expect(pluggyImports[0].transaction_fingerprint).not.toBe(polpFingerprint);
+    expect(responseBody.transactions[0].fingerprint).not.toBe(polpFingerprint);
+    expect(database.getUser).toHaveBeenCalledWith("personal-user-jwt");
+    expect(database.rpc).toHaveBeenCalledTimes(1);
+    expect(database.rpc).toHaveBeenCalledWith("import_open_finance_transaction", {
+      p_provider: "pluggy",
+      p_connection_id: "pluggy-connection",
+      p_household_id: "household-1",
+      p_created_by: "user-1",
+      p_external_account_id: "same-external-account",
+      p_external_transaction_id: "same-external-transaction",
+      p_occurred_on: "2026-02-28",
+      p_description: "Valid calendar date",
+      p_amount_cents: 1250,
+      p_direction: "expense",
+      p_sync_run_id: "bank_sync_runs-1",
+      p_posted_at: "2026-02-28T00:00:00.000Z",
+      p_raw_payload: {
+        id: "same-external-transaction",
+        date: "2026-02-28",
+        description: "Valid calendar date",
+        amount: 12.5,
+        type: "DEBIT",
+      },
+    });
+    expect(
+      database.operations.filter((operation) =>
+        operation.table === "transactions"
+        || operation.table === "imported_bank_transactions"
+      ),
+    ).toEqual([]);
     expectProviderScopedOperations(database.operations);
   });
 });

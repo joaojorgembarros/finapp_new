@@ -31,6 +31,7 @@ type EdgeRuntime = {
 
 const edgeRuntime = (globalThis as typeof globalThis & { Deno: EdgeRuntime }).Deno;
 const OPEN_FINANCE_SECRET_KEY_NAME = "open-finance";
+const LOCAL_SINGLE_SECRET_KEY_FALLBACK = "OPEN_FINANCE_LOCAL_SINGLE_SECRET_KEY_FALLBACK";
 
 type JsonObject = Record<string, unknown>;
 type SupabaseAdmin = ReturnType<typeof createAdminClient>;
@@ -88,11 +89,25 @@ type SyncRunRow = {
   updated_at: string;
 };
 
-type ImportedTransactionRow = {
-  external_transaction_id: string;
-  occurred_on: string;
-  amount_cents: number;
-  transaction_fingerprint: string;
+type ImportOpenFinanceTransactionRpcRow = {
+  imported_bank_transaction_id: string;
+  transaction_id: string;
+  inserted: boolean;
+  content_changed: boolean;
+};
+
+type NormalizedPluggyTransaction = {
+  id: string;
+  connectionId: string;
+  externalTransactionId: string;
+  externalAccountId: string;
+  description: string;
+  amountCents: number;
+  direction: OpenFinanceTransactionDirection;
+  occurredOn: string;
+  postedAt: string | null;
+  fingerprint: string;
+  rawPayload: JsonObject;
 };
 
 class HttpError extends Error {
@@ -144,8 +159,40 @@ function getEnv(name: string) {
   return value ? value.trim() : "";
 }
 
+function isLocalSupabaseRuntimeUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" && [
+      "127.0.0.1",
+      "localhost",
+      "::1",
+      "[::1]",
+      "kong",
+      "host.docker.internal",
+    ].includes(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
 function getOpenFinanceSecretKey() {
-  return resolveSupabaseSecretKey(edgeRuntime.env, OPEN_FINANCE_SECRET_KEY_NAME);
+  try {
+    return resolveSupabaseSecretKey(edgeRuntime.env, OPEN_FINANCE_SECRET_KEY_NAME);
+  } catch (error) {
+    // The hosted platform supplies the named SUPABASE_SECRET_KEYS map. The
+    // local CLI supplies the same map with only its generated `default` key
+    // and rejects SUPABASE_* overrides from --env-file. Keep this fallback
+    // explicitly opt-in and container-local so production continues to
+    // require the named Open Finance key.
+    if (
+      getEnv(LOCAL_SINGLE_SECRET_KEY_FALLBACK) !== "true"
+      || !isLocalSupabaseRuntimeUrl(getEnv("SUPABASE_URL"))
+    ) {
+      throw error;
+    }
+
+    return resolveSupabaseSecretKey(edgeRuntime.env, "default");
+  }
 }
 
 function buildConfigCheck(input: OpenFinanceConfigurationCheck): OpenFinanceConfigurationCheck {
@@ -336,6 +383,32 @@ function toJsonObject(value: unknown): JsonObject | null {
   }
 
   return value as JsonObject;
+}
+
+function parseImportTransactionRpcRow(value: unknown): ImportOpenFinanceTransactionRpcRow {
+  const rows = Array.isArray(value) ? value : [value];
+  const row = toJsonObject(rows[0]);
+
+  if (
+    rows.length !== 1
+    || !row
+    || typeof row.imported_bank_transaction_id !== "string"
+    || !row.imported_bank_transaction_id
+    || typeof row.transaction_id !== "string"
+    || !row.transaction_id
+    || typeof row.inserted !== "boolean"
+    || typeof row.content_changed !== "boolean"
+    || (row.inserted && row.content_changed)
+  ) {
+    throw new HttpError(500, "A RPC de importa\u00e7\u00e3o retornou uma resposta inv\u00e1lida.");
+  }
+
+  return {
+    imported_bank_transaction_id: row.imported_bank_transaction_id,
+    transaction_id: row.transaction_id,
+    inserted: row.inserted,
+    content_changed: row.content_changed,
+  };
 }
 
 function asArray(value: unknown) {
@@ -1238,15 +1311,25 @@ async function handleSyncMonth(request: Request, admin: SupabaseAdmin) {
   }
 
   const connectionRow = connectionData as ConnectionRow;
+  const externalAccountId = asString(connectionRow.external_account_id);
+
+  if (!externalAccountId.trim()) {
+    throw new HttpError(500, "A conexão Pluggy não possui uma conta externa válida.");
+  }
+
   const runRow = await createSyncRun(admin, {
-    connectionId,
-    householdId,
+    connectionId: connectionRow.id,
+    householdId: connectionRow.household_id,
     userId: user.id,
     monthKey,
   });
 
+  const warnings: string[] = [];
+  let found = 0;
+  let inserted = 0;
+  let duplicates = 0;
+
   try {
-    const warnings: string[] = [];
     const itemId = connectionRow.external_connection_id;
 
     if (itemId) {
@@ -1270,45 +1353,11 @@ async function handleSyncMonth(request: Request, admin: SupabaseAdmin) {
     const accountRaw = toJsonObject(connectionRaw.account) ?? {};
     const accountType = asString(accountRaw.type || accountRaw.subtype) || null;
     const pluggyTransactions = await listTransactionsByMonth(
-      connectionRow.external_account_id,
+      externalAccountId,
       monthKey
     );
 
-    const { from, to } = monthRange(monthKey);
-    const { data: importedData, error: importedError } = await admin
-      .from("imported_bank_transactions")
-      .select("external_transaction_id, occurred_on, amount_cents, transaction_fingerprint")
-      .eq("provider", OPEN_FINANCE_PROVIDER)
-      .eq("connection_id", connectionId)
-      .gte("occurred_on", from)
-      .lt("occurred_on", to);
-
-    if (importedError) {
-      throw new HttpError(500, importedError.message);
-    }
-
-    const existingRows = (importedData as ImportedTransactionRow[] | null) ?? [];
-    const existingDuplicateKeys = new Set(
-      existingRows.map((item) =>
-        buildOpenFinanceTransactionFingerprint({
-          provider: OPEN_FINANCE_PROVIDER,
-          internalConnectionId: connectionId,
-          externalConnectionId: connectionRow.external_connection_id,
-          externalAccountId: connectionRow.external_account_id,
-          externalTransactionId: item.external_transaction_id,
-          occurredOn: item.occurred_on,
-          amountCents: Number(item.amount_cents ?? 0),
-        })
-      )
-    );
-    const existingFingerprints = new Set(
-      existingRows.map((item) => asString(item.transaction_fingerprint))
-    );
-
-    let inserted = 0;
-    let duplicates = 0;
-    const importedPayload: Record<string, unknown>[] = [];
-    const normalizedTransactions = [];
+    const normalizedTransactions: NormalizedPluggyTransaction[] = [];
 
     for (const transactionEntry of pluggyTransactions) {
       const transaction = toJsonObject(transactionEntry) ?? {};
@@ -1320,10 +1369,10 @@ async function handleSyncMonth(request: Request, admin: SupabaseAdmin) {
           transaction.descriptionRaw ??
           transaction.merchantName ??
           transaction.descriptionFormatted
-        ) || "Transação bancária";
+        ).trim() || "Transação bancária";
       const amountCents = Math.round(Math.abs(asNumber(transaction.amount, 0)) * 100);
 
-      if (!externalTransactionId) {
+      if (!externalTransactionId.trim()) {
         warnings.push("Transação Pluggy ignorada: ID externo ausente.");
         continue;
       }
@@ -1345,9 +1394,9 @@ async function handleSyncMonth(request: Request, admin: SupabaseAdmin) {
       const direction = mapTransactionDirection(transaction, accountType);
       const fingerprint = buildOpenFinanceTransactionFingerprint({
         provider: OPEN_FINANCE_PROVIDER,
-        internalConnectionId: connectionId,
+        internalConnectionId: connectionRow.id,
         externalConnectionId: connectionRow.external_connection_id,
-        externalAccountId: connectionRow.external_account_id,
+        externalAccountId,
         externalTransactionId,
         occurredOn,
         amountCents,
@@ -1355,9 +1404,9 @@ async function handleSyncMonth(request: Request, admin: SupabaseAdmin) {
 
       normalizedTransactions.push({
         id: externalTransactionId,
-        connectionId,
+        connectionId: connectionRow.id,
         externalTransactionId,
-        externalAccountId: connectionRow.external_account_id,
+        externalAccountId,
         description,
         amountCents,
         direction,
@@ -1366,70 +1415,55 @@ async function handleSyncMonth(request: Request, admin: SupabaseAdmin) {
         fingerprint,
         rawPayload: transaction,
       });
-
-      if (
-        existingDuplicateKeys.has(fingerprint) ||
-        existingFingerprints.has(fingerprint)
-      ) {
-        duplicates += 1;
-        continue;
-      }
-
-      const { data: transactionInsert, error: transactionInsertError } = await admin
-        .from("transactions")
-        .insert({
-          household_id: householdId,
-          created_by: user.id,
-          type: direction,
-          amount_cents: amountCents,
-          category_id: null,
-          note: description,
-          occurred_on: occurredOn,
-        })
-        .select("id")
-        .single();
-
-      if (transactionInsertError) {
-        throw new HttpError(500, transactionInsertError.message);
-      }
-
-      inserted += 1;
-      existingDuplicateKeys.add(fingerprint);
-      existingFingerprints.add(fingerprint);
-
-      importedPayload.push({
-        sync_run_id: runRow.id,
-        connection_id: connectionId,
-        household_id: householdId,
-        created_by: user.id,
-        provider: OPEN_FINANCE_PROVIDER,
-        external_transaction_id: externalTransactionId,
-        external_account_id: connectionRow.external_account_id,
-        posted_at: normalizeDate(transaction.date ?? transaction.postedAt),
-        occurred_on: occurredOn,
-        description,
-        amount_cents: amountCents,
-        direction,
-        transaction_fingerprint: fingerprint,
-        transaction_id: asString((transactionInsert as { id?: unknown } | null)?.id),
-        raw_payload: transaction,
-      });
     }
 
-    if (importedPayload.length) {
-      const { error: importInsertError } = await admin
-        .from("imported_bank_transactions")
-        .insert(importedPayload);
+    found = normalizedTransactions.length;
 
-      if (importInsertError) {
-        throw new HttpError(500, importInsertError.message);
+    for (const transaction of normalizedTransactions) {
+
+      // `user.id` comes exclusively from the Bearer JWT validated by
+      // `requireUser`; no mobile request field is trusted for created_by.
+      const { data: importData, error: importError } = await admin.rpc(
+        "import_open_finance_transaction",
+        {
+          p_provider: OPEN_FINANCE_PROVIDER,
+          p_connection_id: connectionRow.id,
+          p_household_id: connectionRow.household_id,
+          p_created_by: user.id,
+          p_external_account_id: externalAccountId,
+          p_external_transaction_id: transaction.externalTransactionId,
+          p_occurred_on: transaction.occurredOn,
+          p_description: transaction.description,
+          p_amount_cents: transaction.amountCents,
+          p_direction: transaction.direction,
+          p_sync_run_id: runRow.id,
+          p_posted_at: transaction.postedAt,
+          p_raw_payload: transaction.rawPayload,
+        },
+      );
+
+      if (importError) {
+        throw new HttpError(500, importError.message);
+      }
+
+      const importResult = parseImportTransactionRpcRow(importData);
+      if (importResult.inserted) {
+        inserted += 1;
+      } else {
+        duplicates += 1;
+
+        if (importResult.content_changed) {
+          warnings.push(
+            `Transa\u00e7\u00e3o Pluggy ${transaction.externalTransactionId} j\u00e1 importada possui conte\u00fado divergente; reconcilia\u00e7\u00e3o necess\u00e1ria.`,
+          );
+        }
       }
     }
 
     const finishedAt = nowIso();
     const updatedRun = await updateSyncRun(admin, runRow.id, {
       status: "success",
-      foundCount: normalizedTransactions.length,
+      foundCount: found,
       insertedCount: inserted,
       duplicateCount: duplicates,
       finishedAt,
@@ -1458,7 +1492,7 @@ async function handleSyncMonth(request: Request, admin: SupabaseAdmin) {
     const response: OpenFinanceSyncMonthResponse = {
       connection,
       run: mapSyncRun(updatedRun)!,
-      found: normalizedTransactions.length,
+      found,
       inserted,
       duplicates,
       warnings,
@@ -1472,14 +1506,14 @@ async function handleSyncMonth(request: Request, admin: SupabaseAdmin) {
 
     await updateSyncRun(admin, runRow.id, {
       status: "error",
-      foundCount: 0,
-      insertedCount: 0,
-      duplicateCount: 0,
+      foundCount: found,
+      insertedCount: inserted,
+      duplicateCount: duplicates,
       finishedAt: nowIso(),
       errorMessage: message,
-      warnings: [],
+      warnings,
       rawPayload: {
-        warnings: [],
+        warnings,
       },
     });
 

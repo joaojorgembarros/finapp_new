@@ -16,6 +16,7 @@ type TestRuntime = {
 };
 
 const OPEN_FINANCE_SECRET = "sb_secret_open_finance_integration";
+const LOCAL_SINGLE_SECRET = "sb_secret_local_cli_integration";
 const LEAK_MARKER = "legacy-value-must-never-leak";
 
 function installRuntime(values: Record<string, string | undefined>) {
@@ -115,6 +116,41 @@ describe("open-finance-pluggy modern Supabase credentials", () => {
     expect(createClientMock).not.toHaveBeenCalled();
     expect(envGet).not.toHaveBeenCalledWith("SUPABASE_SERVICE_ROLE_KEY");
     expect(body).not.toContain(LEAK_MARKER);
+  });
+
+  it("accepts the official single modern key only for an explicit local CLI fallback", async () => {
+    const { handler, envGet } = await loadHandler(validEnvironment({
+      SUPABASE_URL: "http://kong:8000",
+      SUPABASE_SECRET_KEYS: JSON.stringify({ default: LOCAL_SINGLE_SECRET }),
+      OPEN_FINANCE_LOCAL_SINGLE_SECRET_KEY_FALLBACK: "true",
+      SUPABASE_SERVICE_ROLE_KEY: LEAK_MARKER,
+    }));
+    const response = await handler(new Request(
+      "http://127.0.0.1:54321/functions/v1/open-finance-pluggy/connections",
+    ));
+
+    expect(response.status).toBe(401);
+    expect(createClientMock).toHaveBeenCalledWith(
+      "http://kong:8000",
+      LOCAL_SINGLE_SECRET,
+      expect.objectContaining({
+        global: { fetch: expect.any(Function) },
+      }),
+    );
+    expect(envGet).not.toHaveBeenCalledWith("SUPABASE_SERVICE_ROLE_KEY");
+  });
+
+  it("refuses the single-key fallback outside the local Supabase runtime", async () => {
+    const { handler } = await loadHandler(validEnvironment({
+      SUPABASE_SECRET_KEYS: JSON.stringify({ default: LOCAL_SINGLE_SECRET }),
+      OPEN_FINANCE_LOCAL_SINGLE_SECRET_KEY_FALLBACK: "true",
+    }));
+    const response = await handler(new Request(
+      "https://project.example.test/functions/v1/open-finance-pluggy/connections",
+    ));
+
+    expect(response.status).toBe(500);
+    expect(createClientMock).not.toHaveBeenCalled();
   });
 
   it("requires the personal Bearer token before any administrative request", async () => {
