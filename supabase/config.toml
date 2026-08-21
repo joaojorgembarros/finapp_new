@@ -1,7 +1,7 @@
 project_id = "finapp-main"
 
-[functions.invite-sender]
-verify_jwt = true
+[db]
+major_version = 17
 
 [functions.open-finance-pluggy]
 verify_jwt = false
