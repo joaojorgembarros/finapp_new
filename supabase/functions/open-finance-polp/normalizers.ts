@@ -287,11 +287,13 @@ function parseCurrencyAmount(value: unknown, requirePositive = true): number | n
   const raw = amount.amount;
   if (currency !== "BRL" || typeof raw !== "string") return null;
 
-  const match = /^([+-]?)(\d+)(?:\.(\d{1,2}))?$/.exec(raw.trim());
+  const match = /^([+-]?)(\d+)(?:\.(\d+))?$/.exec(raw.trim());
   if (!match) return null;
 
   const whole = BigInt(match[2]);
-  const fraction = BigInt((match[3] ?? "").padEnd(2, "0"));
+  const fractionDigits = match[3] ?? "";
+  if (fractionDigits.length > 2 && /[^0]/.test(fractionDigits.slice(2))) return null;
+  const fraction = BigInt(fractionDigits.slice(0, 2).padEnd(2, "0"));
   const signed = (whole * 100n + fraction) * (match[1] === "-" ? -1n : 1n);
   const absolute = signed < 0n ? -signed : signed;
 

@@ -210,8 +210,14 @@ describe("Polp v2 normalizers", () => {
   );
 
   it.each([
+    ["10", 1_000],
+    ["10.5", 1_050],
+    ["10.50", 1_050],
+    ["10.500", 1_050],
+    ["10.5000", 1_050],
     ["0.01", 1],
     ["1.20", 120],
+    ["123.4500", 12_345],
     ["123456.78", 12_345_678],
   ])("converts decimal string amount %s to integer cents", (amount, expectedCents) => {
     const transaction = normalizePolpTransaction({
@@ -226,6 +232,21 @@ describe("Polp v2 normalizers", () => {
     });
 
     expect(transaction.amountCents).toBe(expectedCents);
+  });
+
+  it("normalizes a real-contract four-decimal amount when sub-cent digits are zero", () => {
+    const transaction = normalizePolpTransaction({
+      value: {
+        ...accountTransactionFixture,
+        transaction_amount: { amount: "123.4500", currency: "BRL" },
+      },
+      resourceType: "account",
+      internalConnectionId: CONNECTION_ID,
+      externalConnectionId: CONSENT_ID,
+      expectedExternalAccountId: ACCOUNT_ID,
+    });
+
+    expect(transaction).toEqual(expect.objectContaining({ amountCents: 12_345 }));
   });
 
   it.each([
@@ -327,9 +348,25 @@ describe("Polp v2 normalizers", () => {
     ["missing external id", { ...accountTransactionFixture, id: "" }],
     ["different account", { ...accountTransactionFixture, account_id: CARD_ID }],
     ["invalid civil date", { ...accountTransactionFixture, transaction_date_time: "2026-02-30T10:00:00Z" }],
-    ["invalid amount precision", {
+    ["non-zero third decimal digit", {
       ...accountTransactionFixture,
-      transaction_amount: { amount: "10.001", currency: "BRL" },
+      transaction_amount: { amount: "10.501", currency: "BRL" },
+    }],
+    ["non-zero fourth decimal digit", {
+      ...accountTransactionFixture,
+      transaction_amount: { amount: "10.5001", currency: "BRL" },
+    }],
+    ["non-zero sub-cent digits", {
+      ...accountTransactionFixture,
+      transaction_amount: { amount: "10.5050", currency: "BRL" },
+    }],
+    ["zero amount", {
+      ...accountTransactionFixture,
+      transaction_amount: { amount: "0.0000", currency: "BRL" },
+    }],
+    ["amount outside safe integer cents", {
+      ...accountTransactionFixture,
+      transaction_amount: { amount: "90071992547409.92", currency: "BRL" },
     }],
     ["unsupported currency", {
       ...accountTransactionFixture,
