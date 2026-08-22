@@ -34,16 +34,26 @@ describe("PolpClient v2", () => {
   });
 
   it("keeps institutions public at the provider boundary", async () => {
+    const institutions = Array.from({ length: 299 }, (_, index) => ({
+      ...institutionFixture,
+      id: `synthetic-institution-${index + 1}`,
+    }));
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
       const request = new Request(input, init);
       expect(request.url).toBe("https://api.polp.com.br/api/v2/institutions");
       expect(request.headers.has("x-api-client")).toBe(false);
       expect(request.headers.has("x-api-secret")).toBe(false);
-      return Response.json({ data: [institutionFixture] });
+      return Response.json({
+        data: institutions,
+        links: { first: null, last: null, prev: null, next: null },
+        meta: { next_cursor: null, prev_cursor: null, per_page: 500 },
+      });
     });
     const client = new PolpClient({ getEnv: () => "", fetchImplementation: fetchMock });
+    const result = await client.listInstitutions();
 
-    expect(await client.listInstitutions()).toEqual([institutionFixture]);
+    expect(result).toEqual(institutions);
+    expect(result).toHaveLength(299);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -75,21 +85,38 @@ describe("PolpClient v2", () => {
     })).resolves.toEqual({ id: CONSENT_ID });
   });
 
-  it("follows cursor pagination while preserving documented filters", async () => {
+  it("keeps two consecutive 500-item pages and advances through each next_cursor", async () => {
     const requests: Request[] = [];
+    const firstPage = Array.from({ length: 500 }, (_, index) => ({
+      ...accountTransactionFixture,
+      id: `synthetic-page-1-transaction-${index + 1}`,
+    }));
+    const secondPage = Array.from({ length: 500 }, (_, index) => ({
+      ...accountTransactionFixture,
+      id: `synthetic-page-2-transaction-${index + 1}`,
+    }));
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
       const request = new Request(input, init);
       requests.push(request);
       const cursor = new URL(request.url).searchParams.get("cursor");
       if (!cursor) {
         return Response.json({
-          data: [accountTransactionFixture],
-          meta: { next_cursor: "cursor-2" },
+          data: firstPage,
+          links: { next: "synthetic-next-link" },
+          meta: { next_cursor: "cursor-2", per_page: 500 },
+        });
+      }
+      if (cursor === "cursor-2") {
+        return Response.json({
+          data: secondPage,
+          links: { next: "synthetic-next-link-2" },
+          meta: { next_cursor: "cursor-3", per_page: 500 },
         });
       }
       return Response.json({
-        data: [{ ...accountTransactionFixture, id: "second-transaction" }],
-        meta: { next_cursor: null },
+        data: [],
+        links: { next: null },
+        meta: { next_cursor: null, per_page: 500 },
       });
     });
     const client = new PolpClient({ getEnv: environment, fetchImplementation: fetchMock });
@@ -98,12 +125,15 @@ describe("PolpClient v2", () => {
       fromDate: "2026-08-01T00:00:00.000Z",
       toDate: "2026-08-31T23:59:59.999Z",
     });
-    expect(result).toHaveLength(2);
-    expect(requests).toHaveLength(2);
+    expect(result).toHaveLength(1_000);
+    expect(requests).toHaveLength(3);
     const secondUrl = new URL(requests[1].url);
+    const thirdUrl = new URL(requests[2].url);
     expect(secondUrl.pathname).toBe(`/api/v2/accounts/${ACCOUNT_ID}/transactions`);
     expect(secondUrl.searchParams.get("cursor")).toBe("cursor-2");
     expect(secondUrl.searchParams.get("fromDate")).toBe("2026-08-01T00:00:00.000Z");
+    expect(thirdUrl.searchParams.get("cursor")).toBe("cursor-3");
+    expect(new Set(result.map((item) => item.id)).size).toBe(1_000);
   });
 
   it("fails closed when a list endpoint loses the v2 data envelope", async () => {

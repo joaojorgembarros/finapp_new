@@ -5,7 +5,7 @@
     "number": "123456",
     "branch_code": "0001",
     "check_digit": "7",
-    "type": "CONTA_DEPOSITO_A_VISTA",
+    "type": "CONTA_PAGAMENTO_PRE_PAGA",
     "compe_code": "999",
     "subtype": "INDIVIDUAL",
     "currency": "BRL",

@@ -40,7 +40,7 @@ export function buildConnectionRow(
     institution_name: "Banco Exemplo Open Finance",
     external_connection_id: CONSENT_ID,
     external_account_id: externalAccountId,
-    account_name: resourceType === "credit_card" ? "Cartão Platinum Exemplo" : "Conta Exemplo",
+    account_name: resourceType === "credit_card" ? "Cartão Gold Sintético" : "Conta Exemplo",
     account_mask: resourceType === "credit_card" ? "**** 4242" : "**** 4567",
     status: resourceType === "consent" ? "error" : "connected",
     consent_expires_at: null,

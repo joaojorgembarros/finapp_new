@@ -2,9 +2,9 @@
   {
     "id": "550e8400-e29b-41d4-a716-446655440004",
     "consent_id": "550e8400-e29b-41d4-a716-446655440002",
-    "name": "Cartão Platinum Exemplo",
-    "credit_card_network": "VISA",
-    "product_type": "PLATINUM",
+    "name": "Cartão Gold Sintético",
+    "credit_card_network": "MASTERCARD",
+    "product_type": "GOLD",
     "product_additional_info": null,
     "network_additional_info": null,
     "payment_methods": [
@@ -14,7 +14,16 @@
       }
     ],
     "identification": null,
-    "limits": [],
+    "limits": [
+      {
+        "credit_limit_channel_type": "TOTAL",
+        "consolidation_type": "CONSOLIDADO",
+        "identification_number": "4242",
+        "line_name": "LIMITE_TOTAL",
+        "limit_amount": { "amount": "2000.00", "currency": "BRL" },
+        "used_amount": { "amount": "250.00", "currency": "BRL" }
+      }
+    ],
     "simulated_bill_total_amount": { "amount": "89.90", "currency": "BRL" },
     "created_at": "2026-08-21T15:07:00.000Z",
     "updated_at": "2026-08-21T15:07:00.000Z"

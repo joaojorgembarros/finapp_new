@@ -153,6 +153,7 @@ const TRANSACTION_RAW_FIELDS = new Set([
   "completed_authorised_payment_type",
   "credit_debit_type",
   "transaction_type",
+  "type_additional_info",
   "transaction_amount",
   "brazilian_amount",
   "amount",

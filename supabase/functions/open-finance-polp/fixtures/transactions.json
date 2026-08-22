@@ -8,10 +8,10 @@
     "completed_authorised_payment_type": "TRANSACAO_EFETIVADA",
     "credit_debit_type": "DEBITO",
     "transaction_amount": { "amount": "123.45", "currency": "BRL" },
-    "type_additional_info": null,
+    "type_additional_info": "TRANSFERENCIA_SINTETICA",
     "partie_cnpj_cpf": "00000000000000",
     "counterparty": null,
-    "category_ref": null,
+    "category_ref": "PAGAMENTOS",
     "created_at": "2026-08-15T13:45:31.000Z",
     "updated_at": "2026-08-15T13:45:31.000Z"
   },
@@ -26,12 +26,12 @@
     "amount": { "amount": "89.90", "currency": "BRL" },
     "transaction_date_time": "2026-08-16T18:20:00.000Z",
     "bill_post_date": "2026-08-20",
-    "bill_forecast_date": "2026-08",
+    "bill_forecast_date": null,
     "bill_id": "550e8400-e29b-41d4-a716-446655440005",
     "charge_identificator": 1,
     "charge_number": 1,
     "counterparty": null,
-    "category_ref": null,
+    "category_ref": "ALIMENTACAO",
     "created_at": "2026-08-16T18:20:01.000Z",
     "updated_at": "2026-08-16T18:20:01.000Z"
   }

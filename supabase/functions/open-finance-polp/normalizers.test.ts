@@ -26,6 +26,18 @@ import {
   institutionFixture,
 } from "./test-fixtures";
 
+const OBSERVED_ACCOUNT_TRANSACTION_TYPES = [
+  "BOLETO",
+  "CARTAO",
+  "DEPOSITO",
+  "OPERACAO_CREDITO",
+  "OUTROS",
+  "PIX",
+  "PORTABILIDADE_SALARIO",
+  "RESGATE_APLIC_FINANCEIRA",
+  "TRANSFERENCIA_MESMA_INSTITUICAO",
+] as const;
+
 describe("Polp v2 normalizers", () => {
   it("normalizes institutions to the shared provider-aware contract", () => {
     expect(normalizePolpInstitution(institutionFixture)).toEqual({
@@ -118,6 +130,8 @@ describe("Polp v2 normalizers", () => {
       externalConsentId: CONSENT_ID,
       accountName: "INDIVIDUAL",
       accountMask: "**** 4567",
+      type: "CONTA_PAGAMENTO_PRE_PAGA",
+      subtype: "INDIVIDUAL",
       currency: "BRL",
     }));
     expect(account.rawPayload).not.toHaveProperty("number");
@@ -128,10 +142,16 @@ describe("Polp v2 normalizers", () => {
       resourceType: "credit_card",
       externalAccountId: CARD_ID,
       externalConsentId: CONSENT_ID,
-      accountName: "Cartão Platinum Exemplo",
+      accountName: "Cartão Gold Sintético",
       accountMask: "**** 4242",
       type: "CREDIT_CARD_ACCOUNT",
+      subtype: "GOLD",
       currency: null,
+    }));
+    expect(card.rawPayload).toEqual(expect.objectContaining({
+      credit_card_network: "MASTERCARD",
+      product_type: "GOLD",
+      limits: expect.any(Array),
     }));
     expect(JSON.stringify(card.rawPayload)).not.toContain("411111");
   });
@@ -167,6 +187,60 @@ describe("Polp v2 normalizers", () => {
       fingerprint: expect.stringContaining("open-finance-transaction-fingerprint:v1|"),
     }));
     expect(transaction.rawPayload).not.toHaveProperty("partie_cnpj_cpf");
+    expect(transaction.rawPayload).toEqual(expect.objectContaining({
+      type: "PIX",
+      type_additional_info: "TRANSFERENCIA_SINTETICA",
+      category_ref: "PAGAMENTOS",
+    }));
+  });
+
+  it.each(OBSERVED_ACCOUNT_TRANSACTION_TYPES)(
+    "accepts observed account transaction type %s without dropping its classification",
+    (type) => {
+      const transaction = normalizePolpTransaction({
+        value: { ...accountTransactionFixture, type },
+        resourceType: "account",
+        internalConnectionId: CONNECTION_ID,
+        externalConnectionId: CONSENT_ID,
+        expectedExternalAccountId: ACCOUNT_ID,
+      });
+
+      expect(transaction.rawPayload.type).toBe(type);
+    },
+  );
+
+  it.each([
+    ["0.01", 1],
+    ["1.20", 120],
+    ["123456.78", 12_345_678],
+  ])("converts decimal string amount %s to integer cents", (amount, expectedCents) => {
+    const transaction = normalizePolpTransaction({
+      value: {
+        ...accountTransactionFixture,
+        transaction_amount: { amount, currency: "BRL" },
+      },
+      resourceType: "account",
+      internalConnectionId: CONNECTION_ID,
+      externalConnectionId: CONSENT_ID,
+      expectedExternalAccountId: ACCOUNT_ID,
+    });
+
+    expect(transaction.amountCents).toBe(expectedCents);
+  });
+
+  it.each([
+    ["CREDITO", "income"],
+    ["DEBITO", "expense"],
+  ] as const)("maps observed direction %s to %s", (creditDebitType, expectedDirection) => {
+    const transaction = normalizePolpTransaction({
+      value: { ...accountTransactionFixture, credit_debit_type: creditDebitType },
+      resourceType: "account",
+      internalConnectionId: CONNECTION_ID,
+      externalConnectionId: CONSENT_ID,
+      expectedExternalAccountId: ACCOUNT_ID,
+    });
+
+    expect(transaction.direction).toBe(expectedDirection);
   });
 
   it("normalizes credit-card Brazilian amount without floating point drift", () => {
@@ -186,6 +260,67 @@ describe("Polp v2 normalizers", () => {
       postedAt: "2026-08-16T18:20:00.000Z",
     }));
     expect(JSON.stringify(transaction.rawPayload)).not.toContain("411111");
+  });
+
+  it.each(["OPERACOES_CREDITO_CONTRATADAS_CARTAO", "PAGAMENTO"])(
+    "accepts observed credit-card transaction type %s with nullable forecast/counterparty",
+    (transactionType) => {
+      const transaction = normalizePolpTransaction({
+        value: {
+          ...cardTransactionFixture,
+          transaction_type: transactionType,
+          bill_forecast_date: null,
+          counterparty: null,
+        },
+        resourceType: "credit_card",
+        internalConnectionId: CONNECTION_ID,
+        externalConnectionId: CONSENT_ID,
+        expectedExternalAccountId: CARD_ID,
+      });
+
+      expect(transaction).toEqual(expect.objectContaining({
+        amountCents: 8990,
+        direction: "expense",
+      }));
+      expect(transaction.rawPayload.transaction_type).toBe(transactionType);
+      expect(transaction.rawPayload.bill_forecast_date).toBeNull();
+    },
+  );
+
+  it("accepts absent optional counterparty and category_ref fields", () => {
+    const { counterparty: _counterparty, category_ref: _categoryRef, ...value } =
+      accountTransactionFixture;
+    expect(() => normalizePolpTransaction({
+      value,
+      resourceType: "account",
+      internalConnectionId: CONNECTION_ID,
+      externalConnectionId: CONSENT_ID,
+      expectedExternalAccountId: ACCOUNT_ID,
+    })).not.toThrow();
+  });
+
+  it("accepts bill transactions using the observed credit-card transaction contract", () => {
+    const transaction = normalizePolpTransaction({
+      value: {
+        ...cardTransactionFixture,
+        transaction_type: "OPERACOES_CREDITO_CONTRATADAS_CARTAO",
+        credit_debit_type: "DEBITO",
+        bill_id: BILL_ID,
+        bill_forecast_date: null,
+        counterparty: null,
+      },
+      resourceType: "credit_card",
+      internalConnectionId: CONNECTION_ID,
+      externalConnectionId: CONSENT_ID,
+      expectedExternalAccountId: CARD_ID,
+      expectedBillId: BILL_ID,
+    });
+
+    expect(transaction).toEqual(expect.objectContaining({
+      externalAccountId: CARD_ID,
+      amountCents: 8990,
+      direction: "expense",
+    }));
   });
 
   it.each([
@@ -212,8 +347,13 @@ describe("Polp v2 normalizers", () => {
     })).toThrow();
   });
 
-  it("normalizes bills as metadata without creating ledger transactions", () => {
-    expect(normalizePolpBill(billFixture)).toEqual({
+  it("uses bill_closing_date without requiring legacy closing_date, status or finance_charges", () => {
+    expect(billFixture).not.toHaveProperty("status");
+    expect(billFixture).not.toHaveProperty("finance_charges");
+    expect(normalizePolpBill({
+      ...billFixture,
+      closing_date: "2026-01-01",
+    })).toEqual({
       id: BILL_ID,
       creditCardId: CARD_ID,
       dueDate: "2026-08-27",
