@@ -491,7 +491,7 @@ describe("F4A production boundaries and hidden route", () => {
     expect(routeSource).toContain("Concluindo conexão...");
     expect(routeSource).toContain("Banco conectado");
     expect(routeSource).toContain("Tentar concluir novamente");
-    expect(routeSource).not.toMatch(/syncOpenFinanceMonth|sync-month|Sincronizar/);
+    expect(routeSource).not.toMatch(/syncOpenFinanceMonth|sync-month/);
     expect(routeSource).not.toContain("consentId}");
     expect(routeSource).not.toMatch(/<Text[^>]*>\{resource\.key\}<\/Text>/);
   });

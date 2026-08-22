@@ -19,6 +19,7 @@ import {
 import { useOpenFinancePolpAuthorization } from "../../src/hooks/useOpenFinancePolpAuthorization";
 import { useOpenFinancePolpCompletion } from "../../src/hooks/useOpenFinancePolpCompletion";
 import { useOpenFinancePolpStart } from "../../src/hooks/useOpenFinancePolpStart";
+import { useOpenFinancePolpSync } from "../../src/hooks/useOpenFinancePolpSync";
 import { useKeyboardAwareScroll } from "../../src/hooks/useKeyboardAwareScroll";
 import {
   canSubmitOpenFinanceConnectForm,
@@ -79,6 +80,11 @@ export default function OpenFinanceConnectScreen() {
   const completion = useOpenFinancePolpCompletion({
     authorizationPhase: authorization.phase,
     completionContext: authorization.completionContext,
+  });
+  const sync = useOpenFinancePolpSync({
+    completionPhase: completion.phase,
+    householdId,
+    connections: completion.resources,
   });
   const { scrollRef, keyboardInset, registerField, focusField, cancelPendingScroll } =
     useKeyboardAwareScroll<"cpf">(18);
@@ -166,6 +172,7 @@ export default function OpenFinanceConnectScreen() {
   }
 
   function resetAuthorization() {
+    sync.reset();
     completion.reset();
     authorization.reset();
   }
@@ -351,6 +358,107 @@ export default function OpenFinanceConnectScreen() {
                   Nenhuma conta ou cartão foi retornado pela instituição.
                 </Text>
               )}
+            </View>
+          ) : null}
+
+          {completion.phase === "completed" && (sync.canStart || sync.phase !== "idle") ? (
+            <View style={styles.syncCard}>
+              <Text style={styles.sectionTitle}>
+                {sync.monthLabel
+                  ? `Sincronizar movimentações de ${sync.monthLabel}`
+                  : "Sincronizar movimentações"}
+              </Text>
+              {sync.phase === "syncing" ? (
+                <Text style={styles.syncText}>
+                  {`Sincronizando ${sync.current} de ${sync.total}...`}
+                </Text>
+              ) : null}
+              {sync.phase === "completed" ? (
+                <View style={styles.syncResult}>
+                  <Text style={styles.completedTitle}>Sincronização concluída</Text>
+                  {sync.totals.inserted === 0 && sync.totals.duplicates > 0 ? (
+                    <Text style={styles.completedText}>Tudo já estava atualizado.</Text>
+                  ) : sync.totals.inserted === 0 ? (
+                    <Text style={styles.completedText}>Nenhuma movimentação encontrada neste mês.</Text>
+                  ) : (
+                    <>
+                      <Text style={styles.completedText}>
+                        {sync.totals.inserted === 1
+                          ? "1 nova movimentação"
+                          : `${sync.totals.inserted} novas movimentações`}
+                      </Text>
+                      {sync.totals.duplicates > 0 ? (
+                        <Text style={styles.completedText}>
+                          {sync.totals.duplicates === 1
+                            ? "1 já estava importada"
+                            : `${sync.totals.duplicates} já estavam importadas`}
+                        </Text>
+                      ) : null}
+                    </>
+                  )}
+                </View>
+              ) : null}
+              {sync.phase === "partial" ? (
+                <View style={styles.syncResult}>
+                  <Text style={styles.warningTitle}>Sincronização parcial</Text>
+                  <Text style={styles.warningText}>{sync.errorMessage}</Text>
+                </View>
+              ) : null}
+              {sync.phase === "error" ? (
+                <View style={styles.syncResult}>
+                  <Text style={styles.warningTitle}>Não foi possível sincronizar</Text>
+                  <Text style={styles.warningText}>{sync.errorMessage}</Text>
+                </View>
+              ) : null}
+              {sync.results.map((result) => (
+                <View key={result.connectionId} style={styles.resourceItem}>
+                  <Ionicons
+                    name={result.type === "credit_card" ? "card-outline" : "wallet-outline"}
+                    size={20}
+                    color={result.status === "success" ? "#178A55" : "#B42318"}
+                  />
+                  <View style={styles.flex}>
+                    <Text style={styles.resourceTitle}>{result.title}</Text>
+                    <Text style={styles.resourceName}>{result.name}</Text>
+                    <Text style={result.status === "success" ? styles.completedText : styles.warningText}>
+                      {result.status === "success" ? "Movimentações sincronizadas" : "Não foi possível sincronizar"}
+                    </Text>
+                  </View>
+                </View>
+              ))}
+              {sync.canStart ? (
+                <Pressable
+                  onPress={() => void sync.start()}
+                  style={styles.continueButton}
+                  accessibilityRole="button"
+                  accessibilityLabel="Sincronizar movimentações"
+                >
+                  <Text style={styles.continueText}>Sincronizar movimentações</Text>
+                </Pressable>
+              ) : null}
+              {sync.phase === "syncing" ? (
+                <Pressable
+                  disabled
+                  style={[styles.continueButton, styles.continueButtonDisabled]}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: true }}
+                  accessibilityLabel="Sincronizando movimentações"
+                >
+                  <Text style={[styles.continueText, styles.continueTextDisabled]}>
+                    {`Sincronizando ${sync.current} de ${sync.total}...`}
+                  </Text>
+                </Pressable>
+              ) : null}
+              {sync.canRetryFailed ? (
+                <Pressable
+                  onPress={() => void sync.retryFailed()}
+                  style={styles.continueButton}
+                  accessibilityRole="button"
+                  accessibilityLabel="Tentar novamente as que falharam"
+                >
+                  <Text style={styles.continueText}>Tentar novamente as que falharam</Text>
+                </Pressable>
+              ) : null}
             </View>
           ) : null}
 
@@ -732,6 +840,23 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     lineHeight: 17,
     marginTop: 3,
+  },
+  syncCard: {
+    borderRadius: 18,
+    padding: 16,
+    gap: 12,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  syncText: {
+    color: OB.support,
+    fontSize: 12,
+    fontWeight: "800",
+    lineHeight: 17,
+  },
+  syncResult: {
+    gap: 4,
   },
   resourceList: {
     gap: 9,
