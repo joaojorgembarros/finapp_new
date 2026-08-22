@@ -16,6 +16,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { useOpenFinancePolpAuthorization } from "../../src/hooks/useOpenFinancePolpAuthorization";
 import { useOpenFinancePolpStart } from "../../src/hooks/useOpenFinancePolpStart";
 import { useKeyboardAwareScroll } from "../../src/hooks/useKeyboardAwareScroll";
 import {
@@ -65,9 +66,15 @@ export default function OpenFinanceConnectScreen() {
     institutionsLoading,
     institutionsError,
     reloadInstitutions,
+    startConnection,
+    starting,
     householdId,
     householdLoading,
   } = useOpenFinancePolpStart();
+  const authorization = useOpenFinancePolpAuthorization({
+    householdId,
+    startConnection,
+  });
   const { scrollRef, keyboardInset, registerField, focusField, cancelPendingScroll } =
     useKeyboardAwareScroll<"cpf">(18);
 
@@ -78,7 +85,6 @@ export default function OpenFinanceConnectScreen() {
   const [cpf, setCpf] = useState("");
   const [cpfTouched, setCpfTouched] = useState(false);
   const [institutionError, setInstitutionError] = useState<string | null>(null);
-  const [reviewReady, setReviewReady] = useState(false);
 
   const householdGate = resolveConnectHouseholdGate(householdLoading, householdId);
   const householdMessage = connectHouseholdMessage(householdGate);
@@ -97,7 +103,7 @@ export default function OpenFinanceConnectScreen() {
     householdId,
     institutionId: selectedInstitutionId,
     cpfInput: cpf,
-  });
+  }) && authorization.canStart && !starting;
 
   async function loadInstitutions() {
     try {
@@ -108,6 +114,7 @@ export default function OpenFinanceConnectScreen() {
   }
 
   function openPicker() {
+    if (authorization.formLocked) return;
     const next = planInstitutionPickerOpen({
       alreadyRequested,
       institutionsLoading,
@@ -125,17 +132,15 @@ export default function OpenFinanceConnectScreen() {
   function chooseInstitution(option: OpenFinanceConnectInstitutionOption) {
     setSelectedInstitutionId(option.id);
     setInstitutionError(null);
-    setReviewReady(false);
     setPickerOpen(false);
     setInstitutionQuery("");
   }
 
   function onCpfChange(value: string) {
     setCpf(formatPolpCpfMask(value));
-    setReviewReady(false);
   }
 
-  function onContinue() {
+  async function onContinue() {
     Keyboard.dismiss();
     const result = submitOpenFinanceConnectForm({
       householdLoading,
@@ -146,11 +151,13 @@ export default function OpenFinanceConnectScreen() {
     setCpfTouched(true);
     if (!result.ok) {
       setInstitutionError(result.institutionError);
-      setReviewReady(false);
       return;
     }
     setInstitutionError(null);
-    setReviewReady(true);
+    await authorization.start({
+      institutionId: result.institutionId,
+      cpf,
+    });
   }
 
   return (
@@ -188,9 +195,11 @@ export default function OpenFinanceConnectScreen() {
             <Text style={styles.sectionTitle}>Instituição</Text>
             <Pressable
               onPress={openPicker}
+              disabled={authorization.formLocked}
               style={({ pressed }) => [
                 styles.selectButton,
                 selectedInstitution && styles.selectButtonSelected,
+                authorization.formLocked && styles.buttonDisabled,
                 pressed && styles.pressed,
               ]}
               accessibilityRole="button"
@@ -229,6 +238,7 @@ export default function OpenFinanceConnectScreen() {
               autoComplete="off"
               textContentType="none"
               importantForAutofill="no"
+              editable={!authorization.formLocked}
               style={[styles.input, cpfError && styles.inputError]}
               accessibilityLabel="CPF"
             />
@@ -245,15 +255,83 @@ export default function OpenFinanceConnectScreen() {
             </View>
           </View>
 
-          {reviewReady && selectedInstitution ? (
-            <View style={styles.readyCard}>
-              <Ionicons name="checkmark-circle-outline" size={21} color="#178A55" />
+          {authorization.phase !== "idle" && authorization.title ? (
+            <View style={[
+              styles.infoCard,
+              authorization.phase === "ready_to_complete" && styles.readyCard,
+              (authorization.phase === "rejected"
+                || authorization.phase === "expired"
+                || authorization.phase === "provider_error"
+                || authorization.phase === "error") && styles.warningCard,
+            ]}>
+              <Ionicons
+                name={
+                  authorization.phase === "ready_to_complete"
+                    ? "checkmark-circle-outline"
+                    : authorization.phase === "checking" || authorization.phase === "starting"
+                      ? "hourglass-outline"
+                      : authorization.phase === "awaiting_authorization" || authorization.phase === "timed_out"
+                        ? "open-outline"
+                        : "alert-circle-outline"
+                }
+                size={21}
+                color={authorization.phase === "ready_to_complete" ? "#178A55" : authorization.phase === "awaiting_authorization" || authorization.phase === "checking" || authorization.phase === "starting" || authorization.phase === "timed_out" ? OB.primary : "#B42318"}
+              />
               <View style={styles.flex}>
-                <Text style={styles.readyTitle}>Dados prontos para conexão</Text>
-                <Text style={styles.readyText}>
-                  {selectedInstitution.label} e o CPF informado estão prontos. A autorização no banco entra na próxima etapa.
+                <Text style={[
+                  styles.infoTitle,
+                  authorization.phase === "ready_to_complete" && styles.readyTitle,
+                  (authorization.phase === "rejected"
+                    || authorization.phase === "expired"
+                    || authorization.phase === "provider_error"
+                    || authorization.phase === "error") && styles.warningTitle,
+                ]}>
+                  {authorization.title}
                 </Text>
+                {authorization.message ? (
+                  <Text style={[
+                    styles.infoText,
+                    authorization.phase === "ready_to_complete" && styles.readyText,
+                  ]}>
+                    {authorization.message}
+                  </Text>
+                ) : null}
               </View>
+            </View>
+          ) : null}
+
+          {authorization.canOpenAuthorization || authorization.canCheckAgain || authorization.canReset ? (
+            <View style={styles.actionRow}>
+              {authorization.canOpenAuthorization ? (
+                <Pressable
+                  onPress={() => void authorization.openAuthorization()}
+                  style={styles.secondaryButton}
+                  accessibilityRole="button"
+                  accessibilityLabel="Abrir banco novamente"
+                >
+                  <Text style={styles.secondaryText}>Abrir banco novamente</Text>
+                </Pressable>
+              ) : null}
+              {authorization.canCheckAgain ? (
+                <Pressable
+                  onPress={() => void authorization.checkAgain()}
+                  style={styles.secondaryButton}
+                  accessibilityRole="button"
+                  accessibilityLabel="Verificar novamente"
+                >
+                  <Text style={styles.secondaryText}>Verificar novamente</Text>
+                </Pressable>
+              ) : null}
+              {authorization.canReset ? (
+                <Pressable
+                  onPress={authorization.reset}
+                  style={styles.secondaryButton}
+                  accessibilityRole="button"
+                  accessibilityLabel="Tentar nova conexão"
+                >
+                  <Text style={styles.secondaryText}>Tentar nova conexão</Text>
+                </Pressable>
+              ) : null}
             </View>
           ) : null}
 
@@ -266,7 +344,7 @@ export default function OpenFinanceConnectScreen() {
             accessibilityLabel="Continuar"
           >
             <Text style={[styles.continueText, !continueEnabled && styles.continueTextDisabled]}>
-              Continuar
+              {starting || authorization.phase === "starting" ? "Iniciando..." : "Continuar"}
             </Text>
           </Pressable>
         </ScrollView>
@@ -523,6 +601,31 @@ const styles = StyleSheet.create({
   },
   continueTextDisabled: {
     color: OB.support,
+  },
+  actionRow: {
+    gap: 10,
+  },
+  secondaryButton: {
+    minHeight: 50,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: OB.offWhite,
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  secondaryText: {
+    color: OB.primary,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  buttonDisabled: {
+    opacity: 0.5,
+  },
+  warningTitle: {
+    color: "#B42318",
+    fontSize: 13,
+    fontWeight: "900",
   },
   pressed: {
     opacity: 0.84,

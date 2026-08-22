@@ -4,9 +4,11 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   OPEN_FINANCE_FUNCTION_NAMES,
+  OpenFinanceClientError,
   buildOpenFinanceInvokeTarget,
   completeOpenFinanceConnection,
   createOpenFinanceClient,
+  getOpenFinanceConsent,
   getOpenFinanceFunctionName,
   startOpenFinanceConnection,
   syncOpenFinanceMonth,
@@ -310,5 +312,84 @@ describe("Open Finance client requests", () => {
       "EXPO_PUBLIC_",
     ];
     expect(forbidden.filter((name) => source.includes(name))).toEqual([]);
+  });
+});
+
+describe("Open Finance client invoke errors", () => {
+  it("throws when functions.invoke returns an error", async () => {
+    const invoke = vi.fn(async () => ({ data: null, error: new Error("upstream exploded") }));
+    await expect(getOpenFinanceConsent({
+      provider: "polp",
+      householdId: HOUSEHOLD_ID,
+      consentId: "consent-1",
+    }, { functions: { invoke } })).rejects.toMatchObject({
+      name: "OpenFinanceClientError",
+      message: "A chamada Open Finance falhou.",
+      code: null,
+      status: null,
+    });
+  });
+
+  it("preserves HTTP status, Edge code and a safe message from FunctionsHttpError", async () => {
+    const json = vi.fn(async () => ({
+      code: "CONSENT_RESOURCES_PENDING",
+      message: "Consentimento autorizado; recursos ainda estao em processamento.",
+      details: { secret: "do-not-leak", stack: "Error: hidden" },
+    }));
+    const error = Object.assign(new Error("Edge Function returned a non-2xx status code"), {
+      name: "FunctionsHttpError",
+      context: { status: 409, json },
+    });
+    const thrown = await startOpenFinanceConnection({
+      provider: "polp",
+      householdId: HOUSEHOLD_ID,
+      institutionId: "institution-1",
+      cpf: "12345678901",
+    }, { functions: { invoke: vi.fn(async () => ({ data: null, error })) } }).then(
+      () => null,
+      (reason: unknown) => reason,
+    );
+
+    expect(thrown).toBeInstanceOf(OpenFinanceClientError);
+    expect(thrown).toMatchObject({
+      code: "CONSENT_RESOURCES_PENDING",
+      status: 409,
+      message: "Consentimento autorizado; recursos ainda estao em processamento.",
+    });
+    expect(json).toHaveBeenCalledTimes(1);
+    expect(String(thrown)).not.toContain("do-not-leak");
+    expect(String(thrown)).not.toContain("12345678901");
+  });
+
+  it("keeps FunctionsFetchError and FunctionsRelayError as clear failures", async () => {
+    const fetchError = Object.assign(new Error("Failed to send a request to the Edge Function"), {
+      name: "FunctionsFetchError",
+      context: { cause: "offline" },
+    });
+    await expect(getOpenFinanceConsent({
+      provider: "polp",
+      householdId: HOUSEHOLD_ID,
+      consentId: "consent-1",
+    }, { functions: { invoke: vi.fn(async () => ({ data: null, error: fetchError })) } })).rejects.toMatchObject({
+      name: "OpenFinanceClientError",
+      message: "Não foi possível conectar ao Open Finance.",
+      code: null,
+      status: null,
+    });
+
+    const relayError = Object.assign(new Error("Relay Error invoking the Edge Function"), {
+      name: "FunctionsRelayError",
+      context: { headers: { Authorization: "secret" } },
+    });
+    await expect(getOpenFinanceConsent({
+      provider: "polp",
+      householdId: HOUSEHOLD_ID,
+      consentId: "consent-1",
+    }, { functions: { invoke: vi.fn(async () => ({ data: null, error: relayError })) } })).rejects.toMatchObject({
+      name: "OpenFinanceClientError",
+      message: "A Edge Open Finance não pôde processar a chamada.",
+      code: null,
+      status: null,
+    });
   });
 });

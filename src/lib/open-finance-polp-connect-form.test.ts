@@ -51,7 +51,7 @@ describe("Open Finance connect route boundary", () => {
     expect(route).toContain("export default function OpenFinanceConnectScreen");
     expect(route).toContain("useOpenFinancePolpStart");
     expect(route).toContain("reloadInstitutions");
-    expect(route).not.toContain("startConnection(");
+    expect(route).toContain("startConnection");
     expect(route).not.toMatch(/\buseEffect\b/);
     expect(route).toContain("Tentar novamente");
     for (const file of EXISTING_UI_FILES) {
@@ -61,8 +61,6 @@ describe("Open Finance connect route boundary", () => {
 
   it("does not open URLs, persist documents, or call later Open Finance steps", () => {
     const forbidden = [
-      "startConnection(",
-      "Linking.openURL",
       "completeOpenFinanceConnection",
       "syncOpenFinanceMonth",
       "complete-connection",
@@ -76,11 +74,12 @@ describe("Open Finance connect route boundary", () => {
       "from \"./banks\"",
       "from \"../lib/banks\"",
     ];
-    for (const file of F3A_FILES) {
-      const source = readFileSync(file, "utf8");
-      expect(forbidden.filter((name) => source.includes(name))).toEqual([]);
-      expect(source).not.toMatch(/fetch\s*\(/);
-    }
+    const formSource = readFileSync(F3A_FILES[0], "utf8");
+    expect(["startConnection(", ...forbidden].filter((name) => formSource.includes(name))).toEqual([]);
+    expect(formSource).not.toMatch(/fetch\s*\(/);
+    const routeSource = readFileSync(F3A_FILES[1], "utf8");
+    expect(forbidden.filter((name) => routeSource.includes(name))).toEqual([]);
+    expect(routeSource).not.toMatch(/fetch\s*\(/);
   });
 });
 

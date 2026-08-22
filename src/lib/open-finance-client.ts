@@ -109,6 +109,80 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+const INVOKE_FAILED_MESSAGE = "A chamada Open Finance falhou.";
+const FUNCTIONS_FETCH_MESSAGE = "Não foi possível conectar ao Open Finance.";
+const FUNCTIONS_RELAY_MESSAGE = "A Edge Open Finance não pôde processar a chamada.";
+const SAFE_ERROR_CODE_PATTERN = /^[A-Z][A-Z0-9_]{1,63}$/;
+const MAX_SAFE_INVOKE_MESSAGE = 180;
+
+function readErrorName(error: unknown) {
+  if (error instanceof Error && error.name) return error.name;
+  if (isRecord(error) && typeof error.name === "string") return error.name;
+  return "";
+}
+
+function readErrorContext(error: unknown): unknown {
+  return isRecord(error) ? error.context : undefined;
+}
+
+function readHttpStatus(context: unknown): number | null {
+  if (!isRecord(context)) return null;
+  const status = context.status;
+  if (typeof status === "number" && Number.isInteger(status) && status >= 100 && status <= 599) {
+    return status;
+  }
+  return null;
+}
+
+function toSafeInvokeMessage(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > MAX_SAFE_INVOKE_MESSAGE) return null;
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) return null;
+  return trimmed;
+}
+
+function pickSafeEdgeError(payload: unknown): { code: string | null; message: string | null } {
+  if (!isRecord(payload)) return { code: null, message: null };
+  const code = typeof payload.code === "string" && SAFE_ERROR_CODE_PATTERN.test(payload.code)
+    ? payload.code
+    : null;
+  return { code, message: toSafeInvokeMessage(payload.message) };
+}
+
+async function readHttpErrorPayload(context: unknown): Promise<{ code: string | null; message: string | null }> {
+  if (!context || typeof context !== "object") return { code: null, message: null };
+  const json = (context as { json?: unknown }).json;
+  if (typeof json === "function") {
+    try {
+      return pickSafeEdgeError(await json.call(context));
+    } catch {
+      return { code: null, message: null };
+    }
+  }
+  return pickSafeEdgeError(context);
+}
+
+async function toOpenFinanceClientError(error: unknown): Promise<OpenFinanceClientError> {
+  const name = readErrorName(error);
+  if (name === "FunctionsFetchError") {
+    return new OpenFinanceClientError(FUNCTIONS_FETCH_MESSAGE);
+  }
+  if (name === "FunctionsRelayError") {
+    return new OpenFinanceClientError(FUNCTIONS_RELAY_MESSAGE);
+  }
+  if (name === "FunctionsHttpError") {
+    const context = readErrorContext(error);
+    const payload = await readHttpErrorPayload(context);
+    return new OpenFinanceClientError(
+      payload.message ?? INVOKE_FAILED_MESSAGE,
+      payload.code,
+      readHttpStatus(context),
+    );
+  }
+  return new OpenFinanceClientError(INVOKE_FAILED_MESSAGE);
+}
+
 function readResourceType(value: unknown): OpenFinanceResourceType | null {
   if (!isRecord(value)) return null;
   const resourceType = value.resourceType;
@@ -152,10 +226,7 @@ async function invokeOpenFinance<T>(
   });
 
   if (error) {
-    const message = error instanceof Error && error.message
-      ? error.message
-      : "A chamada Open Finance falhou.";
-    throw new OpenFinanceClientError(message);
+    throw await toOpenFinanceClientError(error);
   }
   if (data == null) {
     throw new OpenFinanceClientError("A Edge Open Finance retornou uma resposta vazia.");
