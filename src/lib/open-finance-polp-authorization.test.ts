@@ -187,6 +187,12 @@ describe("Polp authorization start", () => {
     await Promise.all([first, second]);
     expect(startConnection).toHaveBeenCalledTimes(1);
     expect(controller.snapshot.phase).toBe("ready_to_complete");
+    expect(controller.completionContext).toEqual({
+      householdId: HOUSEHOLD_ID,
+      consentId: "consent-1",
+    });
+    controller.reset();
+    expect(controller.completionContext).toBeNull();
   });
 });
 

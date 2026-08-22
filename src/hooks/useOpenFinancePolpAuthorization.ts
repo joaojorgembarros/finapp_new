@@ -70,6 +70,7 @@ export function useOpenFinancePolpAuthorization(input: {
 
   return {
     ...snapshot,
+    completionContext: controller.completionContext,
     start,
     openAuthorization,
     checkAgain,

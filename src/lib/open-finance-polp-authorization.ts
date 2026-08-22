@@ -36,6 +36,11 @@ export type OpenFinancePolpAuthorizationStartInput = {
   cpf: string;
 };
 
+export type OpenFinancePolpCompletionContext = {
+  householdId: string;
+  consentId: string;
+};
+
 export type OpenFinancePolpAuthorizationDependencies = {
   startConnection: (input: {
     institutionId: string;
@@ -306,6 +311,13 @@ export function createOpenFinancePolpAuthorizationController(
   return {
     get snapshot() {
       return snapshot();
+    },
+    get completionContext(): OpenFinancePolpCompletionContext | null {
+      if (phase !== "ready_to_complete" || !stored) return null;
+      return {
+        householdId: stored.householdId,
+        consentId: stored.consentId,
+      };
     },
     subscribe(listener: (value: OpenFinancePolpAuthorizationSnapshot) => void) {
       listeners.add(listener);

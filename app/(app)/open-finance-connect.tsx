@@ -17,6 +17,7 @@ import {
   View,
 } from "react-native";
 import { useOpenFinancePolpAuthorization } from "../../src/hooks/useOpenFinancePolpAuthorization";
+import { useOpenFinancePolpCompletion } from "../../src/hooks/useOpenFinancePolpCompletion";
 import { useOpenFinancePolpStart } from "../../src/hooks/useOpenFinancePolpStart";
 import { useKeyboardAwareScroll } from "../../src/hooks/useKeyboardAwareScroll";
 import {
@@ -74,6 +75,10 @@ export default function OpenFinanceConnectScreen() {
   const authorization = useOpenFinancePolpAuthorization({
     householdId,
     startConnection,
+  });
+  const completion = useOpenFinancePolpCompletion({
+    authorizationPhase: authorization.phase,
+    completionContext: authorization.completionContext,
   });
   const { scrollRef, keyboardInset, registerField, focusField, cancelPendingScroll } =
     useKeyboardAwareScroll<"cpf">(18);
@@ -158,6 +163,11 @@ export default function OpenFinanceConnectScreen() {
       institutionId: result.institutionId,
       cpf,
     });
+  }
+
+  function resetAuthorization() {
+    completion.reset();
+    authorization.reset();
   }
 
   return (
@@ -300,7 +310,78 @@ export default function OpenFinanceConnectScreen() {
             </View>
           ) : null}
 
-          {authorization.canOpenAuthorization || authorization.canCheckAgain || authorization.canReset ? (
+          {completion.phase === "error" ? (
+            <View style={[styles.infoCard, styles.warningCard]}>
+              <Ionicons name="alert-circle-outline" size={21} color="#B42318" />
+              <View style={styles.flex}>
+                <Text style={styles.warningTitle}>Não foi possível concluir</Text>
+                <Text style={styles.warningText}>{completion.errorMessage}</Text>
+              </View>
+            </View>
+          ) : null}
+
+          {completion.phase === "completed" ? (
+            <View style={styles.completedCard}>
+              <View style={styles.completedHeader}>
+                <Ionicons name="checkmark-circle" size={24} color="#178A55" />
+                <View style={styles.flex}>
+                  <Text style={styles.completedTitle}>Banco conectado</Text>
+                  <Text style={styles.completedText}>Sua conexão foi concluída com sucesso.</Text>
+                </View>
+              </View>
+              {completion.resources.length ? (
+                <View style={styles.resourceList}>
+                  {completion.resources.map((resource) => (
+                    <View key={resource.key} style={styles.resourceItem}>
+                      <Ionicons
+                        name={resource.type === "credit_card" ? "card-outline" : "wallet-outline"}
+                        size={20}
+                        color={OB.primary}
+                      />
+                      <View style={styles.flex}>
+                        <Text style={styles.resourceTitle}>{resource.title}</Text>
+                        <Text style={styles.resourceName}>{resource.name}</Text>
+                        {resource.mask ? <Text style={styles.resourceMask}>{resource.mask}</Text> : null}
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              ) : (
+                <Text style={styles.completedText}>
+                  Nenhuma conta ou cartão foi retornado pela instituição.
+                </Text>
+              )}
+            </View>
+          ) : null}
+
+          {authorization.phase === "ready_to_complete" && completion.phase !== "completed" ? (
+            <Pressable
+              onPress={() => void (completion.phase === "error" ? completion.retry() : completion.complete())}
+              disabled={completion.phase === "completing"}
+              style={[
+                styles.continueButton,
+                completion.phase === "completing" && styles.continueButtonDisabled,
+              ]}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: completion.phase === "completing" }}
+              accessibilityLabel={completion.phase === "error" ? "Tentar concluir novamente" : "Concluir conexão"}
+            >
+              <Text style={[
+                styles.continueText,
+                completion.phase === "completing" && styles.continueTextDisabled,
+              ]}>
+                {completion.phase === "completing"
+                  ? "Concluindo conexão..."
+                  : completion.phase === "error"
+                    ? "Tentar concluir novamente"
+                    : "Concluir conexão"}
+              </Text>
+            </Pressable>
+          ) : null}
+
+          {authorization.canOpenAuthorization
+            || authorization.canCheckAgain
+            || (authorization.canReset && authorization.phase !== "ready_to_complete") ? (
             <View style={styles.actionRow}>
               {authorization.canOpenAuthorization ? (
                 <Pressable
@@ -322,9 +403,9 @@ export default function OpenFinanceConnectScreen() {
                   <Text style={styles.secondaryText}>Verificar novamente</Text>
                 </Pressable>
               ) : null}
-              {authorization.canReset ? (
+              {authorization.canReset && authorization.phase !== "ready_to_complete" ? (
                 <Pressable
-                  onPress={authorization.reset}
+                  onPress={resetAuthorization}
                   style={styles.secondaryButton}
                   accessibilityRole="button"
                   accessibilityLabel="Tentar nova conexão"
@@ -626,6 +707,62 @@ const styles = StyleSheet.create({
     color: "#B42318",
     fontSize: 13,
     fontWeight: "900",
+  },
+  completedCard: {
+    borderRadius: 18,
+    padding: 16,
+    gap: 14,
+    backgroundColor: "rgba(23,138,85,0.10)",
+    borderWidth: 1,
+    borderColor: "rgba(23,138,85,0.28)",
+  },
+  completedHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+  },
+  completedTitle: {
+    color: "#178A55",
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  completedText: {
+    color: "#116B42",
+    fontSize: 12,
+    fontWeight: "800",
+    lineHeight: 17,
+    marginTop: 3,
+  },
+  resourceList: {
+    gap: 9,
+  },
+  resourceItem: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    padding: 12,
+    borderRadius: 14,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "rgba(23,138,85,0.22)",
+  },
+  resourceTitle: {
+    color: OB.support,
+    fontSize: 10,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  resourceName: {
+    color: OB.primary,
+    fontSize: 14,
+    fontWeight: "900",
+    marginTop: 2,
+  },
+  resourceMask: {
+    color: OB.support,
+    fontSize: 11,
+    fontWeight: "800",
+    marginTop: 2,
   },
   pressed: {
     opacity: 0.84,
