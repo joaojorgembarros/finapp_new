@@ -2,11 +2,14 @@ import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import {
+  OPEN_FINANCE_ENDPOINTS,
+  OPEN_FINANCE_PROVIDER,
   buildOpenFinanceExternalTransactionIdentityKey,
   buildOpenFinanceTransactionFingerprint,
   isOpenFinanceDate,
   isOpenFinanceProvider,
   parseOpenFinanceDate,
+  type OpenFinanceCompleteConnectionRequest,
   type OpenFinanceConnection,
   type OpenFinancePluggyConnection,
   type OpenFinancePluggyInstitution,
@@ -14,6 +17,7 @@ import {
   type OpenFinancePolpConnection,
   type OpenFinancePolpInstitution,
   type OpenFinancePolpStartConnectionResponse,
+  type OpenFinanceStartConnectionRequest,
   type OpenFinanceStartConnectionResponse,
 } from "./open-finance-contract";
 
@@ -34,6 +38,7 @@ const POLP_START_RESPONSE: OpenFinanceStartConnectionResponse = {
   consentId: "consent-1",
   authorizationUrl: "https://authorization.example.test/consent-1",
   expiresAt: null,
+  connectionId: "a30e8400-e29b-41d4-a716-446655440030",
 };
 
 function startTarget(response: OpenFinanceStartConnectionResponse) {
@@ -44,6 +49,27 @@ function startTarget(response: OpenFinanceStartConnectionResponse) {
 
   expectTypeOf(response).toEqualTypeOf<OpenFinancePolpStartConnectionResponse>();
   return response.authorizationUrl;
+}
+
+function startRequestBody(request: OpenFinanceStartConnectionRequest) {
+  if (request.provider === "pluggy") {
+    return { householdId: request.householdId, connectionId: request.connectionId ?? null };
+  }
+  if ("connectionId" in request) {
+    return { householdId: request.householdId, connectionId: request.connectionId };
+  }
+  return {
+    householdId: request.householdId,
+    institutionId: request.institutionId,
+    cpf: request.cpf,
+  };
+}
+
+function completeRequestBody(request: OpenFinanceCompleteConnectionRequest) {
+  if (request.provider === "pluggy") {
+    return { householdId: request.householdId, itemId: request.itemId };
+  }
+  return { householdId: request.householdId, consentId: request.consentId };
 }
 
 function connectionInstitution(connection: OpenFinanceConnection) {
@@ -84,6 +110,59 @@ describe("Open Finance providers", () => {
 
   it("pairs a connection provider with the matching institution type", () => {
     expectTypeOf(connectionInstitution).returns.toEqualTypeOf<number | null>();
+  });
+
+  it("keeps the Pluggy compatibility constant without making new code depend on it", () => {
+    expect(OPEN_FINANCE_PROVIDER).toBe("pluggy");
+  });
+
+  it("narrows start and complete requests without sharing a fake common payload", () => {
+    expect(startRequestBody({
+      provider: "pluggy",
+      householdId: "a10e8400-e29b-41d4-a716-446655440010",
+    })).toEqual({
+      householdId: "a10e8400-e29b-41d4-a716-446655440010",
+      connectionId: null,
+    });
+    expect(startRequestBody({
+      provider: "polp",
+      householdId: "a10e8400-e29b-41d4-a716-446655440010",
+      institutionId: "institution-1",
+      cpf: "12345678901",
+    })).toEqual({
+      householdId: "a10e8400-e29b-41d4-a716-446655440010",
+      institutionId: "institution-1",
+      cpf: "12345678901",
+    });
+    expect(completeRequestBody({
+      provider: "pluggy",
+      householdId: "a10e8400-e29b-41d4-a716-446655440010",
+      itemId: "item-1",
+    })).toEqual({
+      householdId: "a10e8400-e29b-41d4-a716-446655440010",
+      itemId: "item-1",
+    });
+    expect(completeRequestBody({
+      provider: "polp",
+      householdId: "a10e8400-e29b-41d4-a716-446655440010",
+      consentId: "consent-1",
+    })).toEqual({
+      householdId: "a10e8400-e29b-41d4-a716-446655440010",
+      consentId: "consent-1",
+    });
+  });
+
+  it("builds dynamic consent and connection paths without exposing webhook", () => {
+    expect(OPEN_FINANCE_ENDPOINTS.config).toBe("/config");
+    expect(OPEN_FINANCE_ENDPOINTS.institutions).toBe("/institutions");
+    expect(OPEN_FINANCE_ENDPOINTS.consentStatus("consent-1")).toBe("/consents/consent-1");
+    expect(OPEN_FINANCE_ENDPOINTS.revokeConsent("consent-1")).toBe("/consents/consent-1");
+    expect(OPEN_FINANCE_ENDPOINTS.disconnectConnection(
+      "a30e8400-e29b-41d4-a716-446655440030",
+    )).toBe("/connections/a30e8400-e29b-41d4-a716-446655440030");
+    expect(OPEN_FINANCE_ENDPOINTS).not.toHaveProperty("webhook");
+    expect(() => OPEN_FINANCE_ENDPOINTS.consentStatus("../secret")).toThrow(TypeError);
+    expect(() => OPEN_FINANCE_ENDPOINTS.disconnectConnection("id/with/slash")).toThrow(TypeError);
   });
 });
 

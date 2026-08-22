@@ -11,14 +11,47 @@ export type OpenFinanceProvider = (typeof OPEN_FINANCE_PROVIDERS)[number];
  */
 export const OPEN_FINANCE_PROVIDER = "pluggy" as const satisfies OpenFinanceProvider;
 
+function openFinancePathSegment(value: string, field: string) {
+  const trimmed = value.trim();
+  if (!trimmed || /[/\\?#]/.test(trimmed) || trimmed.includes("..")) {
+    throw new TypeError(`${field} is not a safe Open Finance path identifier.`);
+  }
+  return encodeURIComponent(trimmed);
+}
+
+function consentPath(consentId: string) {
+  return `/consents/${openFinancePathSegment(consentId, "consentId")}`;
+}
+
+function connectionPath(connectionId: string) {
+  return `/connections/${openFinancePathSegment(connectionId, "connectionId")}`;
+}
+
 export const OPEN_FINANCE_ENDPOINTS = {
   config: "/config",
+  institutions: "/institutions",
   connections: "/connections",
   startConnection: "/start-connection",
   completeConnection: "/complete-connection",
   syncMonth: "/sync-month",
-  webhook: "/webhook",
+  consentStatus: consentPath,
+  revokeConsent: consentPath,
+  disconnectConnection: connectionPath,
 } as const;
+
+export const OPEN_FINANCE_POLP_PRODUCTS = ["ACCOUNT", "CREDIT_CARD_ACCOUNT"] as const;
+export type OpenFinancePolpProduct = (typeof OPEN_FINANCE_POLP_PRODUCTS)[number];
+export type OpenFinanceResourceType = "account" | "credit_card" | "consent";
+export type OpenFinancePolpProviderStatus =
+  | "AWAITING_AUTHORIZATION"
+  | "AUTHORISED"
+  | "REJECTED"
+  | "EXPIRED";
+export type OpenFinancePolpExecutionStatus =
+  | "AWAITING_RESOURCES"
+  | "SUCCESS"
+  | "PARTIAL_SUCCESS"
+  | null;
 
 export type OpenFinanceConfigurationStatus =
   | "ready"
@@ -38,6 +71,9 @@ export type OpenFinanceConfigurationCheckCode =
   | "backend_secret_key"
   | "backend_pluggy_client_id"
   | "backend_pluggy_client_secret"
+  | "backend_polp_api_client"
+  | "backend_polp_api_secret"
+  | "backend_polp_webhook_secret"
   | "backend_sandbox"
   | "backend_oauth_redirect";
 
@@ -186,6 +222,14 @@ export type OpenFinanceInstitution =
   | OpenFinancePluggyInstitution
   | OpenFinancePolpInstitution;
 
+export type OpenFinancePolpInstitutionListItem = OpenFinancePolpInstitution & {
+  description: string | null;
+  logoUrl: string | null;
+  status: string | null;
+  type: string | null;
+  credentials: string[];
+};
+
 export type OpenFinanceConsent = {
   id: string;
   connectionId: string;
@@ -242,6 +286,7 @@ type OpenFinanceConnectionBase = {
   lastSyncedAt: string | null;
   lastSyncStatus: OpenFinanceSyncStatus;
   lastSyncRun: OpenFinanceSyncRun | null;
+  resourceType?: OpenFinanceResourceType | null;
   createdAt: string;
   updatedAt: string;
   rawPayload: Record<string, unknown> | null;
@@ -281,7 +326,16 @@ export type OpenFinanceBackendConfigResponse = {
   includeSandbox: boolean;
 };
 
+export type OpenFinanceListInstitutionsRequest = {
+  provider: "polp";
+};
+
+export type OpenFinanceListInstitutionsResponse = {
+  institutions: OpenFinancePolpInstitutionListItem[];
+};
+
 export type OpenFinanceListConnectionsRequest = {
+  provider: OpenFinanceProvider;
   householdId: string;
 };
 
@@ -289,10 +343,31 @@ export type OpenFinanceListConnectionsResponse = {
   connections: OpenFinanceConnection[];
 };
 
-export type OpenFinanceStartConnectionRequest = {
+export type OpenFinancePluggyStartConnectionRequest = {
+  provider: "pluggy";
   householdId: string;
   connectionId?: string | null;
 };
+
+export type OpenFinancePolpCreateConnectionRequest = {
+  provider: "polp";
+  householdId: string;
+  institutionId: string;
+  cpf: string;
+  cnpj?: string | null;
+  products?: OpenFinancePolpProduct[];
+};
+
+export type OpenFinancePolpUpdateConnectionRequest = {
+  provider: "polp";
+  householdId: string;
+  connectionId: string;
+};
+
+export type OpenFinanceStartConnectionRequest =
+  | OpenFinancePluggyStartConnectionRequest
+  | OpenFinancePolpCreateConnectionRequest
+  | OpenFinancePolpUpdateConnectionRequest;
 
 export type OpenFinancePluggyStartConnectionResponse = {
   provider: "pluggy";
@@ -317,23 +392,73 @@ export type OpenFinancePolpStartConnectionResponse = {
   consentId: string;
   authorizationUrl: string;
   expiresAt: string | null;
+  connectionId?: string;
 };
 
 export type OpenFinanceStartConnectionResponse =
   | OpenFinancePluggyStartConnectionResponse
   | OpenFinancePolpStartConnectionResponse;
 
-export type OpenFinanceCompleteConnectionRequest = {
+export type OpenFinancePolpConsentStatus = {
+  provider: "polp";
+  consentId: string;
+  connectionId: string | null;
+  status: OpenFinanceConsentStatus;
+  providerStatus: OpenFinancePolpProviderStatus;
+  executionStatus: OpenFinancePolpExecutionStatus;
+  resourcesReady: boolean;
+  flags: string[];
+  hasProviderError: boolean;
+  authorizationUrl: string | null;
+  authorizationExpiresAt: string | null;
+  expiresAt: string | null;
+  products: string[];
+};
+
+export type OpenFinanceGetConsentRequest = {
+  provider: "polp";
+  householdId: string;
+  consentId: string;
+};
+
+export type OpenFinanceGetConsentResponse = {
+  consent: OpenFinancePolpConsentStatus;
+};
+
+export type OpenFinancePluggyCompleteConnectionRequest = {
+  provider: "pluggy";
   householdId: string;
   itemId: string;
 };
 
-export type OpenFinanceCompleteConnectionResponse = {
+export type OpenFinancePolpCompleteConnectionRequest = {
+  provider: "polp";
+  householdId: string;
+  consentId: string;
+};
+
+export type OpenFinanceCompleteConnectionRequest =
+  | OpenFinancePluggyCompleteConnectionRequest
+  | OpenFinancePolpCompleteConnectionRequest;
+
+export type OpenFinancePluggyCompleteConnectionResponse = {
   itemId: string;
   connections: OpenFinanceConnection[];
 };
 
+export type OpenFinancePolpCompleteConnectionResponse = {
+  itemId: string;
+  consentId: string;
+  consent: OpenFinancePolpConsentStatus;
+  connections: OpenFinanceConnection[];
+};
+
+export type OpenFinanceCompleteConnectionResponse =
+  | OpenFinancePluggyCompleteConnectionResponse
+  | OpenFinancePolpCompleteConnectionResponse;
+
 export type OpenFinanceSyncMonthRequest = {
+  provider: OpenFinanceProvider;
   householdId: string;
   connectionId: string;
   monthKey: string;
@@ -349,15 +474,37 @@ export type OpenFinanceSyncMonthResponse = {
   transactions: OpenFinanceImportedTransaction[];
 };
 
+export type OpenFinanceRevokeConsentRequest = {
+  provider: "polp";
+  householdId: string;
+  consentId: string;
+};
+
+export type OpenFinanceRevokeConsentResponse = {
+  success: true;
+  consentId: string;
+};
+
 export type OpenFinanceDisconnectConnectionRequest = {
+  provider: OpenFinanceProvider;
   householdId: string;
   connectionId: string;
 };
 
-export type OpenFinanceDisconnectConnectionResponse = {
+export type OpenFinancePluggyDisconnectConnectionResponse = {
   success: true;
   disconnectedItemId: string | null;
 };
+
+export type OpenFinancePolpDisconnectConnectionResponse = {
+  success: true;
+  consentId: string;
+  disconnectedItemId: string | null;
+};
+
+export type OpenFinanceDisconnectConnectionResponse =
+  | OpenFinancePluggyDisconnectConnectionResponse
+  | OpenFinancePolpDisconnectConnectionResponse;
 
 export type OpenFinanceApiErrorPayload = {
   message: string;
