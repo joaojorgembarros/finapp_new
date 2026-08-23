@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
 import { Href, Redirect } from "expo-router";
+import { getPostAuthHref } from "../src/lib/postAuthHref";
 import { useSession } from "../src/providers/SessionProvider";
 import { theme } from "../src/ui/theme";
 
@@ -15,17 +16,7 @@ export default function Index() {
       return;
     }
 
-    const metadata = session.user.user_metadata;
-    const hasDreams = Array.isArray(metadata?.finapp_dreams) && metadata.finapp_dreams.length > 0;
-    const remoteDone = metadata?.new_onboarding_done === true && hasDreams;
-    const pendingFinancialSituation = metadata?.new_onboarding_step === "financial-situation" && hasDreams;
-    setDestination(
-      remoteDone
-        ? "/(app)/journey"
-        : pendingFinancialSituation
-          ? "/(onboarding)/financial-situation"
-          : "/(onboarding)/dreams"
-    );
+    setDestination(getPostAuthHref(session));
   }, [loading, session, userId]);
 
   if (destination) return <Redirect href={destination} />;

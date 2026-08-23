@@ -15,6 +15,7 @@ import {
   View,
 } from "react-native";
 import { router } from "expo-router";
+import { getPostAuthHref } from "../../src/lib/postAuthHref";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
@@ -279,7 +280,7 @@ export default function LoginScreen() {
       });
       if (error) throw error;
       if (!data.user?.id) throw new Error("Não foi possível identificar sua conta.");
-      router.replace("/");
+      router.replace(getPostAuthHref(data.session));
     } catch (error: unknown) {
       Alert.alert("Não foi possível entrar", getLoginErrorMessage(error));
     } finally {

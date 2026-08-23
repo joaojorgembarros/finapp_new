@@ -16,6 +16,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
+import { getPostAuthHref } from "../../src/lib/postAuthHref";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { OB, OnboardingBackground } from "../../src/ui/OnboardingKit";
@@ -244,7 +245,7 @@ export default function SignupScreen() {
       if (error) throw error;
 
       if (data.session) {
-        router.replace("/");
+        router.replace(getPostAuthHref(data.session));
         return;
       }
 
