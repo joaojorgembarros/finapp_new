@@ -127,6 +127,25 @@ describe("Polp sync month key", () => {
 });
 
 describe("Polp sync preconditions", () => {
+  it("publishes canStart after complete becomes ready while idle", () => {
+    const { controller, setActive } = harness(readyInput({
+      completionPhase: "idle",
+      connections: [],
+    }));
+    const seen: boolean[] = [];
+    controller.subscribe((snapshot) => {
+      seen.push(snapshot.canStart);
+    });
+    expect(controller.snapshot.canStart).toBe(false);
+
+    setActive(readyInput());
+    controller.syncActiveIdentity();
+
+    expect(controller.snapshot.phase).toBe("idle");
+    expect(controller.snapshot.canStart).toBe(true);
+    expect(seen.at(-1)).toBe(true);
+  });
+
   it("does not sync outside completed, without household, or with an invalid month", async () => {
     const { controller, syncMonth, setActive } = harness();
 

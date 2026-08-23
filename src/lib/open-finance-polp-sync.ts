@@ -285,7 +285,10 @@ export function createOpenFinancePolpSyncController(
   }
 
   function syncActiveIdentity() {
-    if (!round && phase === "idle") return;
+    if (!round && phase === "idle") {
+      emit();
+      return;
+    }
     if (belongsToActiveIdentity(round)) return;
     reset();
   }
