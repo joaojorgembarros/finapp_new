@@ -50,6 +50,7 @@ describe("Open Finance connect route boundary", () => {
     const route = readFileSync(F3A_FILES[1], "utf8");
     expect(route).toContain("export default function OpenFinanceConnectScreen");
     expect(route).toContain("useOpenFinancePolpStart");
+    expect(route).toContain("useOpenFinancePolpHydration");
     expect(route).toContain("reloadInstitutions");
     expect(route).toContain("startConnection");
     expect(route).not.toMatch(/\buseEffect\b/);

@@ -475,6 +475,146 @@ describe("Polp sync stale identity, month change and lifecycle", () => {
   });
 });
 
+describe("Polp explicit resync after completed", () => {
+  it("does not start a second round automatically after completed", async () => {
+    const { controller, syncMonth } = harness();
+    await controller.start();
+    expect(controller.snapshot.phase).toBe("completed");
+    expect(controller.snapshot.canStart).toBe(false);
+    expect(controller.snapshot.canResync).toBe(true);
+    expect(syncMonth).toHaveBeenCalledTimes(2);
+  });
+
+  it("starts the same eligible connections from completed without reset", async () => {
+    const { controller, syncMonth } = harness();
+    await controller.start();
+    expect(controller.snapshot.canResync).toBe(true);
+
+    syncMonth.mockResolvedValue(syncResponse({ found: 26, inserted: 0, duplicates: 26 }));
+    await controller.start();
+
+    expect(syncMonth).toHaveBeenCalledTimes(4);
+    expect(syncMonth.mock.calls[2]?.[0]).toEqual({
+      provider: "polp",
+      householdId: HOUSEHOLD_ID,
+      connectionId: ACCOUNT_ID,
+      monthKey: MONTH_KEY,
+    });
+    expect(syncMonth.mock.calls[3]?.[0].connectionId).toBe(CARD_ID);
+    expect(controller.snapshot.phase).toBe("completed");
+    expect(controller.snapshot.totals).toEqual({
+      found: 52,
+      inserted: 0,
+      duplicates: 52,
+      successCount: 2,
+      failureCount: 0,
+    });
+  });
+
+  it("goes completed to syncing to completed on an explicit resync", async () => {
+    const pending = deferred<OpenFinanceSyncMonthResponse>();
+    const { controller, syncMonth } = harness(readyInput({
+      connections: [resource(ACCOUNT_ID, "account")],
+    }));
+    await controller.start();
+    expect(controller.snapshot.phase).toBe("completed");
+
+    syncMonth.mockReturnValueOnce(pending.promise);
+    const again = controller.start();
+    await Promise.resolve();
+    expect(controller.snapshot.phase).toBe("syncing");
+    expect(controller.snapshot.canResync).toBe(false);
+    expect(controller.snapshot.canStart).toBe(false);
+
+    pending.resolve(syncResponse({ found: 20, inserted: 0, duplicates: 20 }));
+    await again;
+    expect(controller.snapshot.phase).toBe("completed");
+    expect(controller.snapshot.canResync).toBe(true);
+  });
+
+  it("blocks a second click while a resync is already in flight", async () => {
+    const pending = deferred<OpenFinanceSyncMonthResponse>();
+    const { controller, syncMonth } = harness(readyInput({
+      connections: [resource(ACCOUNT_ID, "account")],
+    }));
+    await controller.start();
+    syncMonth.mockReturnValue(pending.promise);
+
+    const first = controller.start();
+    const second = controller.start();
+    await Promise.resolve();
+    expect(syncMonth).toHaveBeenCalledTimes(2);
+
+    pending.resolve(syncResponse({ found: 20, inserted: 0, duplicates: 20 }));
+    await Promise.all([first, second]);
+    expect(syncMonth).toHaveBeenCalledTimes(2);
+    expect(controller.snapshot.phase).toBe("completed");
+  });
+
+  it("keeps B blocked until a stale resync transport A releases its owner", async () => {
+    const pendingA = deferred<OpenFinanceSyncMonthResponse>();
+    const { controller, syncMonth, setActive } = harness(readyInput({
+      connections: [resource(ACCOUNT_ID, "account")],
+    }));
+    await controller.start();
+
+    let maxConcurrentCalls = 0;
+    let concurrentCalls = 0;
+    syncMonth.mockImplementation(async () => {
+      concurrentCalls += 1;
+      maxConcurrentCalls = Math.max(maxConcurrentCalls, concurrentCalls);
+      try {
+        return await pendingA.promise;
+      } finally {
+        concurrentCalls -= 1;
+      }
+    });
+
+    const stale = controller.start();
+    await Promise.resolve();
+    setActive(readyInput({
+      connections: [resource("account-b", "account")],
+    }));
+    controller.syncActiveIdentity();
+    expect(controller.snapshot.canStart).toBe(false);
+    expect(controller.snapshot.canResync).toBe(false);
+
+    await controller.start();
+    expect(syncMonth).toHaveBeenCalledTimes(2);
+    expect(maxConcurrentCalls).toBe(1);
+
+    pendingA.resolve(syncResponse({ found: 9, inserted: 0, duplicates: 9 }));
+    await stale;
+    expect(controller.snapshot.phase).toBe("idle");
+    expect(controller.snapshot.canStart).toBe(true);
+
+    syncMonth.mockResolvedValueOnce(syncResponse({ found: 1, inserted: 1, duplicates: 0 }));
+    await controller.start();
+    expect(syncMonth.mock.calls[2]?.[0].connectionId).toBe("account-b");
+    expect(maxConcurrentCalls).toBe(1);
+  });
+
+  it("does not treat completed resync as a substitute for retryFailed", async () => {
+    const { controller, syncMonth } = harness();
+    syncMonth
+      .mockResolvedValueOnce(syncResponse({ found: 5, inserted: 5, duplicates: 0 }))
+      .mockRejectedValueOnce(new OpenFinanceClientError("Falha segura.", "PROVIDER_ERROR", 502));
+    await controller.start();
+    expect(controller.snapshot.phase).toBe("partial");
+    expect(controller.snapshot.canResync).toBe(false);
+    expect(controller.snapshot.canRetryFailed).toBe(true);
+
+    await controller.start();
+    expect(syncMonth).toHaveBeenCalledTimes(2);
+
+    syncMonth.mockResolvedValueOnce(syncResponse({ found: 2, inserted: 2, duplicates: 0 }));
+    await controller.retryFailed();
+    expect(syncMonth).toHaveBeenCalledTimes(3);
+    expect(syncMonth.mock.calls[2]?.[0].connectionId).toBe(CARD_ID);
+    expect(controller.snapshot.results[0]?.inserted).toBe(5);
+  });
+});
+
 describe("F4B production boundaries", () => {
   it("keeps sync isolated from start, browser, polling, complete and direct ledger inserts", async () => {
     const {
@@ -493,7 +633,13 @@ describe("F4B production boundaries", () => {
     expect(insertTransaction).not.toHaveBeenCalled();
 
     const source = readFileSync(resolve(__dirname, "open-finance-polp-sync.ts"), "utf8");
+    const hookSource = readFileSync(resolve(__dirname, "../hooks/useOpenFinancePolpSync.ts"), "utf8");
     expect(source).not.toMatch(/startConnection|openUrl|getConsent|completeConnection|sync-month/);
+    expect(source).toContain("phase !== \"idle\" && phase !== \"completed\"");
+    expect(source).not.toContain("if (phase !== \"idle\" || transportBusy()) return");
+    expect(source).not.toContain("if (!canStart) return");
+    expect(hookSource).toContain("POLP_SYNC_CONTROLLER_REVISION");
+    expect(hookSource).not.toMatch(/useRef\(createOpenFinancePolpSyncController/);
     expect(source).not.toMatch(/AsyncStorage|SecureStore|fetch\s*\(|console\./);
     expect(source).not.toContain("imported_bank_transactions");
   });
@@ -516,6 +662,9 @@ describe("F4B production boundaries", () => {
       "utf8",
     );
     expect(routeSource).toContain("Sincronizar movimentações");
+    expect(routeSource).toContain("Sincronizar novamente");
+    expect(routeSource).toContain("onPress={() => void sync.start()}");
+    expect(routeSource).toContain("sync.canResync");
     expect(routeSource).toContain("Sincronização concluída");
     expect(routeSource).toContain("Tudo já estava atualizado.");
     expect(routeSource).not.toMatch(/syncOpenFinanceMonth|sync-month/);

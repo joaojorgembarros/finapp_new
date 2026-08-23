@@ -8,6 +8,8 @@ import type {
   OpenFinanceSyncMonthResponse,
 } from "./open-finance-contract";
 
+export const POLP_SYNC_CONTROLLER_REVISION = 2;
+
 export type OpenFinancePolpSyncPhase =
   | "idle"
   | "syncing"
@@ -60,6 +62,7 @@ export type OpenFinancePolpSyncSnapshot = {
   totals: OpenFinancePolpSyncTotals;
   errorMessage: string | null;
   canStart: boolean;
+  canResync: boolean;
   canRetryFailed: boolean;
 };
 
@@ -241,6 +244,10 @@ export function createOpenFinancePolpSyncController(
       totals,
       errorMessage,
       canStart: phase === "idle" && !transportBusy() && Boolean(active),
+      canResync: phase === "completed"
+        && !transportBusy()
+        && Boolean(active)
+        && samePolpSyncIdentity(round ? toIdentity(round) : null, active ? toIdentity(active) : null),
       canRetryFailed: (phase === "partial" || phase === "error")
         && totals.failureCount > 0
         && !transportBusy()
@@ -376,9 +383,13 @@ export function createOpenFinancePolpSyncController(
       };
     },
     async start() {
-      if (phase !== "idle" || transportBusy()) return;
+      if (transportBusy() || (phase !== "idle" && phase !== "completed")) return;
       const active = deps.getActiveContext();
       if (!active) return;
+      if (phase === "completed" && !belongsToActiveIdentity(round)) {
+        reset();
+        return;
+      }
       round = active;
       results = [];
       current = 0;

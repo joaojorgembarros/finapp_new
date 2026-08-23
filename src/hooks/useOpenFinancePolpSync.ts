@@ -6,6 +6,7 @@ import type {
   OpenFinancePolpCompletionPhase,
 } from "../lib/open-finance-polp-completion";
 import {
+  POLP_SYNC_CONTROLLER_REVISION,
   createOpenFinancePolpSyncController,
   localPolpSyncMonthKey,
   readPolpSyncContext,
@@ -25,10 +26,13 @@ export function useOpenFinancePolpSync(input: {
   const [monthKey] = useState(() => localPolpSyncMonthKey());
   const inputRef = useRef({ ...input, monthKey });
   inputRef.current = { ...input, monthKey };
-  const controller = useRef(createOpenFinancePolpSyncController({
-    syncMonth: (request) => client.syncMonth(request),
-    getActiveContext: () => readPolpSyncContext(inputRef.current),
-  })).current;
+  const controller = useMemo(
+    () => createOpenFinancePolpSyncController({
+      syncMonth: (request) => client.syncMonth(request),
+      getActiveContext: () => readPolpSyncContext(inputRef.current),
+    }),
+    [client, POLP_SYNC_CONTROLLER_REVISION],
+  );
   const [snapshot, setSnapshot] = useState<OpenFinancePolpSyncSnapshot>(controller.snapshot);
 
   const active = readPolpSyncContext(inputRef.current);

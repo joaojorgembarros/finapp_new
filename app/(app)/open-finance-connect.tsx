@@ -18,6 +18,7 @@ import {
 } from "react-native";
 import { useOpenFinancePolpAuthorization } from "../../src/hooks/useOpenFinancePolpAuthorization";
 import { useOpenFinancePolpCompletion } from "../../src/hooks/useOpenFinancePolpCompletion";
+import { useOpenFinancePolpHydration } from "../../src/hooks/useOpenFinancePolpHydration";
 import { useOpenFinancePolpStart } from "../../src/hooks/useOpenFinancePolpStart";
 import { useOpenFinancePolpSync } from "../../src/hooks/useOpenFinancePolpSync";
 import { useKeyboardAwareScroll } from "../../src/hooks/useKeyboardAwareScroll";
@@ -33,6 +34,7 @@ import {
   toConnectInstitutionOption,
   type OpenFinanceConnectInstitutionOption,
 } from "../../src/lib/open-finance-polp-connect-form";
+import { resolveExistingPolpConnectView } from "../../src/lib/open-finance-polp-hydrate";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
 import { ScreenHeaderCard } from "../../src/ui/ScreenHeaderCard";
 
@@ -81,10 +83,20 @@ export default function OpenFinanceConnectScreen() {
     authorizationPhase: authorization.phase,
     completionContext: authorization.completionContext,
   });
-  const sync = useOpenFinancePolpSync({
-    completionPhase: completion.phase,
+  const hydration = useOpenFinancePolpHydration({
     householdId,
-    connections: completion.resources,
+    householdLoading,
+  });
+  const existingView = resolveExistingPolpConnectView({
+    completionPhase: completion.phase,
+    completionResources: completion.resources,
+    hydratedResources: hydration.resources,
+    hydrationLoading: hydration.loading,
+  });
+  const sync = useOpenFinancePolpSync({
+    completionPhase: existingView.syncCompletionPhase,
+    householdId,
+    connections: existingView.resources,
   });
   const { scrollRef, keyboardInset, registerField, focusField, cancelPendingScroll } =
     useKeyboardAwareScroll<"cpf">(18);
@@ -191,7 +203,9 @@ export default function OpenFinanceConnectScreen() {
           <ScreenHeaderCard
             eyebrow="Contas"
             title="Conectar banco"
-            subtitle="Escolha sua instituição e informe os dados necessários para iniciar a conexão."
+            subtitle={existingView.showExistingConnection
+              ? "Sua instituição já está conectada. Você pode sincronizar as movimentações."
+              : "Escolha sua instituição e informe os dados necessários para iniciar a conexão."}
             onBack={() => router.back()}
           />
 
@@ -208,6 +222,25 @@ export default function OpenFinanceConnectScreen() {
             </View>
           ) : null}
 
+          {existingView.showHydrationLoading ? (
+            <View style={styles.infoCard}>
+              <Ionicons name="hourglass-outline" size={19} color={OB.primary} />
+              <Text style={styles.infoText}>Carregando conexão existente...</Text>
+            </View>
+          ) : null}
+
+          {hydration.error && !existingView.showExistingConnection ? (
+            <View style={[styles.infoCard, styles.warningCard]}>
+              <Ionicons name="alert-circle-outline" size={21} color="#B42318" />
+              <View style={styles.flex}>
+                <Text style={styles.warningTitle}>Não foi possível carregar a conexão</Text>
+                <Text style={styles.warningText}>{hydration.error}</Text>
+              </View>
+            </View>
+          ) : null}
+
+          {existingView.showStartForm ? (
+          <>
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Instituição</Text>
             <Pressable
@@ -271,6 +304,8 @@ export default function OpenFinanceConnectScreen() {
               </Text>
             </View>
           </View>
+          </>
+          ) : null}
 
           {authorization.phase !== "idle" && authorization.title ? (
             <View style={[
@@ -327,7 +362,7 @@ export default function OpenFinanceConnectScreen() {
             </View>
           ) : null}
 
-          {completion.phase === "completed" ? (
+          {existingView.showExistingConnection ? (
             <View style={styles.completedCard}>
               <View style={styles.completedHeader}>
                 <Ionicons name="checkmark-circle" size={24} color="#178A55" />
@@ -336,9 +371,9 @@ export default function OpenFinanceConnectScreen() {
                   <Text style={styles.completedText}>Sua conexão foi concluída com sucesso.</Text>
                 </View>
               </View>
-              {completion.resources.length ? (
+              {existingView.resources.length ? (
                 <View style={styles.resourceList}>
-                  {completion.resources.map((resource) => (
+                  {existingView.resources.map((resource) => (
                     <View key={resource.key} style={styles.resourceItem}>
                       <Ionicons
                         name={resource.type === "credit_card" ? "card-outline" : "wallet-outline"}
@@ -361,7 +396,7 @@ export default function OpenFinanceConnectScreen() {
             </View>
           ) : null}
 
-          {completion.phase === "completed" && (sync.canStart || sync.phase !== "idle") ? (
+          {existingView.showExistingConnection && (sync.canStart || sync.phase !== "idle") ? (
             <View style={styles.syncCard}>
               <Text style={styles.sectionTitle}>
                 {sync.monthLabel
@@ -434,6 +469,16 @@ export default function OpenFinanceConnectScreen() {
                   accessibilityLabel="Sincronizar movimentações"
                 >
                   <Text style={styles.continueText}>Sincronizar movimentações</Text>
+                </Pressable>
+              ) : null}
+              {sync.canResync ? (
+                <Pressable
+                  onPress={() => void sync.start()}
+                  style={styles.continueButton}
+                  accessibilityRole="button"
+                  accessibilityLabel="Sincronizar novamente"
+                >
+                  <Text style={styles.continueText}>Sincronizar novamente</Text>
                 </Pressable>
               ) : null}
               {sync.phase === "syncing" ? (
@@ -524,6 +569,7 @@ export default function OpenFinanceConnectScreen() {
             </View>
           ) : null}
 
+          {existingView.showStartForm ? (
           <Pressable
             onPress={onContinue}
             disabled={!continueEnabled}
@@ -536,6 +582,7 @@ export default function OpenFinanceConnectScreen() {
               {starting || authorization.phase === "starting" ? "Iniciando..." : "Continuar"}
             </Text>
           </Pressable>
+          ) : null}
         </ScrollView>
 
         <Modal
