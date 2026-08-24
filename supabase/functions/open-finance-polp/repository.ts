@@ -20,7 +20,7 @@ import {
   type NormalizedPolpTransaction,
 } from "./normalizers";
 
-const OPEN_FINANCE_SECRET_KEY_NAME = "open-finance";
+const OPEN_FINANCE_SECRET_KEY_NAME = "open_finance";
 const LOCAL_SINGLE_SECRET_KEY_FALLBACK = "OPEN_FINANCE_LOCAL_SINGLE_SECRET_KEY_FALLBACK";
 
 type AdminClient = ReturnType<typeof createPolpAdminClient>;

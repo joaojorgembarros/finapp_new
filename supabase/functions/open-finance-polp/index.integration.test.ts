@@ -34,7 +34,7 @@ import {
 const ENVIRONMENT: Record<string, string> = {
   SUPABASE_URL: "http://127.0.0.1:54321",
   SUPABASE_SECRET_KEYS: JSON.stringify({
-    "open-finance": "sb_secret_local-polp-test-only",
+    open_finance: "sb_secret_local-polp-test-only",
   }),
   POLP_API_CLIENT: "local-polp-client-not-real",
   POLP_API_SECRET: "local-polp-secret-not-real",

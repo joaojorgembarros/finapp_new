@@ -245,7 +245,7 @@ function installRuntime() {
   let handler: Handler | null = null;
   const values: Record<string, string> = {
     SUPABASE_URL: "https://project.example.test",
-    SUPABASE_SECRET_KEYS: JSON.stringify({ "open-finance": OPEN_FINANCE_SECRET }),
+    SUPABASE_SECRET_KEYS: JSON.stringify({ open_finance: OPEN_FINANCE_SECRET }),
     PLUGGY_CLIENT_ID: "pluggy-client-id",
     PLUGGY_CLIENT_SECRET: "pluggy-client-secret",
   };

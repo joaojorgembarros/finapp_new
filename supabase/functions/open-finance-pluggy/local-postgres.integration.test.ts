@@ -225,7 +225,7 @@ describe.skipIf(!RUN_LOCAL_INTEGRATION)(
       let registeredHandler: Handler | null = null;
       const runtimeValues: Record<string, string> = {
         SUPABASE_URL: supabaseUrl,
-        SUPABASE_SECRET_KEYS: JSON.stringify({ "open-finance": secretKey }),
+        SUPABASE_SECRET_KEYS: JSON.stringify({ open_finance: secretKey }),
         PLUGGY_CLIENT_ID: "local-http-mock-client",
         PLUGGY_CLIENT_SECRET: "local-http-mock-secret",
       };

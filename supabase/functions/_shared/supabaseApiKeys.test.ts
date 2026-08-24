@@ -63,11 +63,11 @@ describe("Supabase API key resolver", () => {
     const environment = createEnvironment({
       SUPABASE_SECRET_KEYS: JSON.stringify({
         default: "sb_secret_default_test",
-        "open-finance": "sb_secret_open_finance_test",
+        open_finance: "sb_secret_open_finance_test",
       }),
     });
 
-    expect(resolveSupabaseSecretKey(environment, "open-finance"))
+    expect(resolveSupabaseSecretKey(environment, "open_finance"))
       .toBe("sb_secret_open_finance_test");
   });
 

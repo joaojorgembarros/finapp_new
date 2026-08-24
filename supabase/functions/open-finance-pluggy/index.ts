@@ -30,7 +30,7 @@ type EdgeRuntime = {
 };
 
 const edgeRuntime = (globalThis as typeof globalThis & { Deno: EdgeRuntime }).Deno;
-const OPEN_FINANCE_SECRET_KEY_NAME = "open-finance";
+const OPEN_FINANCE_SECRET_KEY_NAME = "open_finance";
 const LOCAL_SINGLE_SECRET_KEY_FALLBACK = "OPEN_FINANCE_LOCAL_SINGLE_SECRET_KEY_FALLBACK";
 
 type JsonObject = Record<string, unknown>;

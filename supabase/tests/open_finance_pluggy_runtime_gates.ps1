@@ -66,7 +66,7 @@ function Read-NamedKeyMap {
   if (-not $Values.ContainsKey($Name)) { return $null }
   try {
     $parsed = $Values[$Name] | ConvertFrom-Json
-    foreach ($candidateName in @('open-finance', 'default')) {
+    foreach ($candidateName in @('open_finance', 'default')) {
       $property = $parsed.PSObject.Properties[$candidateName]
       if ($null -ne $property) {
         $candidate = [string]$property.Value

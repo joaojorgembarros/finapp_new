@@ -200,7 +200,7 @@ describe.skipIf(!RUN_LOCAL_INTEGRATION)(
 
       const runtimeValues: Record<string, string> = {
         SUPABASE_URL: supabaseUrl,
-        SUPABASE_SECRET_KEYS: JSON.stringify({ "open-finance": secretKey }),
+        SUPABASE_SECRET_KEYS: JSON.stringify({ open_finance: secretKey }),
         POLP_API_CLIENT: "local-polp-client",
         POLP_API_SECRET: "local-polp-secret",
         POLP_WEBHOOK_SECRET: "local-webhook-secret",

@@ -45,7 +45,7 @@ function validEnvironment(overrides: Record<string, string | undefined> = {}) {
     SUPABASE_URL: "https://project.example.test",
     SUPABASE_SECRET_KEYS: JSON.stringify({
       default: "sb_secret_default_integration",
-      "open-finance": OPEN_FINANCE_SECRET,
+      open_finance: OPEN_FINANCE_SECRET,
     }),
     PLUGGY_CLIENT_ID: "pluggy-client-id",
     PLUGGY_CLIENT_SECRET: "pluggy-client-secret",
