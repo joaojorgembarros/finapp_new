@@ -69,9 +69,30 @@ export default function ImportExtractOnboarding() {
         <ScreenHeaderCard
           eyebrow="Controle financeiro"
           title="Importar extrato"
-          subtitle="Escolha o formato do arquivo e revise tudo antes de salvar."
+          subtitle="Importe um arquivo ou conecte seu banco pelo Open Finance."
           onBack={() => router.back()}
         />
+
+        <Pressable
+          onPress={() => router.push("/(app)/open-finance-connect")}
+          style={({ pressed }) => [styles.openFinanceCard, pressed && styles.pressed]}
+          accessibilityRole="button"
+          accessibilityLabel="Conectar banco pelo Open Finance"
+        >
+          <View style={styles.openFinanceIcon}>
+            <Ionicons name="link-outline" size={21} color="#fff" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <View style={styles.formatTitleRow}>
+              <Text style={styles.historyTitle}>Open Finance</Text>
+              <View style={styles.recommendedBadge}>
+                <Text style={styles.recommendedText}>Conectar banco</Text>
+              </View>
+            </View>
+            <Text style={styles.historyText}>Sincronize movimentações direto da instituição, sem enviar arquivo</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={OB.support} />
+        </Pressable>
 
         <Pressable
           onPress={() => router.push("/(app)/import-history")}
@@ -130,6 +151,25 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(123,160,200,0.14)",
     borderWidth: 1,
     borderColor: OB.supportSoft,
+  },
+  openFinanceCard: {
+    minHeight: 76,
+    borderRadius: 18,
+    padding: 13,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  openFinanceIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: OB.primary,
   },
   historyIcon: {
     width: 46,

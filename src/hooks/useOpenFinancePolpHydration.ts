@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { createOpenFinanceClient, OpenFinanceClientError } from "../lib/open-finance-client";
 import type { OpenFinancePolpCompletedResource } from "../lib/open-finance-polp-completion";
@@ -77,9 +77,19 @@ export function useOpenFinancePolpHydration(input: {
     };
   }, [client, activeHouseholdId]);
 
+  const clear = useCallback(() => {
+    setSnapshot((previous) => ({
+      ...previous,
+      resources: [],
+      loading: false,
+      error: null,
+    }));
+  }, []);
+
   return {
     resources: stale ? [] : snapshot.resources,
     loading: Boolean(activeHouseholdId) && (stale || snapshot.loading),
     error: stale ? null : snapshot.error,
+    clear,
   };
 }

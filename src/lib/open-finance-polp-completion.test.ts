@@ -496,9 +496,8 @@ describe("F4A production boundaries and hidden route", () => {
     expect(routeSource).not.toMatch(/<Text[^>]*>\{resource\.key\}<\/Text>/);
   });
 
-  it("does not expose the route from existing app flows", () => {
+  it("does not expose the route from unrelated existing app flows", () => {
     for (const relativePath of [
-      "../../app/(app)/import-extract.tsx",
       "../../app/(app)/journey.tsx",
       "../../app/(app)/new-transaction.tsx",
       "../../app/(app)/link-commitment.tsx",

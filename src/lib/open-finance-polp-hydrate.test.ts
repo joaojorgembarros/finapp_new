@@ -182,6 +182,20 @@ describe("existing Polp connection hydration", () => {
     expect(view.showStartForm).toBe(true);
     expect(view.syncCompletionPhase).toBe("idle");
   });
+
+  it("hides the existing connection after a successful local disconnect", () => {
+    const view = resolveExistingPolpConnectView({
+      completionPhase: "completed",
+      completionResources: [completedResource(ACCOUNT_ID, "account")],
+      hydratedResources: [completedResource(ACCOUNT_ID, "account")],
+      hydrationLoading: false,
+      connectionCleared: true,
+    });
+    expect(view.showExistingConnection).toBe(false);
+    expect(view.showStartForm).toBe(true);
+    expect(view.resources).toEqual([]);
+    expect(view.syncCompletionPhase).toBe("idle");
+  });
 });
 
 describe("R10I production boundaries", () => {

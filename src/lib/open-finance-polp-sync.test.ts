@@ -644,9 +644,8 @@ describe("F4B production boundaries", () => {
     expect(source).not.toContain("imported_bank_transactions");
   });
 
-  it("does not expose the route from existing app flows", () => {
+  it("does not expose the route from unrelated existing app flows", () => {
     for (const relativePath of [
-      "../../app/(app)/import-extract.tsx",
       "../../app/(app)/journey.tsx",
       "../../app/(app)/new-transaction.tsx",
       "../../app/(app)/link-commitment.tsx",

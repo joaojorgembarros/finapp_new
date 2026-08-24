@@ -3,6 +3,7 @@ import { router } from "expo-router";
 import React, { useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Image,
   Keyboard,
@@ -18,6 +19,7 @@ import {
 } from "react-native";
 import { useOpenFinancePolpAuthorization } from "../../src/hooks/useOpenFinancePolpAuthorization";
 import { useOpenFinancePolpCompletion } from "../../src/hooks/useOpenFinancePolpCompletion";
+import { useOpenFinancePolpDisconnect } from "../../src/hooks/useOpenFinancePolpDisconnect";
 import { useOpenFinancePolpHydration } from "../../src/hooks/useOpenFinancePolpHydration";
 import { useOpenFinancePolpStart } from "../../src/hooks/useOpenFinancePolpStart";
 import { useOpenFinancePolpSync } from "../../src/hooks/useOpenFinancePolpSync";
@@ -34,6 +36,11 @@ import {
   toConnectInstitutionOption,
   type OpenFinanceConnectInstitutionOption,
 } from "../../src/lib/open-finance-polp-connect-form";
+import {
+  POLP_DISCONNECT_CONFIRMATION,
+  canStartPolpDisconnect,
+  readPolpDisconnectConnectionId,
+} from "../../src/lib/open-finance-polp-disconnect";
 import { resolveExistingPolpConnectView } from "../../src/lib/open-finance-polp-hydrate";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
 import { ScreenHeaderCard } from "../../src/ui/ScreenHeaderCard";
@@ -87,16 +94,25 @@ export default function OpenFinanceConnectScreen() {
     householdId,
     householdLoading,
   });
+  const disconnect = useOpenFinancePolpDisconnect();
   const existingView = resolveExistingPolpConnectView({
     completionPhase: completion.phase,
     completionResources: completion.resources,
     hydratedResources: hydration.resources,
     hydrationLoading: hydration.loading,
+    connectionCleared: disconnect.phase === "disconnected",
   });
   const sync = useOpenFinancePolpSync({
     completionPhase: existingView.syncCompletionPhase,
     householdId,
     connections: existingView.resources,
+  });
+  const disconnectConnectionId = readPolpDisconnectConnectionId(existingView.resources);
+  const disconnectEnabled = canStartPolpDisconnect({
+    householdId,
+    connectionId: disconnectConnectionId,
+    phase: disconnect.phase,
+    blocked: sync.phase === "syncing",
   });
   const { scrollRef, keyboardInset, registerField, focusField, cancelPendingScroll } =
     useKeyboardAwareScroll<"cpf">(18);
@@ -177,6 +193,7 @@ export default function OpenFinanceConnectScreen() {
       return;
     }
     setInstitutionError(null);
+    disconnect.reset();
     await authorization.start({
       institutionId: result.institutionId,
       cpf,
@@ -187,6 +204,32 @@ export default function OpenFinanceConnectScreen() {
     sync.reset();
     completion.reset();
     authorization.reset();
+  }
+
+  async function confirmDisconnect() {
+    const disconnected = await disconnect.start({
+      householdId,
+      connectionId: disconnectConnectionId,
+    });
+    if (!disconnected) return;
+    hydration.clear();
+    resetAuthorization();
+  }
+
+  function onPressDisconnect() {
+    if (!disconnectEnabled) return;
+    Alert.alert(
+      POLP_DISCONNECT_CONFIRMATION.title,
+      POLP_DISCONNECT_CONFIRMATION.message,
+      [
+        { text: POLP_DISCONNECT_CONFIRMATION.cancel, style: "cancel" },
+        {
+          text: POLP_DISCONNECT_CONFIRMATION.confirm,
+          style: "destructive",
+          onPress: () => void confirmDisconnect(),
+        },
+      ],
+    );
   }
 
   return (
@@ -396,6 +439,16 @@ export default function OpenFinanceConnectScreen() {
             </View>
           ) : null}
 
+          {disconnect.phase === "error" && existingView.showExistingConnection ? (
+            <View style={[styles.infoCard, styles.warningCard]}>
+              <Ionicons name="alert-circle-outline" size={21} color="#B42318" />
+              <View style={styles.flex}>
+                <Text style={styles.warningTitle}>Não foi possível desconectar</Text>
+                <Text style={styles.warningText}>{disconnect.errorMessage}</Text>
+              </View>
+            </View>
+          ) : null}
+
           {existingView.showExistingConnection && (sync.canStart || sync.phase !== "idle") ? (
             <View style={styles.syncCard}>
               <Text style={styles.sectionTitle}>
@@ -461,7 +514,7 @@ export default function OpenFinanceConnectScreen() {
                   </View>
                 </View>
               ))}
-              {sync.canStart ? (
+              {sync.canStart && disconnect.phase !== "disconnecting" ? (
                 <Pressable
                   onPress={() => void sync.start()}
                   style={styles.continueButton}
@@ -471,7 +524,7 @@ export default function OpenFinanceConnectScreen() {
                   <Text style={styles.continueText}>Sincronizar movimentações</Text>
                 </Pressable>
               ) : null}
-              {sync.canResync ? (
+              {sync.canResync && disconnect.phase !== "disconnecting" ? (
                 <Pressable
                   onPress={() => void sync.start()}
                   style={styles.continueButton}
@@ -494,7 +547,7 @@ export default function OpenFinanceConnectScreen() {
                   </Text>
                 </Pressable>
               ) : null}
-              {sync.canRetryFailed ? (
+              {sync.canRetryFailed && disconnect.phase !== "disconnecting" ? (
                 <Pressable
                   onPress={() => void sync.retryFailed()}
                   style={styles.continueButton}
@@ -504,6 +557,41 @@ export default function OpenFinanceConnectScreen() {
                   <Text style={styles.continueText}>Tentar novamente as que falharam</Text>
                 </Pressable>
               ) : null}
+            </View>
+          ) : null}
+
+          {existingView.showExistingConnection ? (
+            <View style={styles.disconnectCard}>
+              <Text style={styles.sectionTitle}>Desconectar instituição</Text>
+              <Text style={styles.syncText}>
+                Isso interrompe futuras sincronizações. As movimentações já importadas permanecem no app.
+              </Text>
+              <Pressable
+                onPress={onPressDisconnect}
+                disabled={!disconnectEnabled}
+                style={[
+                  styles.disconnectButton,
+                  !disconnectEnabled && styles.buttonDisabled,
+                ]}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: !disconnectEnabled }}
+                accessibilityLabel={
+                  disconnect.phase === "disconnecting"
+                    ? "Desconectando instituição"
+                    : "Desconectar instituição"
+                }
+              >
+                <Text style={[
+                  styles.disconnectText,
+                  !disconnectEnabled && styles.continueTextDisabled,
+                ]}>
+                  {disconnect.phase === "disconnecting"
+                    ? "Desconectando..."
+                    : disconnect.phase === "error"
+                      ? "Tentar desconectar novamente"
+                      : "Desconectar instituição"}
+                </Text>
+              </Pressable>
             </View>
           ) : null}
 
@@ -904,6 +992,28 @@ const styles = StyleSheet.create({
   },
   syncResult: {
     gap: 4,
+  },
+  disconnectCard: {
+    borderRadius: 18,
+    padding: 16,
+    gap: 12,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  disconnectButton: {
+    minHeight: 50,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFF4F2",
+    borderWidth: 1,
+    borderColor: "#FDA29B",
+  },
+  disconnectText: {
+    color: "#B42318",
+    fontSize: 14,
+    fontWeight: "900",
   },
   resourceList: {
     gap: 9,

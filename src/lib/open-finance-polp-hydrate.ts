@@ -72,7 +72,18 @@ export function resolveExistingPolpConnectView(input: {
   completionResources: OpenFinancePolpCompletedResource[];
   hydratedResources: OpenFinancePolpCompletedResource[];
   hydrationLoading?: boolean;
+  connectionCleared?: boolean;
 }) {
+  if (input.connectionCleared) {
+    return {
+      resources: [],
+      showExistingConnection: false,
+      syncCompletionPhase: "idle" as OpenFinancePolpCompletionPhase,
+      showStartForm: true,
+      showHydrationLoading: false,
+    };
+  }
+
   const live = input.completionPhase === "completed" ? input.completionResources : [];
   const resources = live.length ? live : input.hydratedResources;
   const showExistingConnection = resources.length > 0;

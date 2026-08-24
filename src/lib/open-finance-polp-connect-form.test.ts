@@ -39,15 +39,15 @@ const F3A_FILES = [
 ];
 
 const EXISTING_UI_FILES = [
-  resolve(process.cwd(), "app/(app)/import-extract.tsx"),
   resolve(process.cwd(), "app/(app)/journey.tsx"),
   resolve(process.cwd(), "app/(app)/new-transaction.tsx"),
   resolve(process.cwd(), "app/(app)/link-commitment.tsx"),
 ];
 
 describe("Open Finance connect route boundary", () => {
-  it("registers a dedicated screen without wiring existing navigation", () => {
+  it("registers a dedicated screen and exposes it from Importar extrato only", () => {
     const route = readFileSync(F3A_FILES[1], "utf8");
+    const importExtract = readFileSync(resolve(process.cwd(), "app/(app)/import-extract.tsx"), "utf8");
     expect(route).toContain("export default function OpenFinanceConnectScreen");
     expect(route).toContain("useOpenFinancePolpStart");
     expect(route).toContain("useOpenFinancePolpHydration");
@@ -55,6 +55,10 @@ describe("Open Finance connect route boundary", () => {
     expect(route).toContain("startConnection");
     expect(route).not.toMatch(/\buseEffect\b/);
     expect(route).toContain("Tentar novamente");
+    expect(importExtract).toContain("open-finance-connect");
+    expect(importExtract).toContain("CSV");
+    expect(importExtract).toContain("Excel (.xlsx)");
+    expect(importExtract).toContain("PDF");
     for (const file of EXISTING_UI_FILES) {
       expect(readFileSync(file, "utf8")).not.toContain("open-finance-connect");
     }
