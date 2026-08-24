@@ -28,9 +28,9 @@
       ]
     ],
     "splash": {
-      "image": "./assets/icon.png",
+      "image": "./assets/splash-sonho.png",
       "resizeMode": "contain",
-      "backgroundColor": "#070a12"
+      "backgroundColor": "#06152e"
     },
     "ios": {
       "supportsTablet": true,
@@ -43,7 +43,7 @@
       "edgeToEdgeEnabled": true,
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
-        "backgroundColor": "#070a12"
+        "backgroundColor": "#06152e"
       },
       "package": "com.joaojorgembarros.finapp",
       "blockedPermissions": [

@@ -1,7 +1,6 @@
 // app/_layout.tsx
 import React from "react";
 import {
-  ActivityIndicator,
   Modal,
   Platform,
   StatusBar as NativeStatusBar,
@@ -19,7 +18,11 @@ import { getNextMountedProtectedUserId } from "../src/lib/appLockLifecycle";
 import { SessionProvider, useSession } from "../src/providers/SessionProvider";
 import { AppLockProvider, useAppLock } from "../src/providers/AppLockProvider";
 import { AppLockScreen } from "../src/ui/AppLockScreen";
+import { SplashHandoff } from "../src/ui/SplashHandoff";
 import { theme } from "../src/ui/theme";
+import * as SplashScreen from "expo-splash-screen";
+
+void SplashScreen.preventAutoHideAsync().catch(() => {});
 
 function PrivacyShield() {
   return (
@@ -131,6 +134,20 @@ function SecureRootNavigator() {
   const protectedTreeMounted = Boolean(
     userId && mountedProtectedUserId === userId,
   );
+  const bootstrapReady = !loading && (
+    !authenticated || readyForUser
+  ) && (
+    !authenticated || protectedTreeMounted || locked || privacyCovered
+  );
+  const [handoffVisible, setHandoffVisible] = React.useState(true);
+  const [nativeSplashHidden, setNativeSplashHidden] = React.useState(false);
+  const finishHandoff = React.useCallback(() => setHandoffVisible(false), []);
+
+  React.useEffect(() => {
+    if (!bootstrapReady || nativeSplashHidden) return;
+    setNativeSplashHidden(true);
+    void SplashScreen.hideAsync().catch(() => {});
+  }, [bootstrapReady, nativeSplashHidden]);
 
   // Observe pending recovery and navigate only when it's safe: the protected
   // tree must be mounted and App Lock/privacy must not block rendering. The
@@ -163,12 +180,7 @@ function SecureRootNavigator() {
   }, [pendingRecoveryPath, loading, session, protectedTreeMounted, locked, privacyCovered, consumePendingRecovery, authenticated]);
 
   if (loading || (authenticated && !readyForUser)) {
-    return (
-      <View style={styles.secureBoot} accessibilityLabel="Carregando o Sonho+">
-        <ActivityIndicator color="#7BA0C8" />
-        <Text style={styles.secureBootText}>Sonho+</Text>
-      </View>
-    );
+    return <SplashHandoff active={false} />;
   }
 
   if (authenticated && !protectedTreeMounted) {
@@ -177,12 +189,7 @@ function SecureRootNavigator() {
         <SecuritySurfaceContent locked={locked} privacyCovered={privacyCovered} />
       );
     }
-    return (
-      <View style={styles.secureBoot} accessibilityLabel="Preparando o Sonho+">
-        <ActivityIndicator color="#7BA0C8" />
-        <Text style={styles.secureBootText}>Sonho+</Text>
-      </View>
-    );
+    return <SplashHandoff active={false} />;
   }
 
   return (
@@ -210,6 +217,9 @@ function SecureRootNavigator() {
       </View>
       {authenticated && protectedTreeMounted && (locked || privacyCovered) ? (
         <AppSecuritySurface locked={locked} privacyCovered={privacyCovered} />
+      ) : null}
+      {handoffVisible ? (
+        <SplashHandoff active={bootstrapReady} onComplete={finishHandoff} />
       ) : null}
     </View>
   );
