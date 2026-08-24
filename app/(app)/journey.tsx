@@ -17,6 +17,7 @@ import {
 } from "../../src/lib/banks";
 import { GoalProgress, listGoalsWithProgress, syncGoalsFromDreams } from "../../src/lib/goals";
 import { MountainHero } from "../../src/features/journey/MountainHero";
+import { DreamIcon } from "../../src/features/journey/DreamIcon";
 import { getAndroidBackAction } from "../../src/lib/androidBack";
 import { BankLogo } from "../../src/ui/BankLogo";
 import MovementsScreen from "./transaction-history";
@@ -83,7 +84,7 @@ function initialsFrom(nameOrEmail: string) {
   return `${parts[0]?.[0] ?? "U"}${parts[parts.length - 1]?.[0] ?? ""}`.toUpperCase();
 }
 
-function ProgressCard({ goal, icon, onOpen }: { goal: GoalProgress; icon: string; onOpen: () => void }) {
+function ProgressCard({ goal, onOpen }: { goal: GoalProgress; onOpen: () => void }) {
   const progress = clampProgress((goal.contributed_cents / Math.max(goal.target_cents, 1)) * 100);
   const completed = progress >= 100;
   return (
@@ -93,16 +94,11 @@ function ProgressCard({ goal, icon, onOpen }: { goal: GoalProgress; icon: string
       accessibilityLabel={`Abrir sonho ${goal.title}`}
       style={({ pressed }) => [styles.goalCard, completed && styles.goalCardCompleted, pressed && styles.goalCardPressed]}
     >
-      {goal.cover_photo_url ? (
-        <View style={[styles.goalPolaroid, completed && styles.goalPolaroidCompleted]}>
-          <Image source={{ uri: goal.cover_photo_url }} style={styles.goalPolaroidImage} resizeMode="contain" />
-          <View style={[styles.goalPolaroidCaption, completed && styles.goalPolaroidCaptionCompleted]} />
-        </View>
-      ) : (
-        <View style={[styles.goalBadge, completed && styles.goalBadgeCompleted]}>
-          <Ionicons name={(completed ? "checkmark" : icon) as any} size={20} color={completed ? "#169B62" : OB.primary} />
-        </View>
-      )}
+      <DreamIcon
+        title={goal.title}
+        completed={completed}
+        imageUri={goal.cover_photo_url}
+      />
       <View style={styles.goalInfo}>
         <Text style={styles.goalTitle}>{goal.title}</Text>
         <Text style={[styles.goalValue, completed && styles.goalValueCompleted]}>{completed && goal.completed_on ? `Concluído em ${formatDate(goal.completed_on)}` : `${formatBRLFromCents(goal.contributed_cents)} de ${formatBRLFromCents(goal.target_cents)}`}</Text>
@@ -1337,13 +1333,13 @@ export default function JourneyScreen() {
   return (
     <OnboardingShell light>
       <View style={styles.root}>
-        <View style={styles.content}>
+        <View style={[styles.content, tab === "jornada" && styles.journeyContent]}>
           {tab === "controle" ? <ControlPanel key={activePostImportId ? `post-import:${activePostImportId}` : "control"} householdId={householdId} userId={userId} householdLoading={householdLoading} cycleDate={controlCycleDate} onCycleDateChange={rememberControlCycle} postImportId={activePostImportId} reconciledCommitments={activePostImportId ? reconciledCommitments : 0} onPostImportHandled={finishPostImport} /> : tab === "movimentacoes" ? <MovementsScreen embedded /> : tab === "jornada" ? (
             <>
               <MountainHero progress={journeyProgress} />
               <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
                 <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>Sonhos em andamento</Text>{journeyLoading || householdLoading ? <ActivityIndicator size="small" color={OB.primary} /> : null}</View>
-                {activeGoals.length ? activeGoals.map((goal, index) => <ProgressCard key={goal.id} goal={goal} icon={["home-outline", "trending-up-outline", "flag-outline"][index] ?? "sparkles-outline"} onOpen={() => openGoal(goal)} />) : !journeyLoading && !householdLoading && !goals.length ? (
+                {activeGoals.length ? activeGoals.map((goal) => <ProgressCard key={goal.id} goal={goal} onOpen={() => openGoal(goal)} />) : !journeyLoading && !householdLoading && !goals.length ? (
                   <Pressable onPress={() => router.push("/(onboarding)/dreams")} style={styles.emptyDreamsCard}>
                     <Ionicons name="sparkles-outline" size={22} color={OB.primary} /><View style={{ flex: 1 }}><Text style={styles.emptyDreamsTitle}>Configure seus sonhos</Text><Text style={styles.emptyDreamsText}>Escolha seus objetivos para começar sua jornada financeira.</Text></View><Ionicons name="chevron-forward" size={19} color={OB.support} />
                   </Pressable>
@@ -1369,7 +1365,7 @@ export default function JourneyScreen() {
                       </View>
                       <Ionicons name={achievementsOpen ? "chevron-up" : "chevron-down"} size={19} color={OB.support} />
                     </Pressable>
-                    {achievementsOpen ? <View style={styles.achievementsList}>{completedGoals.map((goal) => <ProgressCard key={goal.id} goal={goal} icon="checkmark" onOpen={() => openGoal(goal)} />)}</View> : null}
+                    {achievementsOpen ? <View style={styles.achievementsList}>{completedGoals.map((goal) => <ProgressCard key={goal.id} goal={goal} onOpen={() => openGoal(goal)} />)}</View> : null}
                   </View>
                 ) : null}
               </ScrollView>
@@ -1396,10 +1392,13 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
   },
+  journeyContent: {
+    backgroundColor: "#F7F3EB",
+  },
   scroll: {
     padding: 16,
-    paddingTop: 8,
-    gap: 12,
+    paddingTop: 18,
+    gap: 14,
   },
   sectionHeader: {
     flexDirection: "row",
@@ -1408,8 +1407,10 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     color: OB.primary,
-    fontSize: 15,
-    fontWeight: "900",
+    fontFamily: "serif",
+    fontSize: 24,
+    lineHeight: 29,
+    fontWeight: "400",
   },
   emptyDreamsCard: {
     flexDirection: "row",
@@ -1436,76 +1437,41 @@ const styles = StyleSheet.create({
   goalCard: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    borderRadius: 20,
-    padding: 14,
-    backgroundColor: "#fff",
+    gap: 13,
+    borderRadius: 22,
+    padding: 13,
+    backgroundColor: "#FFFDF8",
     borderWidth: 1,
-    borderColor: OB.supportSoft,
+    borderColor: "rgba(103,82,56,0.14)",
+    shadowColor: "#6C563C",
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 1,
   },
   goalCardCompleted: { borderColor: "rgba(22,155,98,0.26)", backgroundColor: "#FBFFFD" },
   goalCardPressed: { opacity: 0.72, transform: [{ scale: 0.99 }] },
-  goalBadge: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: OB.offWhite,
-  },
-  goalBadgeCompleted: { backgroundColor: "#E5F7EE" },
-  goalPolaroid: {
-    width: 48,
-    height: 52,
-    borderRadius: 15,
-    padding: 4,
-    paddingBottom: 9,
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: "rgba(123,160,200,0.26)",
-    shadowColor: OB.primary,
-    shadowOpacity: 0.12,
-    shadowRadius: 5,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
-    transform: [{ rotate: "-2deg" }],
-  },
-  goalPolaroidCompleted: { borderColor: "rgba(22,155,98,0.34)" },
-  goalPolaroidImage: {
-    width: "100%",
-    flex: 1,
-    borderRadius: 10,
-    backgroundColor: OB.offWhite,
-  },
-  goalPolaroidCaption: {
-    position: "absolute",
-    left: 15,
-    right: 15,
-    bottom: 3,
-    height: 2,
-    borderRadius: 99,
-    backgroundColor: "rgba(123,160,200,0.28)",
-  },
-  goalPolaroidCaptionCompleted: { backgroundColor: "rgba(22,155,98,0.3)" },
   goalInfo: {
     flex: 1,
   },
   goalTitle: {
     color: OB.primary,
-    fontSize: 14,
-    fontWeight: "900",
+    fontFamily: "serif",
+    fontSize: 17,
+    lineHeight: 21,
+    fontWeight: "400",
   },
   goalValue: {
-    color: OB.support,
-    fontSize: 12,
-    fontWeight: "700",
+    color: "#837B70",
+    fontSize: 13,
+    fontWeight: "500",
     marginTop: 2,
   },
   goalValueCompleted: { color: "#169B62" },
   smallTrack: {
-    height: 5,
+    height: 4,
     borderRadius: 99,
-    backgroundColor: OB.supportSoft,
+    backgroundColor: "#ECE6DC",
     marginTop: 8,
     overflow: "hidden",
   },
@@ -1519,16 +1485,17 @@ const styles = StyleSheet.create({
     width: 50,
     height: 50,
     borderRadius: 25,
-    borderWidth: 5,
-    borderColor: OB.primary,
+    borderWidth: 4,
+    borderColor: "#DED8CF",
     alignItems: "center",
     justifyContent: "center",
   },
   ringCompleted: { borderColor: "#22A96B", backgroundColor: "#E5F7EE" },
   ringText: {
     color: OB.primary,
-    fontSize: 11,
-    fontWeight: "900",
+    fontFamily: "serif",
+    fontSize: 15,
+    fontWeight: "400",
   },
   allDreamsCompleted: { color: OB.support, fontSize: 12, fontWeight: "700", lineHeight: 18, paddingHorizontal: 2 },
   addGoalCard: { minHeight: 52, borderRadius: 17, borderWidth: 1, borderStyle: "dashed", borderColor: OB.support, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 13, backgroundColor: "rgba(255,255,255,0.55)" },
@@ -1558,15 +1525,17 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.12)",
   },
   monthEyebrow: {
-    color: "rgba(123,160,200,0.85)",
+    color: "rgba(241,220,197,0.68)",
     fontSize: 11,
     fontWeight: "900",
     textTransform: "uppercase",
   },
   monthTitle: {
-    color: OB.offWhite,
-    fontSize: 16,
-    fontWeight: "900",
+    color: "#F5E6D4",
+    fontFamily: "serif",
+    fontSize: 20,
+    lineHeight: 24,
+    fontWeight: "400",
     marginTop: 3,
   },
   challenge: {
