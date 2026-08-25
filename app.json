@@ -9,6 +9,15 @@
     "userInterfaceStyle": "dark",
     "plugins": [
       "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#06152e",
+          "image": "./assets/splash-lockup.png",
+          "imageWidth": 200,
+          "resizeMode": "contain"
+        }
+      ],
       "expo-font",
       "@react-native-community/datetimepicker",
       [
@@ -27,11 +36,6 @@
         }
       ]
     ],
-    "splash": {
-      "image": "./assets/splash-sonho.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#06152e"
-    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.joaojorgembarros.sonhomais",

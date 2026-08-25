@@ -22,6 +22,11 @@ import { SplashHandoff } from "../src/ui/SplashHandoff";
 import { theme } from "../src/ui/theme";
 import * as SplashScreen from "expo-splash-screen";
 
+const MINIMUM_BRAND_TIME_MS = 800;
+const HANDOFF_FADE_DURATION_MS = 200;
+const BRAND_PRESENTATION_STARTED_AT = Date.now();
+
+SplashScreen.setOptions({ duration: 0, fade: false });
 void SplashScreen.preventAutoHideAsync().catch(() => {});
 
 function PrivacyShield() {
@@ -140,14 +145,36 @@ function SecureRootNavigator() {
     !authenticated || protectedTreeMounted || locked || privacyCovered
   );
   const [handoffVisible, setHandoffVisible] = React.useState(true);
-  const [nativeSplashHidden, setNativeSplashHidden] = React.useState(false);
+  const [handoffActive, setHandoffActive] = React.useState(false);
+  const [handoffFadeDurationMs, setHandoffFadeDurationMs] = React.useState(
+    HANDOFF_FADE_DURATION_MS,
+  );
+  const handoffScheduledRef = React.useRef(false);
   const finishHandoff = React.useCallback(() => setHandoffVisible(false), []);
 
   React.useEffect(() => {
-    if (!bootstrapReady || nativeSplashHidden) return;
-    setNativeSplashHidden(true);
+    if (!bootstrapReady || handoffScheduledRef.current) return;
+    handoffScheduledRef.current = true;
+
+    const elapsedMs = Date.now() - BRAND_PRESENTATION_STARTED_AT;
+    const remainingBrandTimeMs = Math.max(0, MINIMUM_BRAND_TIME_MS - elapsedMs);
+    const fadeDurationMs = Math.min(
+      HANDOFF_FADE_DURATION_MS,
+      remainingBrandTimeMs,
+    );
+    const waitBeforeFadeMs = remainingBrandTimeMs - fadeDurationMs;
+
+    setHandoffFadeDurationMs(fadeDurationMs);
     void SplashScreen.hideAsync().catch(() => {});
-  }, [bootstrapReady, nativeSplashHidden]);
+
+    if (waitBeforeFadeMs <= 0) {
+      setHandoffActive(true);
+      return;
+    }
+
+    const timeoutId = setTimeout(() => setHandoffActive(true), waitBeforeFadeMs);
+    return () => clearTimeout(timeoutId);
+  }, [bootstrapReady]);
 
   // Observe pending recovery and navigate only when it's safe: the protected
   // tree must be mounted and App Lock/privacy must not block rendering. The
@@ -195,12 +222,23 @@ function SecureRootNavigator() {
   return (
     <View style={styles.appShell}>
       <View
-        accessibilityElementsHidden={authenticated && (locked || privacyCovered)}
-        importantForAccessibility={
-          authenticated && (locked || privacyCovered) ? "no-hide-descendants" : "auto"
+        accessibilityElementsHidden={
+          handoffVisible || (authenticated && (locked || privacyCovered))
         }
-        pointerEvents={authenticated && (locked || privacyCovered) ? "none" : "auto"}
-        style={styles.navigatorHost}
+        importantForAccessibility={
+          handoffVisible || (authenticated && (locked || privacyCovered))
+            ? "no-hide-descendants"
+            : "auto"
+        }
+        pointerEvents={
+          handoffVisible || (authenticated && (locked || privacyCovered))
+            ? "none"
+            : "auto"
+        }
+        style={[
+          styles.navigatorHost,
+          handoffVisible && styles.navigatorHostConcealed,
+        ]}
       >
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="index" />
@@ -219,7 +257,11 @@ function SecureRootNavigator() {
         <AppSecuritySurface locked={locked} privacyCovered={privacyCovered} />
       ) : null}
       {handoffVisible ? (
-        <SplashHandoff active={bootstrapReady} onComplete={finishHandoff} />
+        <SplashHandoff
+          active={handoffActive}
+          fadeDurationMs={handoffFadeDurationMs}
+          onComplete={finishHandoff}
+        />
       ) : null}
     </View>
   );
@@ -254,6 +296,9 @@ const styles = StyleSheet.create({
   },
   navigatorHost: {
     flex: 1,
+  },
+  navigatorHostConcealed: {
+    opacity: 0,
   },
   secureBoot: {
     flex: 1,
