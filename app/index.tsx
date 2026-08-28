@@ -12,7 +12,7 @@ export default function Index() {
   useEffect(() => {
     if (loading) return;
     if (!userId || !session) {
-      setDestination("/(auth)/login");
+      setDestination("/(auth)/welcome");
       return;
     }
 

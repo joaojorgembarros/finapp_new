@@ -15,7 +15,13 @@
           "backgroundColor": "#06152e",
           "image": "./assets/splash-lockup.png",
           "imageWidth": 200,
-          "resizeMode": "contain"
+          "resizeMode": "contain",
+          "android": {
+            "backgroundColor": "#06152e",
+            "image": "./assets/splash-android-neutral.png",
+            "imageWidth": 16,
+            "resizeMode": "contain"
+          }
         }
       ],
       "expo-font",
@@ -37,6 +43,7 @@
       ]
     ],
     "ios": {
+      "icon": "./assets/icon.png",
       "supportsTablet": true,
       "bundleIdentifier": "com.joaojorgembarros.sonhomais",
       "infoPlist": {
@@ -47,7 +54,9 @@
       "edgeToEdgeEnabled": true,
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
-        "backgroundColor": "#06152e"
+        "backgroundColor": "#06152e",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "package": "com.joaojorgembarros.finapp",
       "blockedPermissions": [

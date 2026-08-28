@@ -1,7 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import {
   Animated,
-  Easing,
   Image,
   StyleSheet,
   useWindowDimensions,
@@ -9,7 +8,6 @@ import {
 } from "react-native";
 import Svg, {
   Defs,
-  G,
   LinearGradient,
   Path,
   RadialGradient,
@@ -17,47 +15,79 @@ import Svg, {
   Stop,
 } from "react-native-svg";
 
-const SPLASH_LOCKUP = require("../../assets/splash-lockup.png");
-const SPLASH_WORDMARK = require("../../assets/splash-wordmark-bodoni-moda.png");
+const SPLASH_WORDMARK = require("../../assets/splash-wordmark-italiana.png");
 const SPLASH_BRAND_SYMBOL = require("../../assets/splash-brand-symbol.png");
-const NATIVE_LOCKUP_WIDTH = 200;
-const NATIVE_LOCKUP_HEIGHT = NATIVE_LOCKUP_WIDTH * (466 / 1948);
-const WORDMARK_CROP_WIDTH = NATIVE_LOCKUP_WIDTH * (1440 / 1948);
-const BRAND_SYMBOL_LEFT = NATIVE_LOCKUP_WIDTH * (1489 / 1948);
-const BRAND_SYMBOL_HEIGHT = NATIVE_LOCKUP_HEIGHT * (430 / 466);
-const BRAND_SYMBOL_WIDTH = BRAND_SYMBOL_HEIGHT * (784 / 824);
-const BRAND_SYMBOL_TOP = (NATIVE_LOCKUP_HEIGHT - BRAND_SYMBOL_HEIGHT) / 2;
-const RICHNESS_REVEAL_DURATION_MS = 180;
 
+// Lockup geometry, in multiples of the wordmark x-height, measured off the reference
+// mockup rectified to a 390x844 canvas (x-height there = 51 px).
+const WORDMARK_W = 4.25163;
+const WORDMARK_H = 1.49346;
+const WORDMARK_TOP = 0.08041;
+const SYMBOL_LEFT = 4.44771;
+// the official star is squarer than the mockup's, so it is sized between matching the
+// reference star's width and its height rather than either one exactly
+const SYMBOL_W = 1.72549;
+const SYMBOL_H = SYMBOL_W / 0.951;
+const SYMBOL_PRESENCE = 1.055;
+const LOCKUP_W = SYMBOL_LEFT + SYMBOL_W;
+const LOCKUP_H = SYMBOL_H;
+// measured lockup on the 390x844 reference: 76.4% wide, centre Y 42.89%
+const LOCKUP_WIDTH_RATIO = 0.76;
+const LOCKUP_CENTRE_Y_RATIO = 0.4289;
+const DESIGN_WIDTH = 390;
+// measured word span: reference 211px / current 204px
+const WORDMARK_SCALE_X = 211 / 204;
+// measured ink centre was 13px left of the reference; shift the whole lockup
+const LOCKUP_SHIFT_X = 13;
 export function SplashHandoff({
   active,
   fadeDurationMs = 200,
   onComplete,
+  onReady,
 }: {
   active: boolean;
   fadeDurationMs?: number;
   onComplete?: () => void;
+  onReady?: () => void;
 }) {
   const { height, width } = useWindowDimensions();
   const opacity = useRef(new Animated.Value(1)).current;
-  const richness = useRef(new Animated.Value(0)).current;
-  const targetLockupWidth = Math.min(Math.max(width * 0.6, 218), 250);
-  const targetLockupScale = targetLockupWidth / NATIVE_LOCKUP_WIDTH;
+  const readiness = useRef({
+    layout: false,
+    symbol: false,
+    wordmark: false,
+    reported: false,
+  });
+  const lockupWidth = Math.min(
+    Math.max(width * LOCKUP_WIDTH_RATIO, 250),
+    360,
+  );
+  const xHeight = lockupWidth / LOCKUP_W;
+  const lockupHeight = xHeight * LOCKUP_H;
+  const targetLockupTranslateX = LOCKUP_SHIFT_X * (width / DESIGN_WIDTH);
   const targetLockupTranslateY = -Math.min(
-    Math.max(height * 0.083, 56),
-    74,
+    Math.max(height * (0.5 - LOCKUP_CENTRE_Y_RATIO), 48),
+    78,
   );
 
-  useEffect(() => {
-    const animation = Animated.timing(richness, {
-      toValue: 1,
-      duration: RICHNESS_REVEAL_DURATION_MS,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    });
-    animation.start();
-    return () => animation.stop();
-  }, [richness]);
+  const reportReadyIfComplete = () => {
+    const current = readiness.current;
+    if (
+      current.reported ||
+      !current.layout ||
+      !current.symbol ||
+      !current.wordmark
+    ) {
+      return;
+    }
+    current.reported = true;
+    onReady?.();
+  };
+
+  const markReady = (part: "layout" | "symbol" | "wordmark") => {
+    readiness.current[part] = true;
+    reportReadyIfComplete();
+  };
 
   useEffect(() => {
     if (!active) return;
@@ -80,8 +110,9 @@ export function SplashHandoff({
       pointerEvents="none"
       renderToHardwareTextureAndroid
       style={[styles.surface, { opacity }]}
+      onLayout={() => markReady("layout")}
     >
-      <Animated.View style={[styles.artwork, { opacity: richness }]}>
+      <View style={styles.artwork}>
         <Svg
           pointerEvents="none"
           preserveAspectRatio="xMidYMid slice"
@@ -90,194 +121,156 @@ export function SplashHandoff({
         >
           <Defs>
             <LinearGradient
-              id="nightDepth"
-              gradientUnits="userSpaceOnUse"
-              x1="0"
-              x2="390"
-              y1="844"
-              y2="0"
-            >
-              <Stop offset="0" stopColor="#040D22" />
-              <Stop offset="0.56" stopColor="#06132D" />
-              <Stop offset="1" stopColor="#091934" />
-            </LinearGradient>
-            <RadialGradient
-              id="ambientDepth"
-              cx="455"
-              cy="78"
-              gradientUnits="userSpaceOnUse"
-              rx="470"
-              ry="600"
-            >
-              <Stop offset="0" stopColor="#294469" stopOpacity="0.085" />
-              <Stop offset="0.48" stopColor="#182F50" stopOpacity="0.025" />
-              <Stop offset="1" stopColor="#06132D" stopOpacity="0" />
-            </RadialGradient>
-            <LinearGradient
-              id="edgeDepth"
-              gradientUnits="userSpaceOnUse"
-              x1="0"
-              x2="390"
-              y1="844"
-              y2="0"
-            >
-              <Stop offset="0" stopColor="#010716" stopOpacity="0.1" />
-              <Stop offset="0.62" stopColor="#07162F" stopOpacity="0" />
-              <Stop offset="1" stopColor="#263C60" stopOpacity="0.018" />
-            </LinearGradient>
-            <LinearGradient
               id="goldThread"
               gradientUnits="userSpaceOnUse"
-              x1="0"
-              x2="425"
-              y1="820"
-              y2="390"
+              x1="-25"
+              x2="420"
+              y1="872"
+              y2="362"
             >
-              <Stop offset="0" stopColor="#E7CFA7" stopOpacity="0.18" />
-              <Stop offset="0.38" stopColor="#FFF4DE" stopOpacity="0.78" />
-              <Stop offset="0.72" stopColor="#EFD5AA" stopOpacity="0.42" />
-              <Stop offset="1" stopColor="#DAB984" stopOpacity="0.1" />
+              <Stop offset="0" stopColor="#E3BC74" stopOpacity="0.40" />
+              <Stop offset="0.28" stopColor="#F4D290" stopOpacity="0.58" />
+              <Stop offset="0.55" stopColor="#FFEAC0" stopOpacity="0.76" />
+              <Stop offset="0.82" stopColor="#FBD99C" stopOpacity="0.62" />
+              <Stop offset="1" stopColor="#F2CC8A" stopOpacity="0.48" />
             </LinearGradient>
+            <RadialGradient
+              id="sparkGlow"
+              cx="301"
+              cy="667"
+              gradientUnits="userSpaceOnUse"
+              r="42"
+              gradientTransform="matrix(0.86 0 0 1 42.14 0)"
+            >
+              <Stop offset="0" stopColor="#FFE9C4" stopOpacity="0.40" />
+              <Stop offset="0.30" stopColor="#F0D09A" stopOpacity="0.22" />
+              <Stop offset="0.62" stopColor="#D4B37A" stopOpacity="0.08" />
+              <Stop offset="1" stopColor="#D4B37A" stopOpacity="0" />
+            </RadialGradient>
             <LinearGradient
               id="verticalRay"
               gradientUnits="userSpaceOnUse"
-              x1="292"
-              x2="292"
-              y1="600"
-              y2="688"
+              x1="301"
+              x2="301"
+              y1="585"
+              y2="749"
             >
-              <Stop offset="0" stopColor="#FFF9EE" stopOpacity="0" />
-              <Stop offset="0.5" stopColor="#FFF9EE" stopOpacity="0.24" />
-              <Stop offset="1" stopColor="#FFF9EE" stopOpacity="0" />
+              <Stop offset="0" stopColor="#FFEFD4" stopOpacity="0" />
+              <Stop offset="0.16" stopColor="#FFEFD4" stopOpacity="0.08" />
+              <Stop offset="0.36" stopColor="#FFEFD4" stopOpacity="0.36" />
+              <Stop offset="0.5" stopColor="#FFEFD4" stopOpacity="0.82" />
+              <Stop offset="0.64" stopColor="#FFEFD4" stopOpacity="0.36" />
+              <Stop offset="0.84" stopColor="#FFEFD4" stopOpacity="0.08" />
+              <Stop offset="1" stopColor="#FFEFD4" stopOpacity="0" />
             </LinearGradient>
             <LinearGradient
               id="horizontalRay"
               gradientUnits="userSpaceOnUse"
-              x1="246"
-              x2="338"
-              y1="644"
-              y2="644"
+              x1="251"
+              x2="351"
+              y1="667"
+              y2="667"
             >
-              <Stop offset="0" stopColor="#FFF9EE" stopOpacity="0" />
-              <Stop offset="0.5" stopColor="#FFF9EE" stopOpacity="0.2" />
-              <Stop offset="1" stopColor="#FFF9EE" stopOpacity="0" />
+              <Stop offset="0" stopColor="#FFEFD4" stopOpacity="0" />
+              <Stop offset="0.28" stopColor="#FFEFD4" stopOpacity="0.09" />
+              <Stop offset="0.5" stopColor="#FFEFD4" stopOpacity="0.50" />
+              <Stop offset="0.72" stopColor="#FFEFD4" stopOpacity="0.09" />
+              <Stop offset="1" stopColor="#FFEFD4" stopOpacity="0" />
             </LinearGradient>
             <RadialGradient
-              id="starLight"
-              cx="292"
-              cy="644"
+              id="starCore"
+              cx="301"
+              cy="667"
               gradientUnits="userSpaceOnUse"
-              rx="16"
-              ry="22"
+              r="22"
+              gradientTransform="matrix(0.86 0 0 1 42.14 0)"
             >
-              <Stop offset="0" stopColor="#FFFFFF" />
-              <Stop offset="0.32" stopColor="#FFFDF7" />
-              <Stop offset="0.72" stopColor="#F7E3BF" />
-              <Stop offset="1" stopColor="#E8CDA6" />
+              <Stop offset="0" stopColor="#FFFCF4" stopOpacity="0.98" />
+              <Stop offset="0.32" stopColor="#FFE9C4" stopOpacity="0.84" />
+              <Stop offset="0.70" stopColor="#F0D09A" stopOpacity="0.40" />
+              <Stop offset="1" stopColor="#EFC783" stopOpacity="0" />
             </RadialGradient>
           </Defs>
 
-          <Rect width="390" height="844" fill="url(#nightDepth)" />
-          <Rect width="390" height="844" fill="url(#ambientDepth)" />
-          <Rect width="390" height="844" fill="url(#edgeDepth)" />
+          <Rect width="390" height="844" fill="#06152e" />
+          <Rect x="256" y="622" width="90" height="90" fill="url(#sparkGlow)" />
 
           <Path
-            d="M423 414C393 443 374 473 344 498C311 526 279 554 239 573C198 592 155 591 112 598C65 605 23 622-24 651"
+            d="M-25 640C-18.3 637 3.3 628.3 15 622C26.7 615.7 35 607.7 45 602C55 596.3 65 591.7 75 588C85 584.3 95 582.3 105 580C115 577.7 125 576.2 135 574C145 571.8 155 569.7 165 567C175 564.3 185 561.7 195 558C205 554.3 215 550.2 225 545C235 539.8 245 533.7 255 527C265 520.3 275 513.2 285 505C295 496.8 305 487.7 315 478C325 468.3 332.5 460.8 345 447C357.5 433.2 377.5 409.2 390 395C402.5 380.8 415 367.5 420 362"
             fill="none"
             stroke="url(#goldThread)"
             strokeLinecap="round"
             strokeLinejoin="round"
-            strokeOpacity="0.42"
-            strokeWidth="0.44"
+            strokeOpacity="0.88"
+            strokeWidth="0.55"
           />
           <Path
-            d="M423 570C389 596 354 620 320 637C308 642 300 644 292 644C270 665 253 693 225 712C190 736 153 746 115 761C72 777 35 814 20 860"
+            d="M5 872C11.7 866.5 33.3 849.8 45 839C56.7 828.2 65 815.8 75 807C85 798.2 95 792.2 105 786C115 779.8 125 774.7 135 770C145 765.3 155 762 165 758C175 754 185 750.8 195 746C205 741.2 215 736.7 225 729C235 721.3 245 709.5 255 700C265 690.5 275 681.8 285 672C295 662.2 305 651.7 315 641C325 630.3 335 619.3 345 608C355 596.7 362.5 588.5 375 573C387.5 557.5 412.5 524.7 420 515"
             fill="none"
             stroke="url(#goldThread)"
             strokeLinecap="round"
             strokeLinejoin="round"
-            strokeOpacity="0.36"
-            strokeWidth="0.38"
-          />
-          <Path
-            d="M292 644C322 676 348 705 421 716"
-            fill="none"
-            stroke="url(#goldThread)"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeOpacity="0.18"
-            strokeWidth="0.3"
+            strokeOpacity="0.88"
+            strokeWidth="0.48"
           />
 
-          <G>
-            <Path
-              d="M292 600C292.4 625 292.6 638 294.2 644C292.6 650 292.4 663 292 688C291.6 663 291.4 650 289.8 644C291.4 638 291.6 625 292 600Z"
-              fill="url(#verticalRay)"
-            />
-            <Path
-              d="M246 644C272 643.6 286.7 643.4 292 641.8C297.3 643.4 312 643.6 338 644C312 644.4 297.3 644.6 292 646.2C286.7 644.6 272 644.4 246 644Z"
-              fill="url(#horizontalRay)"
-            />
-            <Path
-              d="M292 623C292.8 637.2 296.2 641.8 307 644C296.2 646.2 292.8 650.8 292 665C291.2 650.8 287.8 646.2 277 644C287.8 641.8 291.2 637.2 292 623Z"
-              fill="url(#starLight)"
-            />
-          </G>
+          <Path
+            d="M301 585C301.11 622.38 301.24 650.12 302.30 667C301.24 683.88 301.11 711.62 301 749C300.89 711.62 300.76 683.88 299.70 667C300.76 650.12 300.89 622.38 301 585Z"
+            fill="url(#verticalRay)"
+          />
+          <Path
+            d="M253 667C271 666.90 288 666.75 301 665.80C314 666.75 331 666.90 349 667C331 667.10 314 667.25 301 668.20C288 667.25 271 667.10 253 667Z"
+            fill="url(#horizontalRay)"
+          />
+          <Path
+            d="M301 638C301.16 657 302.7 664.6 326 667C302.7 669.4 301.16 677 301 696C300.84 677 299.3 669.4 276 667C299.3 664.6 300.84 657 301 638Z"
+            fill="url(#starCore)"
+          />
         </Svg>
-      </Animated.View>
+      </View>
 
-      <Animated.View
+      <View
         style={[
           styles.brand,
           {
+            width: lockupWidth,
+            height: lockupHeight,
             transform: [
-              {
-                translateY: richness.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0, targetLockupTranslateY],
-                }),
-              },
-              {
-                scale: richness.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [1, targetLockupScale],
-                }),
-              },
+              { translateX: targetLockupTranslateX },
+              { translateY: targetLockupTranslateY },
             ],
           },
         ]}
       >
-        <Animated.Image
+        <Image
           accessible={false}
+          onLoad={() => markReady("wordmark")}
           resizeMode="contain"
-          source={SPLASH_LOCKUP}
-          style={[
-            styles.lockup,
-            {
-              opacity: richness.interpolate({
-                inputRange: [0, 1],
-                outputRange: [1, 0],
-              }),
-            },
-          ]}
+          source={SPLASH_WORDMARK}
+          style={{
+            position: "absolute",
+            left: 0,
+            top: xHeight * WORDMARK_TOP,
+            width: xHeight * WORDMARK_W,
+            height: xHeight * WORDMARK_H,
+            transform: [{ scaleX: WORDMARK_SCALE_X }],
+          }}
         />
-        <Animated.View style={[styles.refinedLockup, { opacity: richness }]}>
-          <View style={styles.wordmarkCrop}>
-            <Image
-              accessible={false}
-              resizeMode="contain"
-              source={SPLASH_WORDMARK}
-              style={styles.refinedWordmark}
-            />
-          </View>
-          <Image
-            accessible={false}
-            resizeMode="contain"
-            source={SPLASH_BRAND_SYMBOL}
-            style={styles.brandSymbol}
-          />
-        </Animated.View>
-      </Animated.View>
+        <Image
+          accessible={false}
+          onLoad={() => markReady("symbol")}
+          resizeMode="contain"
+          source={SPLASH_BRAND_SYMBOL}
+          style={{
+            position: "absolute",
+            left: xHeight * SYMBOL_LEFT,
+            top: (xHeight * SYMBOL_H * (1 - SYMBOL_PRESENCE)) / 2,
+            width: xHeight * SYMBOL_W * SYMBOL_PRESENCE,
+            height: xHeight * SYMBOL_H * SYMBOL_PRESENCE,
+            tintColor: "#FDECD6",
+          }}
+        />
+      </View>
     </Animated.View>
   );
 }
@@ -295,37 +288,8 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
   },
   brand: {
-    width: NATIVE_LOCKUP_WIDTH,
-    height: NATIVE_LOCKUP_HEIGHT,
     alignItems: "center",
     justifyContent: "center",
-  },
-  lockup: {
-    ...StyleSheet.absoluteFillObject,
-    width: NATIVE_LOCKUP_WIDTH,
-    height: NATIVE_LOCKUP_HEIGHT,
-  },
-  refinedLockup: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  wordmarkCrop: {
-    position: "absolute",
-    left: 0,
-    top: 0,
-    width: WORDMARK_CROP_WIDTH,
-    height: NATIVE_LOCKUP_HEIGHT,
-    overflow: "hidden",
-  },
-  refinedWordmark: {
-    width: NATIVE_LOCKUP_WIDTH,
-    height: NATIVE_LOCKUP_HEIGHT,
-  },
-  brandSymbol: {
-    position: "absolute",
-    left: BRAND_SYMBOL_LEFT,
-    top: BRAND_SYMBOL_TOP,
-    width: BRAND_SYMBOL_WIDTH,
-    height: BRAND_SYMBOL_HEIGHT,
-    tintColor: "#F9E8CA",
+    overflow: "visible",
   },
 });

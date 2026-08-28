@@ -279,7 +279,7 @@ export default function SignupScreen() {
           >
             <View style={styles.topBar}>
               <Pressable
-                onPress={() => router.replace("/(auth)/login")}
+                onPress={() => router.replace("/(auth)/welcome")}
                 style={({ pressed }) => [styles.backButton, pressed && styles.backButtonPressed]}
                 accessibilityRole="button"
                 accessibilityLabel="Voltar para entrar"

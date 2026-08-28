@@ -149,11 +149,13 @@ function SecureRootNavigator() {
   const [handoffFadeDurationMs, setHandoffFadeDurationMs] = React.useState(
     HANDOFF_FADE_DURATION_MS,
   );
+  const [handoffReady, setHandoffReady] = React.useState(false);
   const handoffScheduledRef = React.useRef(false);
   const finishHandoff = React.useCallback(() => setHandoffVisible(false), []);
+  const markHandoffReady = React.useCallback(() => setHandoffReady(true), []);
 
   React.useEffect(() => {
-    if (!bootstrapReady || handoffScheduledRef.current) return;
+    if (!bootstrapReady || !handoffReady || handoffScheduledRef.current) return;
     handoffScheduledRef.current = true;
 
     const elapsedMs = Date.now() - BRAND_PRESENTATION_STARTED_AT;
@@ -174,7 +176,7 @@ function SecureRootNavigator() {
 
     const timeoutId = setTimeout(() => setHandoffActive(true), waitBeforeFadeMs);
     return () => clearTimeout(timeoutId);
-  }, [bootstrapReady]);
+  }, [bootstrapReady, handoffReady]);
 
   // Observe pending recovery and navigate only when it's safe: the protected
   // tree must be mounted and App Lock/privacy must not block rendering. The
@@ -206,61 +208,81 @@ function SecureRootNavigator() {
     });
   }, [pendingRecoveryPath, loading, session, protectedTreeMounted, locked, privacyCovered, consumePendingRecovery, authenticated]);
 
-  if (loading || (authenticated && !readyForUser)) {
-    return <SplashHandoff active={false} />;
-  }
+  let rootContent: React.ReactNode = null;
 
-  if (authenticated && !protectedTreeMounted) {
-    if (locked || privacyCovered) {
-      return (
-        <SecuritySurfaceContent locked={locked} privacyCovered={privacyCovered} />
-      );
-    }
-    return <SplashHandoff active={false} />;
+  if (
+    !loading &&
+    (!authenticated || readyForUser) &&
+    (!authenticated || protectedTreeMounted)
+  ) {
+    rootContent = (
+      <>
+        <View
+          accessibilityElementsHidden={
+            handoffVisible || (authenticated && (locked || privacyCovered))
+          }
+          importantForAccessibility={
+            handoffVisible || (authenticated && (locked || privacyCovered))
+              ? "no-hide-descendants"
+              : "auto"
+          }
+          pointerEvents={
+            handoffVisible || (authenticated && (locked || privacyCovered))
+              ? "none"
+              : "auto"
+          }
+          style={[
+            styles.navigatorHost,
+            handoffVisible && styles.navigatorHostConcealed,
+          ]}
+        >
+          <Stack screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="index" />
+            <Stack.Screen name="+not-found" />
+            <Stack.Protected guard={!authenticated}>
+              <Stack.Screen name="(auth)" />
+            </Stack.Protected>
+            <Stack.Protected guard={authenticated}>
+              <Stack.Screen name="(app)" />
+              <Stack.Screen name="(onboarding)" />
+              <Stack.Screen name="reset-password" />
+            </Stack.Protected>
+          </Stack>
+        </View>
+        {authenticated && protectedTreeMounted && (locked || privacyCovered) ? (
+          <AppSecuritySurface locked={locked} privacyCovered={privacyCovered} />
+        ) : null}
+      </>
+    );
+  } else if (
+    authenticated &&
+    !protectedTreeMounted &&
+    (locked || privacyCovered)
+  ) {
+    rootContent = (
+      <SecuritySurfaceContent locked={locked} privacyCovered={privacyCovered} />
+    );
   }
 
   return (
     <View style={styles.appShell}>
       <View
-        accessibilityElementsHidden={
-          handoffVisible || (authenticated && (locked || privacyCovered))
-        }
+        accessibilityElementsHidden={handoffVisible}
         importantForAccessibility={
-          handoffVisible || (authenticated && (locked || privacyCovered))
-            ? "no-hide-descendants"
-            : "auto"
+          handoffVisible ? "no-hide-descendants" : "auto"
         }
-        pointerEvents={
-          handoffVisible || (authenticated && (locked || privacyCovered))
-            ? "none"
-            : "auto"
-        }
-        style={[
-          styles.navigatorHost,
-          handoffVisible && styles.navigatorHostConcealed,
-        ]}
+        pointerEvents={handoffVisible ? "none" : "auto"}
+        style={styles.contentHost}
       >
-        <Stack screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="index" />
-          <Stack.Screen name="+not-found" />
-          <Stack.Protected guard={!authenticated}>
-            <Stack.Screen name="(auth)" />
-          </Stack.Protected>
-          <Stack.Protected guard={authenticated}>
-            <Stack.Screen name="(app)" />
-            <Stack.Screen name="(onboarding)" />
-            <Stack.Screen name="reset-password" />
-          </Stack.Protected>
-        </Stack>
+        {rootContent}
       </View>
-      {authenticated && protectedTreeMounted && (locked || privacyCovered) ? (
-        <AppSecuritySurface locked={locked} privacyCovered={privacyCovered} />
-      ) : null}
       {handoffVisible ? (
         <SplashHandoff
+          key="startup-handoff"
           active={handoffActive}
           fadeDurationMs={handoffFadeDurationMs}
           onComplete={finishHandoff}
+          onReady={markHandoffReady}
         />
       ) : null}
     </View>
@@ -293,6 +315,9 @@ const styles = StyleSheet.create({
   appShell: {
     flex: 1,
     backgroundColor: "#06152e",
+  },
+  contentHost: {
+    flex: 1,
   },
   navigatorHost: {
     flex: 1,

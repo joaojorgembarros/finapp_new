@@ -8,8 +8,8 @@ function sessionWithMetadata(metadata: Record<string, unknown>) {
 }
 
 describe("getPostAuthHref", () => {
-  it("sends unauthenticated users to login", () => {
-    expect(getPostAuthHref(null)).toBe("/(auth)/login");
+  it("sends unauthenticated users to welcome", () => {
+    expect(getPostAuthHref(null)).toBe("/(auth)/welcome");
   });
 
   it("sends completed onboarding to the journey", () => {

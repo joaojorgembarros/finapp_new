@@ -1238,7 +1238,7 @@ export default function JourneyScreen() {
     setMenuOpen(false);
     const result = await signOut();
     if (result.activeAccountChanged) return;
-    router.replace("/(auth)/login");
+    router.replace("/(auth)/welcome");
     if (!result.remoteSignOutCompleted) {
       Alert.alert(
         "Sessão encerrada neste aparelho",

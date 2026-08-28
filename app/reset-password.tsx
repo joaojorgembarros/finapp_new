@@ -19,7 +19,7 @@ export default function ResetPasswordScreen() {
   const passwordsMismatch = confirm.length > 0 && password !== confirm;
   const valid = passwordValidation.isValid && password === confirm;
 
-  if (!loading && !session) return <Redirect href="/(auth)/login" />;
+  if (!loading && !session) return <Redirect href="/(auth)/welcome" />;
 
   async function save() {
     if (busy) return;
