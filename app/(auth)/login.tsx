@@ -1,5 +1,6 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Image,
   Platform,
@@ -14,6 +15,12 @@ import { router } from "expo-router";
 import * as NavigationBar from "expo-navigation-bar";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { getPostAuthHref } from "../../src/lib/postAuthHref";
+import {
+  getGoogleAuthErrorMessage,
+  isGoogleAuthCancelled,
+  signInWithGoogle,
+} from "../../src/lib/googleAuth";
 
 const NAVY = "#06152E";
 const CREAM = "#FDECD6";
@@ -23,6 +30,8 @@ const SYMBOL = require("../../assets/splash-brand-symbol.png");
 const GOOGLE_G_LOGO = require("../../assets/google-g-logo.png");
 
 export default function LoginMethodScreen() {
+  const [loading, setLoading] = useState(false);
+
   useEffect(() => {
     if (Platform.OS !== "android") return;
     NavigationBar.setBackgroundColorAsync(NAVY).catch(() => {});
@@ -33,8 +42,18 @@ export default function LoginMethodScreen() {
     };
   }, []);
 
-  function handleGooglePress() {
-    Alert.alert("Login com Google", "Login com Google em breve.");
+  async function handleGooglePress() {
+    if (loading) return;
+    try {
+      setLoading(true);
+      const session = await signInWithGoogle();
+      router.replace(getPostAuthHref(session));
+    } catch (error: unknown) {
+      if (isGoogleAuthCancelled(error)) return;
+      Alert.alert("Não foi possível entrar com Google", getGoogleAuthErrorMessage(error) ?? "Não foi possível entrar com Google agora. Tente novamente em instantes.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -64,20 +83,25 @@ export default function LoginMethodScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Continuar com Google"
-              accessibilityHint="Integração disponível em breve"
-              onPress={handleGooglePress}
-              style={({ pressed }) => [styles.methodButton, pressed && styles.methodPressed]}
+              accessibilityState={{ busy: loading, disabled: loading }}
+              disabled={loading}
+              onPress={() => void handleGooglePress()}
+              style={({ pressed }) => [styles.methodButton, pressed && !loading && styles.methodPressed]}
             >
               <View style={styles.iconSlot}>
-                <Image
-                  accessible={false}
-                  resizeMode="contain"
-                  source={GOOGLE_G_LOGO}
-                  style={styles.googleLogo}
-                />
+                {loading ? (
+                  <ActivityIndicator color={CREAM} size="small" />
+                ) : (
+                  <Image
+                    accessible={false}
+                    resizeMode="contain"
+                    source={GOOGLE_G_LOGO}
+                    style={styles.googleLogo}
+                  />
+                )}
               </View>
               <View style={styles.verticalDivider} />
-              <Text style={styles.methodText}>Continuar com Google</Text>
+              <Text style={styles.methodText}>{loading ? "Entrando..." : "Continuar com Google"}</Text>
             </Pressable>
 
             <View style={styles.orRow} accessibilityElementsHidden>
@@ -89,8 +113,10 @@ export default function LoginMethodScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Continuar com e-mail"
+              accessibilityState={{ disabled: loading }}
+              disabled={loading}
               onPress={() => router.push("/(auth)/email-login")}
-              style={({ pressed }) => [styles.methodButton, pressed && styles.methodPressed]}
+              style={({ pressed }) => [styles.methodButton, pressed && !loading && styles.methodPressed]}
             >
               <View style={styles.iconSlot}>
                 <Ionicons name="mail-outline" size={31} color={CREAM} />
@@ -105,8 +131,10 @@ export default function LoginMethodScreen() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Criar conta"
+              accessibilityState={{ disabled: loading }}
+              disabled={loading}
               onPress={() => router.push("/(auth)/signup")}
-              style={({ pressed }) => [styles.signupButton, pressed && styles.pressed]}
+              style={({ pressed }) => [styles.signupButton, pressed && !loading && styles.pressed]}
             >
               <Text style={styles.signupText}>Criar conta</Text>
               <Ionicons name="chevron-forward" size={20} color={CREAM} />

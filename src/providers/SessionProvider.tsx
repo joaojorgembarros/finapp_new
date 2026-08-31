@@ -4,6 +4,11 @@ import { AppState, Platform, Linking } from "react-native";
 import { Session } from "@supabase/supabase-js";
 import { setupLinkingListener, processRecoveryUrl } from "../lib/recoveryHandler";
 import { parseRecoveryUrl } from "../lib/recoveryLink";
+import {
+  completeGoogleOAuthCallback,
+  googleOAuthDedupe,
+  isGoogleAuthCancelled,
+} from "../lib/googleAuth";
 import { appLockStorage } from "../lib/appLockStorage";
 import { clearSignedGoalPhotoCacheForUser } from "../lib/goals";
 import { clearNewOnboardingState } from "../lib/newOnboarding";
@@ -265,6 +270,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
                 pendingRecoveryRef.current = parsed.pathname;
                 setPendingRecoveryPath(parsed.pathname);
               }
+            } else {
+              await completeIncomingGoogleOAuth(initial);
             }
           } catch {
             // ignore failures from recovery processing; fallthrough to normal restore
@@ -312,7 +319,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
               pendingRecoveryRef.current = parsed.pathname;
               setPendingRecoveryPath(parsed.pathname);
             }
+            return;
           }
+          await completeIncomingGoogleOAuth(url);
         } catch {
           // swallow
         }
@@ -498,4 +507,15 @@ export function useSession() {
   const ctx = useContext(SessionContext);
   if (!ctx) throw new Error("useSession must be used inside SessionProvider");
   return ctx;
+}
+
+async function completeIncomingGoogleOAuth(url: string) {
+  try {
+    await completeGoogleOAuthCallback(url, supabase.auth, googleOAuthDedupe);
+  } catch (error) {
+    if (isGoogleAuthCancelled(error)) return;
+    if (typeof __DEV__ !== "undefined" && __DEV__) {
+      console.warn("Could not complete Google sign-in from app link.");
+    }
+  }
 }

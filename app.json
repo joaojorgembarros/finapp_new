@@ -40,7 +40,8 @@
         {
           "faceIDPermission": "Permitir que o Sonho+ use o Face ID para proteger seus dados financeiros."
         }
-      ]
+      ],
+      "expo-web-browser"
     ],
     "ios": {
       "icon": "./assets/icon.png",

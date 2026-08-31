@@ -222,6 +222,7 @@ function SecureRootNavigator() {
           <Stack screenOptions={{ headerShown: false }}>
             <Stack.Screen name="index" />
             <Stack.Screen name="+not-found" />
+            <Stack.Screen name="auth/callback" />
             <Stack.Protected guard={!authenticated}>
               <Stack.Screen name="(auth)" />
             </Stack.Protected>
