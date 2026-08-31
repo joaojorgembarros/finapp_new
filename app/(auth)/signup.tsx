@@ -253,7 +253,7 @@ export default function SignupScreen() {
         "Confirme seu e-mail",
         "Enviamos um link de confirmação para seu e-mail. Depois de confirmar, volte ao app para entrar."
       );
-      router.replace("/(auth)/login");
+      router.replace("/(auth)/email-login");
     } catch (error: unknown) {
       Alert.alert("Não foi possível criar a conta", getSignupErrorMessage(error));
     } finally {
@@ -441,7 +441,7 @@ export default function SignupScreen() {
                 </LinearGradient>
               </Pressable>
 
-              <Pressable onPress={() => router.replace("/(auth)/login")} style={styles.loginLink}>
+              <Pressable onPress={() => router.replace("/(auth)/email-login")} style={styles.loginLink}>
                 <Text style={styles.loginText}>Já tem uma conta?</Text>
                 <Text style={styles.loginStrong}>Entrar</Text>
               </Pressable>

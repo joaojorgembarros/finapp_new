@@ -58,11 +58,11 @@ export default function WelcomeScreen() {
         <View style={styles.actions}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Continuar com e-mail"
+            accessibilityLabel="Continuar"
             onPress={() => router.push("/(auth)/login")}
             style={({ pressed }) => [styles.primary, pressed && styles.pressed]}
           >
-            <Text style={styles.primaryText}>Continuar com e-mail</Text>
+            <Text style={styles.primaryText}>Continuar</Text>
           </Pressable>
 
           <Pressable
