@@ -20,6 +20,7 @@ const CREAM = "#FDECD6";
 const SECONDARY = "#8C9AAE";
 const BORDER = "rgba(253, 236, 214, 0.28)";
 const SYMBOL = require("../../assets/splash-brand-symbol.png");
+const GOOGLE_G_LOGO = require("../../assets/google-g-logo.png");
 
 export default function LoginMethodScreen() {
   useEffect(() => {
@@ -40,21 +41,7 @@ export default function LoginMethodScreen() {
     <View style={styles.screen}>
       <StatusBar style="light" backgroundColor={NAVY} />
       <SafeAreaView edges={["top", "bottom"]} style={styles.safe}>
-        <View style={styles.topBar}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Voltar para a tela de boas-vindas"
-            hitSlop={8}
-            onPress={() => router.replace("/(auth)/welcome")}
-            style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}
-          >
-            <Ionicons
-              name={Platform.OS === "ios" ? "chevron-back" : "arrow-back"}
-              size={30}
-              color={CREAM}
-            />
-          </Pressable>
-        </View>
+        <View style={styles.topBar} />
 
         <ScrollView
           contentContainerStyle={styles.content}
@@ -82,7 +69,12 @@ export default function LoginMethodScreen() {
               style={({ pressed }) => [styles.methodButton, pressed && styles.methodPressed]}
             >
               <View style={styles.iconSlot}>
-                <Ionicons name="logo-google" size={29} color={CREAM} />
+                <Image
+                  accessible={false}
+                  resizeMode="contain"
+                  source={GOOGLE_G_LOGO}
+                  style={styles.googleLogo}
+                />
               </View>
               <View style={styles.verticalDivider} />
               <Text style={styles.methodText}>Continuar com Google</Text>
@@ -136,14 +128,6 @@ const styles = StyleSheet.create({
   },
   topBar: {
     height: 58,
-    justifyContent: "center",
-    paddingHorizontal: 18,
-  },
-  backButton: {
-    width: 48,
-    height: 48,
-    alignItems: "center",
-    justifyContent: "center",
   },
   content: {
     flexGrow: 1,
@@ -197,6 +181,10 @@ const styles = StyleSheet.create({
     width: 74,
     alignItems: "center",
     justifyContent: "center",
+  },
+  googleLogo: {
+    width: 29,
+    height: 29,
   },
   verticalDivider: {
     width: StyleSheet.hairlineWidth,

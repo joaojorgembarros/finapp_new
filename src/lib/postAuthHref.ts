@@ -2,7 +2,7 @@ import type { Session } from "@supabase/supabase-js";
 import type { Href } from "expo-router";
 
 export function getPostAuthHref(session: Session | null | undefined): Href {
-  if (!session) return "/(auth)/welcome";
+  if (!session) return "/(auth)/login";
 
   const metadata = session.user.user_metadata;
   const hasDreams = Array.isArray(metadata?.finapp_dreams) && metadata.finapp_dreams.length > 0;

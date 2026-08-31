@@ -24,7 +24,6 @@ import * as SplashScreen from "expo-splash-screen";
 
 const MINIMUM_BRAND_TIME_MS = 800;
 const HANDOFF_FADE_DURATION_MS = 200;
-const BRAND_PRESENTATION_STARTED_AT = Date.now();
 
 SplashScreen.setOptions({ duration: 0, fade: false });
 void SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -146,9 +145,6 @@ function SecureRootNavigator() {
   );
   const [handoffVisible, setHandoffVisible] = React.useState(true);
   const [handoffActive, setHandoffActive] = React.useState(false);
-  const [handoffFadeDurationMs, setHandoffFadeDurationMs] = React.useState(
-    HANDOFF_FADE_DURATION_MS,
-  );
   const [handoffReady, setHandoffReady] = React.useState(false);
   const handoffScheduledRef = React.useRef(false);
   const finishHandoff = React.useCallback(() => setHandoffVisible(false), []);
@@ -158,21 +154,8 @@ function SecureRootNavigator() {
     if (!bootstrapReady || !handoffReady || handoffScheduledRef.current) return;
     handoffScheduledRef.current = true;
 
-    const elapsedMs = Date.now() - BRAND_PRESENTATION_STARTED_AT;
-    const remainingBrandTimeMs = Math.max(0, MINIMUM_BRAND_TIME_MS - elapsedMs);
-    const fadeDurationMs = Math.min(
-      HANDOFF_FADE_DURATION_MS,
-      remainingBrandTimeMs,
-    );
-    const waitBeforeFadeMs = remainingBrandTimeMs - fadeDurationMs;
-
-    setHandoffFadeDurationMs(fadeDurationMs);
+    const waitBeforeFadeMs = MINIMUM_BRAND_TIME_MS - HANDOFF_FADE_DURATION_MS;
     void SplashScreen.hideAsync().catch(() => {});
-
-    if (waitBeforeFadeMs <= 0) {
-      setHandoffActive(true);
-      return;
-    }
 
     const timeoutId = setTimeout(() => setHandoffActive(true), waitBeforeFadeMs);
     return () => clearTimeout(timeoutId);
@@ -280,7 +263,7 @@ function SecureRootNavigator() {
         <SplashHandoff
           key="startup-handoff"
           active={handoffActive}
-          fadeDurationMs={handoffFadeDurationMs}
+          fadeDurationMs={HANDOFF_FADE_DURATION_MS}
           onComplete={finishHandoff}
           onReady={markHandoffReady}
         />

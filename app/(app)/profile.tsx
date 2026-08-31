@@ -250,7 +250,7 @@ export default function OnboardingProfileScreen() {
   async function logout() {
     const result = await signOut();
     if (result.activeAccountChanged) return;
-    router.replace("/(auth)/welcome");
+    router.replace("/(auth)/login");
     if (!result.remoteSignOutCompleted) {
       Alert.alert(
         "Sessão encerrada neste aparelho",
@@ -316,7 +316,7 @@ export default function OnboardingProfileScreen() {
         setAccountDeletionVisible(false);
         setAccountDeletionSecurityVisible(false);
         if (result?.localCleanup === "different-user") return;
-        router.replace("/(auth)/welcome");
+        router.replace("/(auth)/login");
         Alert.alert("Conta excluída", "Sua conta foi excluída.");
       } catch (error: unknown) {
         if (error instanceof AccountDeletionError && error.code === "session-expired") {
@@ -327,7 +327,7 @@ export default function OnboardingProfileScreen() {
             ? await clearExpiredSessionLocally(expectedUserId)
             : "failed";
           if (cleanupResult === "cleared") {
-            router.replace("/(auth)/welcome");
+            router.replace("/(auth)/login");
             Alert.alert("Sessão expirada", getAccountDeletionMessage(error));
           } else if (cleanupResult === "different-user") {
             Alert.alert(
@@ -335,7 +335,7 @@ export default function OnboardingProfileScreen() {
               "A conta ativa mudou. Abra novamente a exclusão no perfil da conta correta.",
             );
           } else {
-            router.replace("/(auth)/welcome");
+            router.replace("/(auth)/login");
             Alert.alert(
               "Sessão expirada",
               "Entre novamente para continuar. Se esta sessão reaparecer, feche e abra o app antes de tentar de novo.",
