@@ -5,6 +5,7 @@ import {
   GoogleAuthPendingConfigurationError,
   completeGoogleOAuthCallback,
   getGoogleAuthErrorMessage,
+  googleOAuthRedirectUrl,
   isGoogleAuthCancelled,
   parseGoogleOAuthCallbackUrl,
   signInWithGoogle,
@@ -16,7 +17,8 @@ import {
 
 vi.mock("react-native", () => ({ Platform: { OS: "ios" } }));
 vi.mock("expo-linking", () => ({
-  createURL: (path: string) => `sonhomais://${path.replace(/^\//, "")}`,
+  // Expo SDK 54 appends the path as-is for a standalone custom scheme.
+  createURL: (path: string) => `sonhomais://${path}`,
 }));
 vi.mock("expo-web-browser", () => ({
   maybeCompleteAuthSession: vi.fn(),
@@ -51,7 +53,7 @@ function authClient(overrides: Partial<GoogleAuthClient> = {}): GoogleAuthClient
 function dependencies(overrides: Partial<GoogleAuthDependencies> = {}): GoogleAuthDependencies {
   return {
     platform: "ios",
-    createRedirectUrl: () => "sonhomais://auth/callback",
+    createRedirectUrl: googleOAuthRedirectUrl,
     fetchGoogleProviderEnabled: async () => true,
     auth: authClient(),
     maybeCompleteAuthSession: vi.fn(),
@@ -119,7 +121,10 @@ describe("signInWithGoogle", () => {
         skipBrowserRedirect: true,
       },
     });
-    expect(deps.openAuthSessionAsync).toHaveBeenCalled();
+    expect(deps.openAuthSessionAsync).toHaveBeenCalledWith(
+      "https://accounts.google.com/o/oauth2",
+      "sonhomais://auth/callback",
+    );
     expect(session.user.id).toBe("user-1");
   });
 

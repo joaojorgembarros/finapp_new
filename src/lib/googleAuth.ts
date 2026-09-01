@@ -3,7 +3,7 @@ import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
 import { Platform } from "react-native";
 
-export const GOOGLE_OAUTH_CALLBACK_PATH = "/auth/callback";
+export const GOOGLE_OAUTH_CALLBACK_PATH = "auth/callback";
 
 export class GoogleAuthCancelledError extends Error {
   readonly name = "GoogleAuthCancelledError";
