@@ -1,28 +1,50 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
+import * as NavigationBar from "expo-navigation-bar";
+import { router, useLocalSearchParams } from "expo-router";
+import { StatusBar } from "expo-status-bar";
 import {
   Alert,
+  Image,
   KeyboardAvoidingView,
   LayoutChangeEvent,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from "react-native";
-import { router, useLocalSearchParams } from "expo-router";
-import {
-  OB,
-  OnboardingBackground,
-  OnboardingShell,
-  PrimaryButton,
-  ScreenIntro,
-} from "../../src/ui/OnboardingKit";
-import { formatBRLInputFromDigits, parseBRLToCents } from "../../src/lib/format";
-import { useSession } from "../../src/providers/SessionProvider";
-import { markNewOnboardingDone, saveNewOnboardingDraft } from "../../src/lib/newOnboarding";
+import Svg, { Path } from "react-native-svg";
+import { resolveDreamIconKind } from "../../src/features/journey/dreamIconCatalog";
 import { useKeyboardAwareScroll } from "../../src/hooks/useKeyboardAwareScroll";
+import { formatBRLInputFromDigits, parseBRLToCents } from "../../src/lib/format";
+import { markNewOnboardingDone, saveNewOnboardingDraft } from "../../src/lib/newOnboarding";
+import { useSession } from "../../src/providers/SessionProvider";
+import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
+
+const BRAND_SYMBOL = require("../../assets/splash-brand-symbol.png");
+
+const DREAM_MARK_ICONS = {
+  emergency: "shield-checkmark-outline",
+  home: "home-outline",
+  travel: "airplane-outline",
+  car: "car-outline",
+  motorcycle: "bicycle-outline",
+  wedding: "heart-outline",
+  education: "school-outline",
+  business: "briefcase-outline",
+  health: "medkit-outline",
+  retirement: "time-outline",
+  debt: "card-outline",
+  investment: "trending-up-outline",
+  family: "people-outline",
+  relocation: "location-outline",
+  freedom: "lock-open-outline",
+  other: "flag-outline",
+} as const;
 
 function readDreams(raw: string | string[] | undefined) {
   try {
@@ -51,7 +73,38 @@ function readValues(raw: string | string[] | undefined, dreams: string[]) {
   }
 }
 
+function DreamValuesBackground() {
+  return (
+    <View pointerEvents="none" style={styles.background}>
+      <Svg
+        width="100%"
+        height="100%"
+        viewBox="0 0 390 844"
+        preserveAspectRatio="xMidYMid slice"
+        style={StyleSheet.absoluteFill}
+      >
+        <Path
+          d="M168 318C214 368 148 418 206 468C248 504 176 552 214 598"
+          fill="none"
+          stroke="#7BA0C8"
+          strokeOpacity={0.16}
+          strokeWidth={1.1}
+          strokeDasharray="3 8"
+        />
+        <Path
+          d="M-18 786C72 758 166 812 258 774C316 749 350 727 416 720"
+          fill="none"
+          stroke="#7BA0C8"
+          strokeOpacity={0.14}
+          strokeWidth={1}
+        />
+      </Svg>
+    </View>
+  );
+}
+
 function DreamValueCard({
+  active,
   index,
   label,
   value,
@@ -59,7 +112,9 @@ function DreamValueCard({
   onFocus,
   onLayout,
   inputRef,
+  textInputRef,
 }: {
+  active: boolean;
   index: number;
   label: string;
   value: string;
@@ -67,64 +122,72 @@ function DreamValueCard({
   onFocus: () => void;
   onLayout: (event: LayoutChangeEvent) => void;
   inputRef: (node: View | null) => void;
+  textInputRef: (node: TextInput | null) => void;
 }) {
-  const cents = parseBRLToCents(value);
-  const filled = cents > 0;
+  const displayValue = value.replace("R$", "").trim();
 
   return (
-    <View
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Editar valor do sonho ${label}`}
+      onPress={onFocus}
       onLayout={onLayout}
-      style={[styles.valueCard, filled && styles.valueCardFilled]}
+      style={[
+        styles.valueCard,
+        index % 2 === 1 && styles.valueCardOffset,
+        active && styles.valueCardActive,
+      ]}
     >
-      <View style={styles.goalRow}>
-        <View style={[styles.goalIcon, filled && styles.goalIconFilled]}>
+      <View ref={inputRef} collapsable={false} style={styles.cardBody}>
+        <View style={styles.goalMark}>
           <Ionicons
-            name={filled ? "checkmark" : "sparkles-outline"}
+            name={DREAM_MARK_ICONS[resolveDreamIconKind(label)]}
             size={18}
-            color={filled ? "#fff" : OB.primary}
+            color={active ? "#FFFFFF" : "#BCD0EE"}
           />
         </View>
+
         <View style={styles.goalCopy}>
-          <Text style={styles.goalMeta}>SONHO {index + 1}</Text>
-          <Text style={styles.goalTitle}>{label}</Text>
+          <Text numberOfLines={2} style={styles.goalTitle}>
+            {label}
+          </Text>
+          <Text style={styles.inputLabel}>Valor estimado</Text>
+          <View style={styles.valueRow}>
+            <Text style={[styles.currency, !displayValue && styles.currencyMuted]}>R$</Text>
+            <TextInput
+              ref={textInputRef}
+              accessibilityLabel={`Valor do sonho ${label}`}
+              value={displayValue}
+              onChangeText={(text) => onChange(formatBRLInputFromDigits(text))}
+              placeholder="0"
+              placeholderTextColor="#8C9AAE"
+              keyboardType="number-pad"
+              returnKeyType="done"
+              selectTextOnFocus
+              onFocus={onFocus}
+              onPressIn={onFocus}
+              style={styles.input}
+            />
+          </View>
         </View>
-      </View>
 
-      <Text style={styles.inputLabel}>Valor do objetivo</Text>
-      <View
-        ref={inputRef}
-        collapsable={false}
-        style={[styles.inputBox, filled && styles.inputBoxFilled]}
-      >
-        <View style={styles.currencyBadge}>
-          <Text style={styles.currency}>R$</Text>
-        </View>
-        <TextInput
-          accessibilityLabel={`Valor do sonho ${label}`}
-          value={value.replace("R$", "").trim()}
-          onChangeText={(text) => onChange(formatBRLInputFromDigits(text))}
-          placeholder="0,00"
-          placeholderTextColor="#91A4BA"
-          keyboardType="number-pad"
-          returnKeyType="done"
-          selectTextOnFocus
-          onFocus={onFocus}
-          onPressIn={onFocus}
-          style={styles.input}
-        />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Editar ${label}`}
+          hitSlop={6}
+          onPress={onFocus}
+          style={({ pressed }) => [styles.editButton, pressed && styles.editButtonPressed]}
+        >
+          <Ionicons name="pencil" size={15} color={active ? "#FFFFFF" : "#C2CBD9"} />
+        </Pressable>
       </View>
-
-      {!filled ? (
-        <View style={styles.helperRow}>
-          <Ionicons name="information-circle-outline" size={14} color={OB.support} />
-          <Text style={styles.helper}>Digite uma estimativa para este objetivo.</Text>
-        </View>
-      ) : null}
-    </View>
+    </Pressable>
   );
 }
 
 export default function DreamValuesScreen() {
+  const { height } = useWindowDimensions();
+  const compact = height < 760;
   const params = useLocalSearchParams<{
     dreams?: string;
     values?: string;
@@ -152,10 +215,30 @@ export default function DreamValuesScreen() {
     readValues(params.values, dreams)
   );
   const [saving, setSaving] = useState(false);
+  const [activeDream, setActiveDream] = useState<string | null>(dreams[0] ?? null);
+  const textInputRefs = useRef<Record<string, TextInput | null>>({});
+  const totalSteps = params.returnToJourney === "1" ? 2 : 3;
 
   const filled = Object.values(values).filter((value) => parseBRLToCents(value) > 0).length;
   const canContinue = dreams.length > 0 && filled > 0;
-  const progress = Math.round((filled / Math.max(dreams.length, 1)) * 100);
+
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+    NavigationBar.setBackgroundColorAsync(OB.primaryDeep).catch(() => {});
+    NavigationBar.setButtonStyleAsync("light").catch(() => {});
+    return () => {
+      NavigationBar.setBackgroundColorAsync("#f8fafc").catch(() => {});
+      NavigationBar.setButtonStyleAsync("dark").catch(() => {});
+    };
+  }, []);
+
+  function focusDream(dream: string, index: number) {
+    setActiveDream(dream);
+    focusField(String(index));
+    requestAnimationFrame(() => {
+      textInputRefs.current[dream]?.focus();
+    });
+  }
 
   function goBack() {
     router.replace({
@@ -204,47 +287,56 @@ export default function DreamValuesScreen() {
     }
   }
 
+  const continueTitle = saving
+    ? "Salvando..."
+    : params.returnToJourney === "1"
+      ? "Salvar valores"
+      : "Continuar";
+
   return (
     <OnboardingShell>
-      <OnboardingBackground />
+      <StatusBar style="light" backgroundColor={OB.primaryDeep} translucent={false} />
+      <DreamValuesBackground />
       <KeyboardAvoidingView
         enabled={Platform.OS === "ios"}
         behavior="padding"
         style={styles.keyboard}
       >
-        <ScreenIntro
-          eyebrow="Valores dos sonhos"
-          title="Quanto custa realizar seus sonhos?"
-          subtitle="Defina o valor que você acredita precisar para conquistar cada objetivo."
-          onBack={goBack}
-          currentStep={2}
-          totalSteps={params.returnToJourney === "1" ? 2 : 3}
-          compact
-        />
-
-        <View style={styles.card}>
-          <View style={styles.progressWrap}>
-            <View style={styles.progressHeader}>
-              <View>
-                <Text style={styles.progressTitle}>Seu planejamento</Text>
-                <Text style={styles.progressText}>
-                  {filled} de {dreams.length} {dreams.length === 1 ? "valor definido" : "valores definidos"}
-                </Text>
-              </View>
-              <View style={[styles.progressBadge, progress === 100 && styles.progressBadgeComplete]}>
-                <Text style={[styles.progressPercent, progress === 100 && styles.progressPercentComplete]}>
-                  {progress}%
-                </Text>
-              </View>
-            </View>
-            <View style={styles.progressTrack}>
-              <View
-                style={[
-                  styles.progressFill,
-                  progress === 100 && styles.progressFillComplete,
-                  { width: `${progress}%` },
-                ]}
+        <View style={styles.frame}>
+          <View style={[styles.topSection, compact && styles.topSectionCompact]}>
+            <View style={styles.navigationRow}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Voltar"
+                hitSlop={6}
+                onPress={goBack}
+                style={({ pressed }) => [styles.backButton, pressed && styles.backButtonPressed]}
+              >
+                <Ionicons name="arrow-back" size={27} color="#FFFFFF" />
+              </Pressable>
+              <Image
+                accessible={false}
+                resizeMode="contain"
+                source={BRAND_SYMBOL}
+                style={styles.brandSymbol}
+                tintColor="#FFFFFF"
               />
+            </View>
+
+            <View
+              accessibilityRole="text"
+              accessibilityLabel={`Etapa 2 de ${totalSteps}`}
+              style={styles.progressBlock}
+            >
+              <Text style={styles.stepText}>2 de {totalSteps}</Text>
+              <View style={styles.progressTrack}>
+                {Array.from({ length: totalSteps }, (_, index) => (
+                  <View
+                    key={index}
+                    style={[styles.progressSegment, index < 2 && styles.progressSegmentActive]}
+                  />
+                ))}
+              </View>
             </View>
           </View>
 
@@ -253,6 +345,7 @@ export default function DreamValuesScreen() {
             style={styles.listScroll}
             contentContainerStyle={[
               styles.list,
+              compact && styles.listCompact,
               keyboardVisible && styles.listWithKeyboard,
               keyboardInset ? { paddingBottom: 28 + keyboardInset } : null,
             ]}
@@ -265,42 +358,61 @@ export default function DreamValuesScreen() {
             removeClippedSubviews={false}
             showsVerticalScrollIndicator={false}
           >
-            {dreams.map((dream, index) => (
-              <DreamValueCard
-                key={dream}
-                index={index}
-                label={dream}
-                value={values[dream] ?? ""}
-                onChange={(value) =>
-                  setValues((previous) => ({ ...previous, [dream]: value }))
-                }
-                onFocus={() => focusField(String(index))}
-                onLayout={registerField(String(index))}
-                inputRef={registerFieldNode(String(index))}
-              />
-            ))}
+            <View style={[styles.intro, compact && styles.introCompact]}>
+              <Text accessibilityRole="header" style={[styles.title, compact && styles.titleCompact]}>
+                Agora, dê um número{"\n"}aos seus sonhos.
+              </Text>
+              <Text style={[styles.subtitle, compact && styles.subtitleCompact]}>
+                Uma estimativa já é suficiente para começar.
+              </Text>
+            </View>
+
+            <View style={styles.cardList}>
+              {dreams.map((dream, index) => (
+                <DreamValueCard
+                  key={dream}
+                  active={activeDream === dream}
+                  index={index}
+                  label={dream}
+                  value={values[dream] ?? ""}
+                  onChange={(value) =>
+                    setValues((previous) => ({ ...previous, [dream]: value }))
+                  }
+                  onFocus={() => focusDream(dream, index)}
+                  onLayout={registerField(String(index))}
+                  inputRef={registerFieldNode(String(index))}
+                  textInputRef={(node) => {
+                    textInputRefs.current[dream] = node;
+                  }}
+                />
+              ))}
+            </View>
           </ScrollView>
 
           {!keyboardVisible ? (
             <View style={styles.footer}>
-              <Text style={styles.footerHint}>
-                {canContinue
-                  ? params.returnToJourney === "1"
-                    ? "Salve para voltar à sua jornada."
-                    : "Próxima etapa: sua situação financeira."
-                  : "Preencha pelo menos um valor para continuar."}
-              </Text>
-              <PrimaryButton
-                title={
-                  saving
-                    ? "Salvando..."
-                    : params.returnToJourney === "1"
-                      ? "Salvar valores"
-                      : "Continuar minha jornada"
-                }
+              <Text style={styles.footerHint}>Você poderá ajustar esses valores depois.</Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={continueTitle}
+                accessibilityState={{ disabled: !canContinue || saving }}
                 disabled={!canContinue || saving}
                 onPress={next}
-              />
+                style={({ pressed }) => [
+                  styles.continueButton,
+                  (!canContinue || saving) && styles.continueButtonDisabled,
+                  pressed && canContinue && !saving ? styles.continueButtonPressed : null,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.continueText,
+                    (!canContinue || saving) && styles.continueTextDisabled,
+                  ]}
+                >
+                  {continueTitle}
+                </Text>
+              </Pressable>
             </View>
           ) : null}
         </View>
@@ -310,218 +422,254 @@ export default function DreamValuesScreen() {
 }
 
 const styles = StyleSheet.create({
+  background: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "#06152E",
+  },
   keyboard: {
     flex: 1,
   },
-  card: {
+  frame: {
     flex: 1,
-    marginHorizontal: 12,
-    marginBottom: 14,
-    borderRadius: 28,
-    backgroundColor: OB.offWhite,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.88)",
-    overflow: "hidden",
-    shadowColor: OB.primary,
-    shadowOpacity: 0.26,
-    shadowRadius: 28,
-    shadowOffset: { width: 0, height: -12 },
-    elevation: 10,
+    width: "100%",
+    maxWidth: 560,
+    alignSelf: "center",
   },
-  progressWrap: {
-    paddingHorizontal: 16,
-    paddingTop: 13,
-    paddingBottom: 11,
-    borderBottomWidth: 1,
-    borderBottomColor: OB.supportSoft,
+  topSection: {
+    paddingHorizontal: 22,
+    paddingTop: 6,
+    paddingBottom: 5,
   },
-  progressHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-    marginBottom: 8,
+  topSectionCompact: {
+    paddingTop: 2,
   },
-  progressTitle: {
-    color: OB.primary,
-    fontSize: 14,
-    fontWeight: "900",
-  },
-  progressText: {
-    color: OB.support,
-    fontSize: 11,
-    fontWeight: "800",
-    marginTop: 3,
-  },
-  progressBadge: {
-    minWidth: 44,
-    height: 32,
-    borderRadius: 11,
+  navigationRow: {
+    height: 56,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: OB.supportSoft,
   },
-  progressBadgeComplete: {
-    backgroundColor: "#E7F7EF",
-    borderColor: "rgba(23,138,85,0.22)",
+  backButton: {
+    position: "absolute",
+    left: -7,
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  progressPercent: {
-    color: OB.primary,
-    fontSize: 13,
-    fontWeight: "900",
+  backButtonPressed: {
+    opacity: 0.7,
   },
-  progressPercentComplete: {
-    color: "#178A55",
+  brandSymbol: {
+    width: 46,
+    height: 52,
+  },
+  progressBlock: {
+    alignItems: "center",
+    paddingTop: 8,
+  },
+  stepText: {
+    color: "rgba(255,255,255,0.86)",
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: "500",
   },
   progressTrack: {
-    height: 6,
-    borderRadius: 99,
-    overflow: "hidden",
-    backgroundColor: OB.supportSoft,
+    width: "74%",
+    maxWidth: 284,
+    flexDirection: "row",
+    gap: 7,
+    marginTop: 13,
   },
-  progressFill: {
-    height: "100%",
+  progressSegment: {
+    flex: 1,
+    height: 4,
     borderRadius: 99,
-    backgroundColor: OB.primary,
+    backgroundColor: "rgba(140,154,174,0.20)",
   },
-  progressFillComplete: {
-    backgroundColor: "#22A96B",
+  progressSegmentActive: {
+    backgroundColor: "#FFFFFF",
   },
   listScroll: {
     flex: 1,
   },
   list: {
-    gap: 10,
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 12,
+    flexGrow: 1,
+    paddingHorizontal: 22,
+    paddingTop: 24,
+    paddingBottom: 18,
+  },
+  listCompact: {
+    paddingTop: 16,
   },
   listWithKeyboard: {
     paddingBottom: 28,
   },
+  intro: {
+    alignItems: "center",
+    marginBottom: 28,
+  },
+  introCompact: {
+    marginBottom: 20,
+  },
+  title: {
+    maxWidth: 320,
+    color: "#FFFFFF",
+    fontSize: 31,
+    lineHeight: 37,
+    fontWeight: "800",
+    letterSpacing: -0.7,
+    textAlign: "center",
+  },
+  titleCompact: {
+    fontSize: 27,
+    lineHeight: 32,
+  },
+  subtitle: {
+    maxWidth: 306,
+    marginTop: 12,
+    color: "#8C9AAE",
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: "500",
+    textAlign: "center",
+  },
+  subtitleCompact: {
+    marginTop: 9,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  cardList: {
+    gap: 16,
+    paddingTop: 4,
+  },
   valueCard: {
+    width: "92%",
+    minHeight: 108,
     borderRadius: 18,
-    padding: 12,
-    backgroundColor: "#fff",
-    borderWidth: 1.5,
-    borderColor: "rgba(123,160,200,0.18)",
-    shadowColor: OB.primary,
-    shadowOpacity: 0.07,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: "rgba(140,154,174,0.22)",
+    backgroundColor: "rgba(255,255,255,0.03)",
+    paddingVertical: 16,
+    paddingLeft: 16,
+    paddingRight: 10,
   },
-  valueCardFilled: {
-    borderColor: "rgba(23,138,85,0.24)",
+  valueCardOffset: {
+    alignSelf: "flex-end",
   },
-  goalRow: {
+  valueCardActive: {
+    borderColor: "rgba(255,255,255,0.88)",
+    backgroundColor: "rgba(255,255,255,0.045)",
+    shadowColor: "#FFFFFF",
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 6,
+  },
+  cardBody: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    marginBottom: 9,
+    gap: 12,
   },
-  goalIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
+  goalMark: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#EAF1F8",
     borderWidth: 1,
-    borderColor: OB.supportSoft,
-  },
-  goalIconFilled: {
-    backgroundColor: "#22A96B",
-    borderColor: "#22A96B",
+    borderColor: "rgba(255,255,255,0.28)",
   },
   goalCopy: {
     flex: 1,
-  },
-  goalMeta: {
-    color: OB.support,
-    fontSize: 8,
-    fontWeight: "900",
-    letterSpacing: 1.3,
-    marginBottom: 3,
+    minWidth: 0,
   },
   goalTitle: {
-    color: OB.primary,
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: "900",
+    color: "#FFFFFF",
+    fontSize: 16,
+    lineHeight: 21,
+    fontWeight: "600",
   },
   inputLabel: {
-    color: OB.support,
-    fontSize: 10,
-    fontWeight: "900",
-    letterSpacing: 1,
-    textTransform: "uppercase",
-    marginBottom: 5,
+    marginTop: 8,
+    color: "#8C9AAE",
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: "500",
   },
-  inputBox: {
-    minHeight: 48,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: OB.supportSoft,
-    backgroundColor: OB.offWhite,
+  valueRow: {
+    marginTop: 2,
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 9,
-    paddingRight: 14,
-  },
-  inputBoxFilled: {
-    borderColor: "rgba(23,138,85,0.38)",
-    backgroundColor: "#FBFEFC",
-  },
-  currencyBadge: {
-    width: 36,
-    height: 32,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#EAF1F8",
-    marginRight: 9,
+    minHeight: 36,
   },
   currency: {
-    color: OB.primary,
-    fontSize: 13,
-    fontWeight: "900",
+    color: "#FFFFFF",
+    fontSize: 26,
+    lineHeight: 32,
+    fontWeight: "700",
+    letterSpacing: -0.4,
+    marginRight: 6,
+  },
+  currencyMuted: {
+    color: "#8C9AAE",
   },
   input: {
     flex: 1,
-    color: OB.primary,
-    fontSize: 17,
-    fontWeight: "900",
-    paddingVertical: 7,
-  },
-  helperRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginTop: 6,
-  },
-  helper: {
-    flex: 1,
-    color: OB.support,
-    fontSize: 11,
-    lineHeight: 15,
+    color: "#FFFFFF",
+    fontSize: 26,
+    lineHeight: 32,
     fontWeight: "700",
+    letterSpacing: -0.4,
+    paddingVertical: 0,
+    paddingHorizontal: 0,
+  },
+  editButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(140,154,174,0.28)",
+    alignSelf: "flex-start",
+    marginTop: 2,
+  },
+  editButtonPressed: {
+    opacity: 0.7,
   },
   footer: {
-    gap: 8,
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 14,
-    borderTopWidth: 1,
-    borderTopColor: OB.supportSoft,
+    paddingHorizontal: 22,
+    paddingTop: 10,
+    paddingBottom: 10,
   },
   footerHint: {
-    color: OB.support,
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: "800",
+    marginBottom: 12,
+    color: "#8C9AAE",
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "500",
     textAlign: "center",
+  },
+  continueButton: {
+    minHeight: 56,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFFFFF",
+  },
+  continueButtonDisabled: {
+    backgroundColor: "rgba(255,255,255,0.18)",
+  },
+  continueButtonPressed: {
+    opacity: 0.86,
+  },
+  continueText: {
+    color: "#06152E",
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: "800",
+  },
+  continueTextDisabled: {
+    color: "rgba(255,255,255,0.42)",
   },
 });
