@@ -1,4 +1,4 @@
-# FinApp
+# Sonho+
 
 Aplicativo mobile de controle financeiro desenvolvido com **React Native**, **Expo** e **Supabase**.
 
