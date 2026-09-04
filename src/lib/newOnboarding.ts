@@ -27,6 +27,10 @@ export async function hasCompletedNewOnboarding(userId: string) {
   return (await AsyncStorage.getItem(keyFor(userId))) === "done";
 }
 
+export async function clearNewOnboardingState(userId: string) {
+  await AsyncStorage.removeItem(keyFor(userId));
+}
+
 export async function saveNewOnboardingDraft(dreams: string[], values: Record<string, string>) {
   const { error } = await supabase.auth.updateUser({
     data: {
@@ -65,14 +69,6 @@ export async function markNewOnboardingDone(
   values: Record<string, string>,
   financialSituation?: FinancialSituation
 ) {
-  if (financialSituation) {
-    const validationError = getOnboardingDebtValidationError(
-      financialSituation.debts,
-      financialSituation.debtDetails
-    );
-    if (validationError) throw new Error(validationError);
-  }
-
   let householdId = await getMyHouseholdId(userId);
   if (!householdId) {
     householdId = await createHousehold({ name: "Minha casa", type: "individual" });
@@ -86,12 +82,18 @@ export async function markNewOnboardingDone(
       employment_type: financialSituation.employmentType,
       onboarding_done: true,
     });
-    await syncOnboardingDebtCommitments({
-      householdId,
-      userId,
-      selectedDebts: financialSituation.debts,
-      debtDetails: financialSituation.debtDetails,
-    });
+    const debtSyncError = getOnboardingDebtValidationError(
+      financialSituation.debts,
+      financialSituation.debtDetails
+    );
+    if (!debtSyncError) {
+      await syncOnboardingDebtCommitments({
+        householdId,
+        userId,
+        selectedDebts: financialSituation.debts,
+        debtDetails: financialSituation.debtDetails,
+      });
+    }
   }
   await syncNewOnboardingCompletion(dreams, values, financialSituation);
   await AsyncStorage.setItem(keyFor(userId), "done");

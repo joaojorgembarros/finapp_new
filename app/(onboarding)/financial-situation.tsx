@@ -1,8 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
+import * as NavigationBar from "expo-navigation-bar";
+import { router, useLocalSearchParams } from "expo-router";
+import { StatusBar } from "expo-status-bar";
 import {
-  ActivityIndicator,
   Alert,
+  Image,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -11,25 +14,21 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from "react-native";
-import { router, useLocalSearchParams } from "expo-router";
 import {
   OB,
-  OnboardingBackground,
   OnboardingShell,
-  PrimaryButton,
-  ScreenIntro,
 } from "../../src/ui/OnboardingKit";
 import { markNewOnboardingDone } from "../../src/lib/newOnboarding";
 import { useSession } from "../../src/providers/SessionProvider";
 import { BANK_OPTIONS } from "../../src/lib/banks";
 import { formatBRLFromCents, formatBRLInputFromDigits, parseBRLToCents } from "../../src/lib/format";
-import { EmploymentType, expectedMonthlyIncomeCents, getProfile } from "../../src/lib/profile";
+import { EmploymentType, getProfile } from "../../src/lib/profile";
 import { BankLogo } from "../../src/ui/BankLogo";
 import { useKeyboardAwareScroll } from "../../src/hooks/useKeyboardAwareScroll";
 import {
-  getOnboardingDebtValidationError,
   NO_DEBTS_OPTION,
 } from "../../src/lib/onboardingDebts";
 import type { OnboardingDebtDetail } from "../../src/lib/onboardingDebts";
@@ -47,14 +46,25 @@ type DebtDraft = {
   installmentsRemaining: string;
 };
 
-const DEBT_OPTIONS = [
+const DEBT_CATEGORY_OPTIONS = [
   "Cartão de crédito",
   "Empréstimo pessoal",
   "Financiamento de veículo",
   "Financiamento imobiliário",
   "Financiamento estudantil",
-  "Não tenho dívidas",
+  "Outros",
 ] as const;
+
+const DEBT_OPTIONS = [...DEBT_CATEGORY_OPTIONS, "Não tenho dívidas"] as const;
+
+const DEBT_ICONS = {
+  "Cartão de crédito": "card-outline",
+  "Empréstimo pessoal": "person-outline",
+  "Financiamento de veículo": "car-outline",
+  "Financiamento imobiliário": "home-outline",
+  "Financiamento estudantil": "school-outline",
+  Outros: "ellipsis-horizontal",
+} as const;
 
 const NO_DEBTS = NO_DEBTS_OPTION;
 const NO_BANK = "Não uso banco";
@@ -65,6 +75,7 @@ const BANKS: Bank[] = [
 ];
 
 const EMPLOYMENT_TYPES: EmploymentType[] = ["CLT", "PJ", "Autônomo", "Estudante", "Outro"];
+const BRAND_SYMBOL = require("../../assets/splash-brand-symbol.png");
 
 function parseStringArray(raw: string | string[] | undefined) {
   try {
@@ -116,19 +127,42 @@ function parseDebtDrafts(raw: unknown) {
   return drafts;
 }
 
-function DebtChip({
+function DebtOptionCard({
   label,
   selected,
+  twoColumns,
   onPress,
 }: {
   label: string;
   selected: boolean;
+  twoColumns: boolean;
   onPress: () => void;
 }) {
   return (
-    <Pressable onPress={onPress} style={[styles.debtChip, selected && styles.debtChipSelected]}>
-      {selected ? <Ionicons name="checkmark" size={14} color="#fff" /> : null}
-      <Text style={[styles.debtChipText, selected && styles.debtChipTextSelected]}>{label}</Text>
+    <Pressable
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked: selected }}
+      accessibilityLabel={label}
+      onPress={onPress}
+      style={[
+        styles.debtCard,
+        twoColumns ? styles.debtCardHalf : styles.debtCardFull,
+        selected && styles.debtCardSelected,
+      ]}
+    >
+      <View style={[styles.debtCardIcon, selected && styles.debtCardIconSelected]}>
+        <Ionicons
+          name={DEBT_ICONS[label as keyof typeof DEBT_ICONS]}
+          size={18}
+          color={selected ? "#FFFFFF" : "#AFC7E8"}
+        />
+      </View>
+      <Text style={styles.debtCardLabel}>{label}</Text>
+      {selected ? (
+        <View style={styles.debtCardCheck}>
+          <Ionicons name="checkmark" size={10} color="#06152E" />
+        </View>
+      ) : null}
     </Pressable>
   );
 }
@@ -136,10 +170,12 @@ function DebtChip({
 function BankCard({
   bank,
   selected,
+  twoColumns,
   onPress,
 }: {
   bank: Bank;
   selected: boolean;
+  twoColumns: boolean;
   onPress: () => void;
 }) {
   return (
@@ -148,18 +184,25 @@ function BankCard({
       accessibilityState={{ checked: selected }}
       accessibilityLabel={bank.name}
       onPress={onPress}
-      style={[styles.bankCard, selected && styles.bankCardSelected]}
+      style={[
+        styles.bankCard,
+        twoColumns ? styles.bankCardHalf : styles.bankCardFull,
+        selected && styles.bankCardSelected,
+      ]}
     >
-      <BankLogo bankId={bank.id} size={42} color={bank.color} shortName={bank.shortName} />
-      <Text numberOfLines={2} style={styles.bankName}>{bank.name}</Text>
-      <View style={[styles.selectionMark, selected && styles.selectionMarkSelected]}>
-        {selected ? <Ionicons name="checkmark" size={13} color="#fff" /> : null}
+      <View style={[styles.bankCheck, selected && styles.bankCheckSelected]}>
+        {selected ? <Ionicons name="checkmark" size={10} color="#06152E" /> : null}
       </View>
+      <BankLogo bankId={bank.id} size={36} color={bank.color} shortName={bank.shortName} />
+      <Text numberOfLines={2} style={styles.bankName}>{bank.name}</Text>
     </Pressable>
   );
 }
 
 export default function FinancialSituationScreen() {
+  const { height, width } = useWindowDimensions();
+  const compact = height < 760;
+  const debtGridTwoColumns = width >= 360;
   const params = useLocalSearchParams<{ dreams?: string; values?: string }>();
   const { session, userId } = useSession();
   const metadata = session?.user.user_metadata;
@@ -203,7 +246,7 @@ export default function FinancialSituationScreen() {
   const [selectedDebts, setSelectedDebts] = useState<Set<string>>(
     () => new Set(Array.isArray(metadata?.finapp_debts) ? metadata.finapp_debts.map(String) : [NO_DEBTS])
   );
-  const [debtDrafts, setDebtDrafts] = useState<Record<string, DebtDraft>>(
+  const [debtDrafts] = useState<Record<string, DebtDraft>>(
     () => parseDebtDrafts(metadata?.finapp_debt_details)
   );
   const [selectedBanks, setSelectedBanks] = useState<Set<string>>(
@@ -212,8 +255,13 @@ export default function FinancialSituationScreen() {
   const [fixedIncome, setFixedIncome] = useState("");
   const [variableIncome, setVariableIncome] = useState("");
   const [employmentType, setEmploymentType] = useState<EmploymentType | null>(null);
+  const [variableIncomeOpen, setVariableIncomeOpen] = useState(false);
+  const [fixedFocused, setFixedFocused] = useState(false);
   const [section, setSection] = useState<"income" | "debts" | "banks">("income");
   const [saving, setSaving] = useState(false);
+  const [debtChoiceError, setDebtChoiceError] = useState<string | null>(null);
+  const [bankChoiceError, setBankChoiceError] = useState<string | null>(null);
+  const variableInputRef = useRef<TextInput>(null);
 
   useEffect(() => {
     let active = true;
@@ -241,12 +289,22 @@ export default function FinancialSituationScreen() {
     };
   }, [userId]);
 
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+    NavigationBar.setBackgroundColorAsync(OB.primaryDeep).catch(() => {});
+    NavigationBar.setButtonStyleAsync("light").catch(() => {});
+    return () => {
+      NavigationBar.setBackgroundColorAsync("#f8fafc").catch(() => {});
+      NavigationBar.setButtonStyleAsync("dark").catch(() => {});
+    };
+  }, []);
+
+  useEffect(() => {
+    if (variableIncome.trim()) setVariableIncomeOpen(true);
+  }, [variableIncome]);
+
   const fixedIncomeCents = useMemo(() => parseBRLToCents(fixedIncome), [fixedIncome]);
   const variableIncomeCents = useMemo(() => parseBRLToCents(variableIncome), [variableIncome]);
-  const expectedIncomeCents = expectedMonthlyIncomeCents({
-    income_fixed_cents: fixedIncomeCents,
-    income_variable_avg_cents: variableIncomeCents,
-  });
   const incomeAnswered = Boolean(fixedIncome.trim() || variableIncome.trim());
 
   const selectedDebtNames = useMemo(
@@ -267,13 +325,9 @@ export default function FinancialSituationScreen() {
     }),
     [debtDrafts, selectedDebtNames]
   );
-  const debtValidationError = useMemo(
-    () => getOnboardingDebtValidationError([...selectedDebts], debtDetails),
-    [debtDetails, selectedDebts]
-  );
-  const debtsAnswered = selectedDebts.size > 0 && !debtValidationError;
 
   function toggleDebt(label: string) {
+    setDebtChoiceError(null);
     setSelectedDebts((current) => {
       if (label === NO_DEBTS) return new Set(current.has(NO_DEBTS) ? [] : [NO_DEBTS]);
       const next = new Set([...current].filter((item) => item !== NO_DEBTS));
@@ -283,21 +337,8 @@ export default function FinancialSituationScreen() {
     });
   }
 
-  function updateDebtDraft(name: string, changes: Partial<DebtDraft>) {
-    setDebtDrafts((current) => ({
-      ...current,
-      [name]: {
-        ...(current[name] ?? {
-          amount: "",
-          dueDay: "",
-          installmentsRemaining: "",
-        }),
-        ...changes,
-      },
-    }));
-  }
-
   function toggleBank(label: string) {
+    setBankChoiceError(null);
     setSelectedBanks((current) => {
       if (label === NO_BANK) return new Set(current.has(NO_BANK) ? [] : [NO_BANK]);
       const next = new Set([...current].filter((item) => item !== NO_BANK));
@@ -318,12 +359,7 @@ export default function FinancialSituationScreen() {
     if (!selectedDebts.size) {
       return Alert.alert("Conte sobre suas dívidas", "Escolha uma opção para continuar.");
     }
-    if (debtValidationError) {
-      return Alert.alert("Complete suas dívidas", debtValidationError);
-    }
-    if (!selectedBanks.size) {
-      return Alert.alert("Escolha seus bancos", "Selecione ao menos um banco ou marque que não usa banco.");
-    }
+    if (!selectedBanks.size) return;
     if (savingRef.current) return;
 
     try {
@@ -354,8 +390,6 @@ export default function FinancialSituationScreen() {
       setSaving(false);
     }
   }
-
-  const canFinish = incomeAnswered && Boolean(employmentType) && debtsAnswered && selectedBanks.size > 0 && !saving;
 
   function goBack() {
     router.replace({
@@ -391,699 +425,953 @@ export default function FinancialSituationScreen() {
     setSection("debts");
   }
 
+  function openVariableIncome() {
+    setVariableIncomeOpen(true);
+    requestAnimationFrame(() => {
+      focusField("income:variable");
+      variableInputRef.current?.focus();
+    });
+  }
+
   function continueToBanks() {
     if (!selectedDebts.size) {
-      Alert.alert("Conte sobre suas dívidas", "Escolha uma opção para continuar.");
+      setDebtChoiceError("Selecione uma opção para continuar.");
       return;
     }
-    if (debtValidationError) {
-      Alert.alert("Complete suas dívidas", debtValidationError);
-      return;
-    }
+    setDebtChoiceError(null);
     setSection("banks");
   }
 
-  return (
-    <OnboardingShell>
-      <OnboardingBackground />
-      <KeyboardAvoidingView
-        enabled={Platform.OS === "ios"}
-        behavior="padding"
-        style={styles.root}
-      >
-        <ScreenIntro
-          eyebrow="Seu ponto de partida"
-          title="Vamos entender onde você está hoje"
-          subtitle="Essas informações ajudam a organizar uma jornada que faça sentido para você."
-          onBack={handleBack}
-          currentStep={3}
-          totalSteps={3}
-        />
+  function completeOnboarding() {
+    if (!selectedBanks.size) {
+      setBankChoiceError("Selecione uma opção para continuar.");
+      return;
+    }
+    setBankChoiceError(null);
+    void finish();
+  }
 
-        <View style={styles.card}>
-          <View style={styles.sectionProgress}>
-            <View style={styles.sectionProgressCopy}>
-              <Text style={styles.sectionProgressLabel}>
-                PARTE {section === "income" ? "1" : section === "debts" ? "2" : "3"} DE 3
-              </Text>
-              <Text style={styles.sectionProgressTitle}>
-                {section === "income" ? "Sua renda" : section === "debts" ? "Dívidas" : "Seus bancos"}
-              </Text>
-            </View>
-            <View style={styles.sectionProgressBars}>
-              <View style={styles.sectionProgressBarActive} />
-              <View
-                style={[
-                  styles.sectionProgressBar,
-                  section !== "income" && styles.sectionProgressBarActive,
-                ]}
-              />
-              <View
-                style={[
-                  styles.sectionProgressBar,
-                  section === "banks" && styles.sectionProgressBarActive,
-                ]}
-              />
-            </View>
-          </View>
+  const variableFilled = Boolean(variableIncome.trim());
+  const continueDisabled = !incomeAnswered || !employmentType;
 
-          <ScrollView
-            ref={listRef}
-            key={section}
-            contentContainerStyle={[
-              styles.content,
-              { paddingBottom: 24 + keyboardInset },
-            ]}
-            showsVerticalScrollIndicator
-            keyboardShouldPersistTaps="always"
-            keyboardDismissMode="none"
-            onScrollBeginDrag={cancelPendingScroll}
-            onScroll={handleScroll}
-            scrollEventThrottle={16}
-            onContentSizeChange={handleContentSizeChange}
-            removeClippedSubviews={false}
-          >
-            {section === "income" ? (
-              <View>
-                <View style={styles.sectionHeading}>
-                  <View style={styles.sectionIcon}>
-                    <Ionicons name="cash-outline" size={18} color={OB.primary} />
-                  </View>
-                  <View style={styles.sectionCopy}>
-                    <Text style={styles.sectionTitle}>Quanto você recebe por mês?</Text>
-                    <Text style={styles.sectionSubtitle}>Separe o que costuma entrar todo mês da renda que pode variar.</Text>
-                  </View>
-                </View>
-
-                <View
-                  ref={registerFieldNode("income:fixed")}
-                  onLayout={registerField("income:fixed")}
-                  collapsable={false}
+  if (section === "income") {
+    return (
+      <OnboardingShell>
+        <StatusBar style="light" backgroundColor={OB.primaryDeep} translucent={false} />
+        <View pointerEvents="none" style={styles.incomeBackground} />
+        <KeyboardAvoidingView
+          enabled={Platform.OS === "ios"}
+          behavior="padding"
+          style={styles.incomeKeyboard}
+        >
+          <View style={styles.incomeFrame}>
+            <View style={[styles.incomeTop, compact && styles.incomeTopCompact]}>
+              <View style={styles.incomeNav}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Voltar"
+                  hitSlop={6}
+                  onPress={handleBack}
+                  style={({ pressed }) => [styles.incomeBack, pressed && styles.incomeBackPressed]}
                 >
-                  <Text style={styles.fieldLabel}>Renda fixa mensal</Text>
-                  <TextInput
-                    accessibilityLabel="Renda fixa mensal"
-                    value={fixedIncome}
-                    onChangeText={(text) => setFixedIncome(formatBRLInputFromDigits(text))}
-                    placeholder="Ex.: R$ 2.400,00"
-                    placeholderTextColor={OB.support}
-                    keyboardType="number-pad"
-                    returnKeyType="done"
-                    selectTextOnFocus
-                    onFocus={() => focusField("income:fixed")}
-                    onPressIn={() => focusField("income:fixed")}
-                    onSubmitEditing={Keyboard.dismiss}
-                    style={styles.moneyInput}
-                  />
-                  <Text style={styles.fieldHint}>Salário, aposentadoria ou outra entrada recorrente.</Text>
+                  <Ionicons name="arrow-back" size={27} color="#FFFFFF" />
+                </Pressable>
+                <Image
+                  accessible={false}
+                  resizeMode="contain"
+                  source={BRAND_SYMBOL}
+                  style={styles.incomeBrand}
+                  tintColor="#FFFFFF"
+                />
+              </View>
+              <View
+                accessibilityRole="text"
+                accessibilityLabel="Etapa 3 de 3"
+                style={styles.incomeProgressBlock}
+              >
+                <Text style={styles.incomeStepText}>3 de 3</Text>
+                <View style={styles.incomeProgressTrack}>
+                  {[0, 1, 2].map((index) => (
+                    <View key={index} style={[styles.incomeProgressSegment, styles.incomeProgressSegmentActive]} />
+                  ))}
                 </View>
+              </View>
+            </View>
 
+            <ScrollView
+              ref={listRef}
+              style={styles.incomeScroll}
+              contentContainerStyle={[
+                styles.incomeContent,
+                compact && styles.incomeContentCompact,
+                keyboardVisible && styles.incomeContentKeyboard,
+                keyboardInset ? { paddingBottom: 28 + keyboardInset } : null,
+              ]}
+              keyboardShouldPersistTaps="always"
+              keyboardDismissMode="none"
+              onScrollBeginDrag={cancelPendingScroll}
+              onScroll={handleScroll}
+              scrollEventThrottle={16}
+              onContentSizeChange={handleContentSizeChange}
+              removeClippedSubviews={false}
+              showsVerticalScrollIndicator={false}
+            >
+              <View style={styles.incomeBadge}>
+                <Text style={styles.incomeBadgeText}>Parte 1 de 3</Text>
+              </View>
+              <Text accessibilityRole="header" style={[styles.incomeTitle, compact && styles.incomeTitleCompact]}>
+                {"Vamos entender\nsua renda."}
+              </Text>
+              <Text style={[styles.incomeSubtitle, compact && styles.incomeSubtitleCompact]}>
+                Essas informações ajudam a montar seu plano inicial.
+              </Text>
+
+              <Text style={styles.incomeFieldLabel}>Renda fixa mensal</Text>
+              <View
+                ref={registerFieldNode("income:fixed")}
+                onLayout={registerField("income:fixed")}
+                collapsable={false}
+                style={[styles.incomeFixedField, fixedFocused && styles.incomeFixedFieldFocused]}
+              >
+                <Text style={[styles.incomeCurrency, !fixedIncome.trim() && styles.incomeCurrencyMuted]}>R$</Text>
+                <TextInput
+                  accessibilityLabel="Renda fixa mensal"
+                  value={fixedIncome.replace("R$", "").trim()}
+                  onChangeText={(text) => setFixedIncome(formatBRLInputFromDigits(text))}
+                  placeholder="0"
+                  placeholderTextColor="#8C9AAE"
+                  keyboardType="number-pad"
+                  returnKeyType="done"
+                  selectTextOnFocus
+                  onFocus={() => {
+                    setFixedFocused(true);
+                    focusField("income:fixed");
+                  }}
+                  onBlur={() => setFixedFocused(false)}
+                  onPressIn={() => focusField("income:fixed")}
+                  onSubmitEditing={Keyboard.dismiss}
+                  style={styles.incomeFixedInput}
+                />
+              </View>
+
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Tenho renda variável"
+                onPress={openVariableIncome}
+                style={({ pressed }) => [styles.incomeVariableRow, pressed && styles.incomeVariableRowPressed]}
+              >
+                <View style={styles.incomeVariableMark}>
+                  <Ionicons name="add" size={16} color="#FFFFFF" />
+                </View>
+                <Text style={styles.incomeVariableLabel}>Tenho renda variável</Text>
+                {variableFilled ? (
+                  <Text style={styles.incomeVariableValue}>{variableIncome} / mês</Text>
+                ) : null}
+                <Ionicons name="chevron-forward" size={18} color="#C2CBD9" />
+              </Pressable>
+
+              {variableIncomeOpen ? (
                 <View
                   ref={registerFieldNode("income:variable")}
                   onLayout={registerField("income:variable")}
                   collapsable={false}
+                  style={styles.incomeVariableField}
                 >
-                  <Text style={styles.fieldLabel}>Média de renda extra</Text>
                   <TextInput
+                    ref={variableInputRef}
                     accessibilityLabel="Média de renda extra mensal"
-                    value={variableIncome}
+                    value={variableIncome.replace("R$", "").trim()}
                     onChangeText={(text) => setVariableIncome(formatBRLInputFromDigits(text))}
-                    placeholder="Ex.: R$ 300,00"
-                    placeholderTextColor={OB.support}
+                    placeholder="Média mensal"
+                    placeholderTextColor="#8C9AAE"
                     keyboardType="number-pad"
                     returnKeyType="done"
                     selectTextOnFocus
                     onFocus={() => focusField("income:variable")}
                     onPressIn={() => focusField("income:variable")}
                     onSubmitEditing={Keyboard.dismiss}
-                    style={styles.moneyInput}
+                    style={styles.incomeVariableInput}
                   />
-                  <Text style={styles.fieldHint}>Freelas, comissões, bicos ou outras entradas variáveis.</Text>
-                </View>
-
-                <View style={styles.incomeTotalBox}>
-                  <Ionicons name="trending-up-outline" size={22} color="#169B62" />
-                  <View>
-                    <Text style={styles.incomeTotalLabel}>Renda mensal estimada</Text>
-                    <Text style={styles.incomeTotalValue}>{formatBRLFromCents(expectedIncomeCents)}</Text>
-                  </View>
-                </View>
-
-                <Text style={styles.fieldLabel}>Tipo de trabalho</Text>
-                <View style={styles.employmentOptions}>
-                  {EMPLOYMENT_TYPES.map((item) => {
-                    const selected = employmentType === item;
-                    return (
-                      <Pressable
-                        key={item}
-                        accessibilityRole="radio"
-                        accessibilityState={{ selected }}
-                        onPress={() => setEmploymentType(item)}
-                        style={[styles.employmentChip, selected && styles.employmentChipSelected]}
-                      >
-                        <Text style={[styles.employmentChipText, selected && styles.employmentChipTextSelected]}>{item}</Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              </View>
-            ) : section === "debts" ? (
-              <View>
-              <View style={styles.sectionHeading}>
-                <View style={styles.sectionIcon}>
-                  <Ionicons name="card-outline" size={18} color={OB.primary} />
-                </View>
-                <View style={styles.sectionCopy}>
-                  <Text style={styles.sectionTitle}>Você possui alguma dívida?</Text>
-                  <Text style={styles.sectionSubtitle}>Você pode selecionar mais de uma opção.</Text>
-                </View>
-              </View>
-              <View style={styles.debtList}>
-                {DEBT_OPTIONS.map((option) => (
-                  <DebtChip
-                    key={option}
-                    label={option}
-                    selected={selectedDebts.has(option)}
-                    onPress={() => toggleDebt(option)}
-                  />
-                ))}
-              </View>
-              {selectedDebtNames.length ? (
-                <View style={styles.debtDetailsList}>
-                  <View style={styles.debtDetailsIntro}>
-                    <Ionicons name="calendar-outline" size={18} color={OB.primary} />
-                    <Text style={styles.debtDetailsIntroText}>
-                      Informe o valor de uma parcela por mês — não o saldo total da dívida — e quando ela vence.
-                    </Text>
-                  </View>
-                  {selectedDebtNames.map((name) => {
-                    const draft = debtDrafts[name] ?? {
-                      amount: "",
-                      dueDay: "",
-                      installmentsRemaining: "",
-                    };
-                    const amountField = `debt:${name}:amount`;
-                    const dueDayField = `debt:${name}:due-day`;
-                    const installmentsField = `debt:${name}:installments`;
-                    return (
-                      <View key={name} style={styles.debtDetailCard}>
-                        <Text style={styles.debtDetailName}>{name}</Text>
-                        <View style={styles.debtFieldsRow}>
-                          <View
-                            ref={registerFieldNode(amountField)}
-                            onLayout={registerField(amountField)}
-                            collapsable={false}
-                            style={styles.debtAmountField}
-                          >
-                            <Text style={styles.debtFieldLabel}>Valor pago por mês</Text>
-                            <TextInput
-                              accessibilityLabel={`Valor pago por mês de ${name}`}
-                              value={draft.amount}
-                              onChangeText={(text) => updateDebtDraft(name, {
-                                amount: formatBRLInputFromDigits(text),
-                              })}
-                              placeholder="R$ 0,00"
-                              placeholderTextColor={OB.support}
-                              keyboardType="number-pad"
-                              returnKeyType="done"
-                              selectTextOnFocus
-                              onFocus={() => focusField(amountField)}
-                              onPressIn={() => focusField(amountField)}
-                              onSubmitEditing={Keyboard.dismiss}
-                              style={styles.debtInput}
-                            />
-                          </View>
-                          <View
-                            ref={registerFieldNode(dueDayField)}
-                            onLayout={registerField(dueDayField)}
-                            collapsable={false}
-                            style={styles.debtDueField}
-                          >
-                            <Text style={styles.debtFieldLabel}>Vence dia</Text>
-                            <TextInput
-                              accessibilityLabel={`Dia de vencimento de ${name}`}
-                              value={draft.dueDay}
-                              onChangeText={(text) => updateDebtDraft(name, {
-                                dueDay: text.replace(/\D/g, "").slice(0, 2),
-                              })}
-                              placeholder="1 a 28"
-                              placeholderTextColor={OB.support}
-                              keyboardType="number-pad"
-                              returnKeyType="done"
-                              maxLength={2}
-                              onFocus={() => focusField(dueDayField)}
-                              onPressIn={() => focusField(dueDayField)}
-                              onSubmitEditing={Keyboard.dismiss}
-                              style={styles.debtInput}
-                            />
-                          </View>
-                        </View>
-                        <View
-                          ref={registerFieldNode(installmentsField)}
-                          onLayout={registerField(installmentsField)}
-                          collapsable={false}
-                        >
-                          <Text style={styles.debtFieldLabel}>Parcelas restantes (opcional)</Text>
-                          <TextInput
-                            accessibilityLabel={`Parcelas restantes de ${name}`}
-                            value={draft.installmentsRemaining}
-                            onChangeText={(text) => updateDebtDraft(name, {
-                              installmentsRemaining: text.replace(/\D/g, "").slice(0, 3),
-                            })}
-                            placeholder="Deixe vazio se não houver número definido"
-                            placeholderTextColor={OB.support}
-                            keyboardType="number-pad"
-                            returnKeyType="done"
-                            maxLength={3}
-                            onFocus={() => focusField(installmentsField)}
-                            onPressIn={() => focusField(installmentsField)}
-                            onSubmitEditing={Keyboard.dismiss}
-                            style={styles.debtInput}
-                          />
-                          <Text style={styles.debtFieldHint}>
-                            Informe quantas parcelas ainda faltam. O valor acima será descontado uma vez por mês; sem quantidade, ele continua mensalmente.
-                          </Text>
-                        </View>
-                      </View>
-                    );
-                  })}
-                  {debtValidationError ? (
-                    <Text style={styles.debtValidationText}>{debtValidationError}</Text>
-                  ) : null}
                 </View>
               ) : null}
+
+              <Text style={[styles.incomeFieldLabel, styles.incomeWorkLabel]}>Tipo de trabalho</Text>
+              <View style={styles.incomeChips}>
+                {EMPLOYMENT_TYPES.map((item) => {
+                  const selected = employmentType === item;
+                  return (
+                    <Pressable
+                      key={item}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected }}
+                      onPress={() => setEmploymentType(item)}
+                      style={[styles.incomeChip, selected && styles.incomeChipSelected]}
+                    >
+                      <Text style={[styles.incomeChipText, selected && styles.incomeChipTextSelected]}>{item}</Text>
+                      {selected ? (
+                        <View style={styles.incomeChipCheck}>
+                          <Ionicons name="checkmark" size={10} color="#06152E" />
+                        </View>
+                      ) : null}
+                    </Pressable>
+                  );
+                })}
               </View>
-            ) : (
-              <View>
-              <View style={styles.sectionHeading}>
-                <View style={styles.sectionIcon}>
-                  <Ionicons name="business-outline" size={18} color={OB.primary} />
+            </ScrollView>
+
+            {!keyboardVisible ? (
+              <View style={styles.incomeFooter}>
+                <View style={styles.incomeFooterHintRow}>
+                  <Ionicons name="shield-checkmark-outline" size={15} color="#8C9AAE" />
+                  <Text style={styles.incomeFooterHint}>Você poderá ajustar isso depois.</Text>
                 </View>
-                <View style={styles.sectionCopy}>
-                  <Text style={styles.sectionTitle}>Quais bancos você usa?</Text>
-                  <Text style={styles.sectionSubtitle}>Selecione todos que fazem parte da sua rotina.</Text>
-                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Continuar"
+                  accessibilityState={{ disabled: continueDisabled }}
+                  disabled={continueDisabled}
+                  onPress={continueToDebts}
+                  style={({ pressed }) => [
+                    styles.incomeContinue,
+                    continueDisabled && styles.incomeContinueDisabled,
+                    pressed && !continueDisabled ? styles.incomeContinuePressed : null,
+                  ]}
+                >
+                  <Text style={[styles.incomeContinueText, continueDisabled && styles.incomeContinueTextDisabled]}>
+                    Continuar
+                  </Text>
+                  <View style={styles.incomeContinueArrow}>
+                    <Ionicons
+                      name="arrow-forward"
+                      size={18}
+                      color={continueDisabled ? "rgba(255,255,255,0.42)" : "#06152E"}
+                    />
+                  </View>
+                </Pressable>
               </View>
-              <View style={styles.bankGrid}>
-                {BANKS.map((bank) => (
-                  <BankCard
-                    key={bank.name}
-                    bank={bank}
-                    selected={selectedBanks.has(bank.name)}
-                    onPress={() => toggleBank(bank.name)}
-                  />
+            ) : null}
+          </View>
+        </KeyboardAvoidingView>
+      </OnboardingShell>
+    );
+  }
+
+  if (section === "debts") {
+    return (
+      <OnboardingShell>
+        <StatusBar style="light" backgroundColor={OB.primaryDeep} translucent={false} />
+        <View pointerEvents="none" style={styles.incomeBackground} />
+        <View style={styles.incomeFrame}>
+          <View style={[styles.incomeTop, compact && styles.incomeTopCompact]}>
+            <View style={styles.incomeNav}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Voltar"
+                hitSlop={6}
+                onPress={handleBack}
+                style={({ pressed }) => [styles.incomeBack, pressed && styles.incomeBackPressed]}
+              >
+                <Ionicons name="arrow-back" size={27} color="#FFFFFF" />
+              </Pressable>
+              <Image
+                accessible={false}
+                resizeMode="contain"
+                source={BRAND_SYMBOL}
+                style={styles.incomeBrand}
+                tintColor="#FFFFFF"
+              />
+            </View>
+            <View
+              accessibilityRole="text"
+              accessibilityLabel="Etapa 3 de 3"
+              style={styles.incomeProgressBlock}
+            >
+              <Text style={styles.incomeStepText}>3 de 3</Text>
+              <View style={styles.incomeProgressTrack}>
+                {[0, 1, 2].map((index) => (
+                  <View key={index} style={[styles.incomeProgressSegment, styles.incomeProgressSegmentActive]} />
                 ))}
               </View>
+            </View>
+          </View>
+
+          <ScrollView
+            style={styles.incomeScroll}
+            contentContainerStyle={[
+              styles.incomeContent,
+              compact && styles.incomeContentCompact,
+            ]}
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.incomeBadge}>
+              <Text style={styles.incomeBadgeText}>Parte 2 de 3</Text>
+            </View>
+            <Text accessibilityRole="header" style={[styles.incomeTitle, compact && styles.incomeTitleCompact]}>
+              {"Vamos entender\nsuas dívidas."}
+            </Text>
+            <Text style={[styles.incomeSubtitle, compact && styles.incomeSubtitleCompact]}>
+              Escolha os compromissos que fazem parte do seu momento atual.
+            </Text>
+
+            <Text style={styles.debtQuestion}>Você possui alguma dívida?</Text>
+            <Text style={styles.debtHelper}>Você pode selecionar mais de uma opção.</Text>
+
+            <View style={styles.debtGrid}>
+              {DEBT_CATEGORY_OPTIONS.map((option) => (
+                <DebtOptionCard
+                  key={option}
+                  label={option}
+                  selected={selectedDebts.has(option)}
+                  twoColumns={debtGridTwoColumns}
+                  onPress={() => toggleDebt(option)}
+                />
+              ))}
+            </View>
+
+            <Pressable
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: selectedDebts.has(NO_DEBTS) }}
+              accessibilityLabel="Não tenho dívidas"
+              onPress={() => toggleDebt(NO_DEBTS)}
+              style={[
+                styles.debtNoneRow,
+                selectedDebts.has(NO_DEBTS) && styles.debtNoneRowSelected,
+              ]}
+            >
+              <View style={[styles.debtNoneMark, selectedDebts.has(NO_DEBTS) && styles.debtNoneMarkSelected]}>
+                {selectedDebts.has(NO_DEBTS) ? (
+                  <Ionicons name="checkmark" size={16} color="#06152E" />
+                ) : (
+                  <Ionicons name="checkmark" size={16} color="#AFC7E8" />
+                )}
               </View>
-            )}
+              <Text style={styles.debtNoneLabel}>Não tenho dívidas</Text>
+            </Pressable>
           </ScrollView>
 
-          {!keyboardVisible ? <View style={styles.footer}>
-            <Text style={styles.footerHint}>
-              {section === "income"
-                ? "Esses valores serão a base das suas projeções financeiras."
-                : section === "debts"
-                  ? selectedDebtNames.length
-                    ? "Esses valores entrarão automaticamente no seu planejamento mensal."
-                    : "Na próxima parte, você poderá escolher seus bancos."
-                  : "Usaremos essas escolhas para personalizar sua experiência."}
-            </Text>
-            {section === "income" ? (
-              <PrimaryButton
-                title="Continuar para minhas dívidas"
-                disabled={!incomeAnswered || !employmentType}
-                onPress={continueToDebts}
-              />
-            ) : section === "debts" ? (
-              <PrimaryButton
-                title="Continuar para meus bancos"
-                disabled={!debtsAnswered}
-                onPress={continueToBanks}
-              />
+          <View style={styles.incomeFooter}>
+            {debtChoiceError ? (
+              <Text style={styles.debtChoiceError}>{debtChoiceError}</Text>
             ) : (
-              <>
-                <PrimaryButton
-                  title={saving ? "Preparando sua jornada..." : "Concluir e ver minha jornada"}
-                  disabled={!canFinish}
-                  onPress={finish}
-                />
-                {saving ? <ActivityIndicator color={OB.primary} size="small" /> : null}
-              </>
+              <View style={styles.incomeFooterHintRow}>
+                <Ionicons name="shield-checkmark-outline" size={15} color="#8C9AAE" />
+                <Text style={styles.incomeFooterHint}>Você poderá ajustar isso depois.</Text>
+              </View>
             )}
-          </View> : null}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Continuar"
+              onPress={continueToBanks}
+              style={({ pressed }) => [
+                styles.incomeContinue,
+                pressed ? styles.incomeContinuePressed : null,
+              ]}
+            >
+              <Text style={styles.incomeContinueText}>Continuar</Text>
+              <View style={styles.incomeContinueArrow}>
+                <Ionicons name="arrow-forward" size={18} color="#06152E" />
+              </View>
+            </Pressable>
+          </View>
         </View>
-      </KeyboardAvoidingView>
+      </OnboardingShell>
+    );
+  }
+
+  return (
+    <OnboardingShell>
+      <StatusBar style="light" backgroundColor={OB.primaryDeep} translucent={false} />
+      <View pointerEvents="none" style={styles.incomeBackground} />
+      <View style={styles.incomeFrame}>
+        <View style={[styles.incomeTop, compact && styles.incomeTopCompact]}>
+          <View style={styles.incomeNav}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Voltar"
+              hitSlop={6}
+              onPress={handleBack}
+              style={({ pressed }) => [styles.incomeBack, pressed && styles.incomeBackPressed]}
+            >
+              <Ionicons name="arrow-back" size={27} color="#FFFFFF" />
+            </Pressable>
+            <Image
+              accessible={false}
+              resizeMode="contain"
+              source={BRAND_SYMBOL}
+              style={styles.incomeBrand}
+              tintColor="#FFFFFF"
+            />
+          </View>
+          <View
+            accessibilityRole="text"
+            accessibilityLabel="Etapa 3 de 3"
+            style={styles.incomeProgressBlock}
+          >
+            <Text style={styles.incomeStepText}>3 de 3</Text>
+            <View style={styles.incomeProgressTrack}>
+              {[0, 1, 2].map((index) => (
+                <View key={index} style={[styles.incomeProgressSegment, styles.incomeProgressSegmentActive]} />
+              ))}
+            </View>
+          </View>
+        </View>
+
+        <ScrollView
+          style={styles.incomeScroll}
+          contentContainerStyle={[
+            styles.incomeContent,
+            compact && styles.incomeContentCompact,
+          ]}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.incomeBadge}>
+            <Text style={styles.incomeBadgeText}>Parte 3 de 3</Text>
+          </View>
+          <Text accessibilityRole="header" style={[styles.incomeTitle, compact && styles.incomeTitleCompact]}>
+            {"Vamos entender\nseus bancos."}
+          </Text>
+          <Text style={[styles.incomeSubtitle, compact && styles.incomeSubtitleCompact]}>
+            Selecione os bancos que fazem parte da sua rotina.
+          </Text>
+
+          <Text style={styles.debtQuestion}>Quais bancos você usa?</Text>
+
+          <View style={styles.bankGrid}>
+            {BANKS.map((bank) => (
+              <BankCard
+                key={bank.name}
+                bank={bank}
+                selected={selectedBanks.has(bank.name)}
+                twoColumns={debtGridTwoColumns}
+                onPress={() => toggleBank(bank.name)}
+              />
+            ))}
+          </View>
+        </ScrollView>
+
+        <View style={styles.incomeFooter}>
+          {bankChoiceError ? (
+            <Text style={styles.debtChoiceError}>{bankChoiceError}</Text>
+          ) : (
+            <View style={styles.incomeFooterHintRow}>
+              <Ionicons name="shield-checkmark-outline" size={15} color="#8C9AAE" />
+              <Text style={styles.incomeFooterHint}>Você poderá ajustar isso depois.</Text>
+            </View>
+          )}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Concluir"
+            accessibilityState={{ disabled: saving }}
+            disabled={saving}
+            onPress={completeOnboarding}
+            style={({ pressed }) => [
+              styles.incomeContinue,
+              saving && styles.incomeContinueDisabled,
+              pressed && !saving ? styles.incomeContinuePressed : null,
+            ]}
+          >
+            <Text style={[styles.incomeContinueText, saving && styles.incomeContinueTextDisabled]}>
+              {saving ? "Preparando sua jornada..." : "Concluir"}
+            </Text>
+            {saving ? null : (
+              <View style={styles.incomeContinueArrow}>
+                <Ionicons name="arrow-forward" size={18} color="#06152E" />
+              </View>
+            )}
+          </Pressable>
+        </View>
+      </View>
     </OnboardingShell>
   );
 }
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
+  debtQuestion: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: "600",
+    marginBottom: 6,
   },
-  card: {
-    flex: 1,
-    marginHorizontal: 12,
-    marginBottom: 14,
-    borderRadius: 28,
-    overflow: "hidden",
-    backgroundColor: OB.offWhite,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.88)",
-    shadowColor: OB.primary,
-    shadowOpacity: 0.25,
-    shadowRadius: 28,
-    shadowOffset: { width: 0, height: -10 },
-    elevation: 10,
-  },
-  sectionProgress: {
-    minHeight: 56,
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: OB.supportSoft,
-  },
-  sectionProgressCopy: {
-    flexDirection: "row",
-    alignItems: "baseline",
-    gap: 8,
-  },
-  sectionProgressLabel: {
-    color: OB.support,
-    fontSize: 9,
-    fontWeight: "900",
-    letterSpacing: 1.1,
-  },
-  sectionProgressTitle: {
-    color: OB.primary,
+  debtHelper: {
+    marginBottom: 18,
+    color: "#8C9AAE",
     fontSize: 13,
-    fontWeight: "900",
+    lineHeight: 18,
+    fontWeight: "500",
   },
-  sectionProgressBars: {
-    width: 96,
+  debtGrid: {
     flexDirection: "row",
-    gap: 6,
+    flexWrap: "wrap",
+    gap: 10,
   },
-  sectionProgressBar: {
-    flex: 1,
-    height: 5,
-    borderRadius: 99,
-    backgroundColor: OB.supportSoft,
-  },
-  sectionProgressBarActive: {
-    flex: 1,
-    height: 5,
-    borderRadius: 99,
-    backgroundColor: OB.primary,
-  },
-  content: {
-    padding: 20,
-    paddingBottom: 24,
-  },
-  sectionHeading: {
+  debtCard: {
+    position: "relative",
+    minHeight: 72,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(140,154,174,0.22)",
+    backgroundColor: "rgba(255,255,255,0.03)",
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    marginBottom: 16,
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
   },
-  sectionIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
+  debtCardHalf: {
+    width: "48%",
+    flexGrow: 1,
+  },
+  debtCardFull: {
+    width: "100%",
+  },
+  debtCardSelected: {
+    borderColor: "rgba(175,199,232,0.78)",
+    backgroundColor: "rgba(123,160,200,0.12)",
+  },
+  debtCardIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#EAF0F7",
     borderWidth: 1,
-    borderColor: OB.supportSoft,
+    borderColor: "rgba(175,199,232,0.28)",
   },
-  sectionCopy: {
+  debtCardIconSelected: {
+    borderColor: "rgba(255,255,255,0.45)",
+    backgroundColor: "rgba(255,255,255,0.08)",
+  },
+  debtCardLabel: {
     flex: 1,
+    color: "#FFFFFF",
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "600",
   },
-  sectionTitle: {
-    color: OB.primary,
-    fontSize: 17,
-    lineHeight: 22,
-    fontWeight: "900",
+  debtCardCheck: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFFFFF",
   },
-  sectionSubtitle: {
-    color: OB.support,
-    fontSize: 12,
-    lineHeight: 17,
-    fontWeight: "700",
-    marginTop: 2,
-  },
-  fieldLabel: {
-    color: OB.primary,
-    fontSize: 12,
-    fontWeight: "900",
-    marginBottom: 7,
-    marginTop: 8,
-    textTransform: "uppercase",
-    letterSpacing: 0.7,
-  },
-  moneyInput: {
-    minHeight: 52,
-    borderRadius: 15,
-    borderWidth: 1.5,
-    borderColor: OB.supportSoft,
-    backgroundColor: "#fff",
-    paddingHorizontal: 15,
-    color: OB.primary,
-    fontSize: 17,
-    fontWeight: "900",
-  },
-  fieldHint: {
-    color: OB.support,
-    fontSize: 11,
-    lineHeight: 16,
-    fontWeight: "700",
-    marginTop: 5,
-    marginBottom: 7,
-  },
-  incomeTotalBox: {
-    minHeight: 68,
-    borderRadius: 17,
-    backgroundColor: "#EAF8F1",
+  debtNoneRow: {
+    minHeight: 58,
+    marginTop: 12,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#BDE8D1",
+    borderColor: "rgba(140,154,174,0.22)",
+    backgroundColor: "rgba(255,255,255,0.03)",
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    padding: 14,
-    marginVertical: 10,
+    paddingHorizontal: 14,
   },
-  incomeTotalLabel: {
-    color: OB.support,
-    fontSize: 11,
-    fontWeight: "800",
+  debtNoneRowSelected: {
+    borderColor: "rgba(175,199,232,0.82)",
+    backgroundColor: "rgba(123,160,200,0.14)",
   },
-  incomeTotalValue: {
-    color: OB.primary,
-    fontSize: 19,
-    fontWeight: "900",
-    marginTop: 2,
-  },
-  employmentOptions: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  employmentChip: {
-    borderRadius: 999,
-    paddingHorizontal: 13,
-    paddingVertical: 9,
-    backgroundColor: "#fff",
-    borderWidth: 1.5,
-    borderColor: OB.supportSoft,
-  },
-  employmentChipSelected: {
-    backgroundColor: OB.primary,
-    borderColor: OB.primary,
-  },
-  employmentChipText: {
-    color: OB.support,
-    fontSize: 12,
-    fontWeight: "900",
-  },
-  employmentChipTextSelected: {
-    color: "#fff",
-  },
-  debtList: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 9,
-  },
-  debtChip: {
-    minHeight: 42,
-    borderRadius: 999,
-    flexDirection: "row",
+  debtNoneMark: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 15,
-    paddingVertical: 10,
-    backgroundColor: "#fff",
-    borderWidth: 1.5,
-    borderColor: OB.supportSoft,
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(175,199,232,0.32)",
   },
-  debtChipSelected: {
-    backgroundColor: OB.primary,
-    borderColor: OB.primary,
+  debtNoneMarkSelected: {
+    backgroundColor: "#FFFFFF",
+    borderColor: "#FFFFFF",
   },
-  debtChipText: {
-    color: OB.primary,
-    fontSize: 12,
-    fontWeight: "800",
-  },
-  debtChipTextSelected: {
-    color: "#fff",
-  },
-  debtDetailsList: {
-    gap: 12,
-    marginTop: 18,
-  },
-  debtDetailsIntro: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 2,
-  },
-  debtDetailsIntroText: {
+  debtNoneLabel: {
     flex: 1,
-    color: OB.support,
-    fontSize: 12,
-    lineHeight: 17,
-    fontWeight: "800",
+    color: "#FFFFFF",
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "600",
   },
-  debtDetailCard: {
-    borderRadius: 18,
-    padding: 15,
-    backgroundColor: "#fff",
-    borderWidth: 1.5,
-    borderColor: OB.supportSoft,
-  },
-  debtDetailName: {
-    color: OB.primary,
-    fontSize: 14,
-    lineHeight: 19,
-    fontWeight: "900",
-    marginBottom: 10,
-  },
-  debtFieldsRow: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    gap: 10,
-    marginBottom: 10,
-  },
-  debtAmountField: {
-    flex: 1,
-  },
-  debtDueField: {
-    width: 104,
-  },
-  debtFieldLabel: {
-    color: OB.primary,
-    fontSize: 10,
-    lineHeight: 14,
-    fontWeight: "900",
-    marginBottom: 5,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  debtInput: {
-    minHeight: 46,
-    borderRadius: 13,
-    borderWidth: 1.5,
-    borderColor: OB.supportSoft,
-    backgroundColor: OB.offWhite,
-    paddingHorizontal: 12,
-    color: OB.primary,
-    fontSize: 14,
-    fontWeight: "900",
-  },
-  debtFieldHint: {
-    color: OB.support,
-    fontSize: 10,
-    lineHeight: 15,
-    fontWeight: "700",
-    marginTop: 6,
-  },
-  debtValidationText: {
-    color: "#B42318",
-    fontSize: 11,
-    lineHeight: 16,
-    fontWeight: "800",
-    paddingHorizontal: 2,
+  debtChoiceError: {
+    marginBottom: 12,
+    color: "#C9D4E4",
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "500",
+    textAlign: "center",
   },
   bankGrid: {
+    marginTop: 12,
     flexDirection: "row",
     flexWrap: "wrap",
-    justifyContent: "space-between",
-    rowGap: 10,
+    gap: 10,
   },
   bankCard: {
-    width: "48.4%",
-    minHeight: 112,
-    borderRadius: 20,
-    padding: 14,
+    position: "relative",
+    minHeight: 118,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "rgba(140,154,174,0.22)",
+    backgroundColor: "rgba(255,255,255,0.03)",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#fff",
-    borderWidth: 1.5,
-    borderColor: OB.supportSoft,
-    shadowColor: OB.primary,
-    shadowOpacity: 0.06,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 1,
+    paddingHorizontal: 10,
+    paddingTop: 22,
+    paddingBottom: 14,
+    gap: 10,
+  },
+  bankCardHalf: {
+    width: "48%",
+    flexGrow: 1,
+  },
+  bankCardFull: {
+    width: "100%",
   },
   bankCardSelected: {
-    backgroundColor: "#ECF3FB",
-    borderColor: OB.primary,
-    shadowOpacity: 0.14,
-    elevation: 3,
+    borderColor: "rgba(175,199,232,0.82)",
+    backgroundColor: "rgba(123,160,200,0.12)",
+    shadowColor: "#7BA0C8",
+    shadowOpacity: 0.22,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 0 },
   },
   bankName: {
-    color: OB.primary,
+    color: "#FFFFFF",
     fontSize: 13,
     lineHeight: 17,
-    fontWeight: "900",
-    marginTop: 9,
-    alignSelf: "stretch",
+    fontWeight: "600",
     textAlign: "center",
     paddingHorizontal: 4,
   },
-  selectionMark: {
+  bankCheck: {
     position: "absolute",
-    top: 12,
-    right: 12,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    top: 8,
+    right: 8,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 1.5,
-    borderColor: OB.supportSoft,
-    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "rgba(140,154,174,0.42)",
+    backgroundColor: "transparent",
   },
-  selectionMarkSelected: {
-    borderColor: OB.primary,
-    backgroundColor: OB.primary,
+  bankCheckSelected: {
+    backgroundColor: "#FFFFFF",
+    borderColor: "#FFFFFF",
   },
-  footer: {
-    padding: 20,
-    gap: 10,
-    borderTopWidth: 1,
-    borderTopColor: OB.supportSoft,
-    backgroundColor: "rgba(246,247,249,0.98)",
+  incomeBackground: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "#06152E",
   },
-  footerHint: {
-    color: OB.support,
+  incomeKeyboard: {
+    flex: 1,
+  },
+  incomeFrame: {
+    flex: 1,
+    width: "100%",
+    maxWidth: 560,
+    alignSelf: "center",
+  },
+  incomeTop: {
+    paddingHorizontal: 22,
+    paddingTop: 6,
+    paddingBottom: 5,
+  },
+  incomeTopCompact: {
+    paddingTop: 2,
+  },
+  incomeNav: {
+    height: 56,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  incomeBack: {
+    position: "absolute",
+    left: -7,
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  incomeBackPressed: {
+    opacity: 0.7,
+  },
+  incomeBrand: {
+    width: 46,
+    height: 52,
+  },
+  incomeProgressBlock: {
+    alignItems: "center",
+    paddingTop: 8,
+  },
+  incomeStepText: {
+    color: "rgba(255,255,255,0.86)",
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: "500",
+  },
+  incomeProgressTrack: {
+    width: "74%",
+    maxWidth: 284,
+    flexDirection: "row",
+    gap: 7,
+    marginTop: 13,
+  },
+  incomeProgressSegment: {
+    flex: 1,
+    height: 4,
+    borderRadius: 99,
+    backgroundColor: "rgba(140,154,174,0.20)",
+  },
+  incomeProgressSegmentActive: {
+    backgroundColor: "#FFFFFF",
+  },
+  incomeScroll: {
+    flex: 1,
+  },
+  incomeContent: {
+    flexGrow: 1,
+    paddingHorizontal: 22,
+    paddingTop: 18,
+    paddingBottom: 18,
+  },
+  incomeContentCompact: {
+    paddingTop: 10,
+  },
+  incomeContentKeyboard: {
+    paddingBottom: 28,
+  },
+  incomeBadge: {
+    alignSelf: "flex-start",
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(140,154,174,0.28)",
+    backgroundColor: "rgba(255,255,255,0.04)",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginBottom: 16,
+  },
+  incomeBadgeText: {
+    color: "#AFC7E8",
     fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "600",
+  },
+  incomeTitle: {
+    color: "#FFFFFF",
+    fontSize: 32,
+    lineHeight: 38,
     fontWeight: "800",
-    textAlign: "center",
+    letterSpacing: -0.7,
+    textAlign: "left",
+  },
+  incomeTitleCompact: {
+    fontSize: 28,
+    lineHeight: 34,
+  },
+  incomeSubtitle: {
+    marginTop: 10,
+    marginBottom: 28,
+    color: "#8C9AAE",
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: "500",
+    textAlign: "left",
+  },
+  incomeSubtitleCompact: {
+    marginTop: 8,
+    marginBottom: 20,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  incomeFieldLabel: {
+    color: "#8C9AAE",
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "600",
+    marginBottom: 10,
+  },
+  incomeWorkLabel: {
+    marginTop: 26,
+  },
+  incomeFixedField: {
+    minHeight: 64,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "rgba(140,154,174,0.28)",
+    backgroundColor: "rgba(255,255,255,0.035)",
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 18,
+  },
+  incomeFixedFieldFocused: {
+    borderColor: "rgba(175,199,232,0.72)",
+    backgroundColor: "rgba(123,160,200,0.10)",
+  },
+  incomeCurrency: {
+    color: "#FFFFFF",
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: "700",
+    letterSpacing: -0.4,
+    marginRight: 8,
+  },
+  incomeCurrencyMuted: {
+    color: "#8C9AAE",
+  },
+  incomeFixedInput: {
+    flex: 1,
+    color: "#FFFFFF",
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: "700",
+    letterSpacing: -0.4,
+    paddingVertical: 10,
+    paddingHorizontal: 0,
+  },
+  incomeVariableRow: {
+    minHeight: 54,
+    marginTop: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(140,154,174,0.20)",
+    backgroundColor: "rgba(255,255,255,0.025)",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingLeft: 12,
+    paddingRight: 12,
+  },
+  incomeVariableRowPressed: {
+    backgroundColor: "rgba(123,160,200,0.08)",
+  },
+  incomeVariableMark: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.28)",
+  },
+  incomeVariableLabel: {
+    flex: 1,
+    color: "#FFFFFF",
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "600",
+  },
+  incomeVariableValue: {
+    color: "#8C9AAE",
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: "500",
+  },
+  incomeVariableField: {
+    marginTop: 10,
+    minHeight: 52,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(140,154,174,0.28)",
+    backgroundColor: "rgba(255,255,255,0.03)",
+    justifyContent: "center",
+    paddingHorizontal: 16,
+  },
+  incomeVariableInput: {
+    color: "#FFFFFF",
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: "700",
+    paddingVertical: 10,
+  },
+  incomeChips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  incomeChip: {
+    position: "relative",
+    minHeight: 42,
+    borderRadius: 999,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderWidth: 1,
+    borderColor: "rgba(140,154,174,0.22)",
+    backgroundColor: "rgba(255,255,255,0.02)",
+    overflow: "visible",
+  },
+  incomeChipSelected: {
+    borderColor: "rgba(255,255,255,0.88)",
+    backgroundColor: "rgba(255,255,255,0.06)",
+  },
+  incomeChipText: {
+    color: "#8C9AAE",
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "600",
+  },
+  incomeChipTextSelected: {
+    color: "#FFFFFF",
+  },
+  incomeChipCheck: {
+    position: "absolute",
+    top: -5,
+    right: -4,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFFFFF",
+  },
+  incomeFooter: {
+    paddingHorizontal: 22,
+    paddingTop: 10,
+    paddingBottom: 10,
+  },
+  incomeFooterHintRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    marginBottom: 12,
+  },
+  incomeFooterHint: {
+    color: "#8C9AAE",
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "500",
+  },
+  incomeContinue: {
+    minHeight: 56,
+    borderRadius: 18,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 22,
+  },
+  incomeContinueDisabled: {
+    backgroundColor: "rgba(255,255,255,0.18)",
+  },
+  incomeContinuePressed: {
+    opacity: 0.86,
+  },
+  incomeContinueText: {
+    color: "#06152E",
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: "800",
+  },
+  incomeContinueTextDisabled: {
+    color: "rgba(255,255,255,0.42)",
+  },
+  incomeContinueArrow: {
+    position: "absolute",
+    right: 22,
   },
 });
