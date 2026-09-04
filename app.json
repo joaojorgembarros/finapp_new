@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "FinApp",
+    "name": "Sonho+",
     "slug": "finapp-zero-newdb",
     "scheme": "finapp",
     "version": "1.0.2",
@@ -9,6 +9,21 @@
     "userInterfaceStyle": "dark",
     "plugins": [
       "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#06152e",
+          "image": "./assets/splash-lockup.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "android": {
+            "backgroundColor": "#06152e",
+            "image": "./assets/splash-android-neutral.png",
+            "imageWidth": 16,
+            "resizeMode": "contain"
+          }
+        }
+      ],
       "expo-font",
       "@react-native-community/datetimepicker",
       [
@@ -21,11 +36,6 @@
       ],
       "expo-web-browser"
     ],
-    "splash": {
-      "image": "./assets/icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#070a12"
-    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.joaojorgembarros.finapp",
