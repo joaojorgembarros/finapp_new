@@ -1,14 +1,25 @@
 // src/providers/SessionProvider.tsx
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { Linking } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Session } from "@supabase/supabase-js";
+import {
+  completeGoogleOAuthCallback,
+  googleOAuthDedupe,
+  isGoogleAuthCancelled,
+} from "../lib/googleAuth";
 import { SUPABASE_AUTH_STORAGE_KEY, supabase } from "../lib/supabase";
+
+export type SignOutResult = {
+  remoteSignOutCompleted: boolean;
+  activeAccountChanged: boolean;
+};
 
 type Ctx = {
   session: Session | null;
   userId: string | null;
   loading: boolean;
-  signOut: () => Promise<void>;
+  signOut: () => Promise<SignOutResult>;
 };
 
 const SessionContext = createContext<Ctx | null>(null);
@@ -31,6 +42,16 @@ const isInvalidRefreshTokenError = (error: unknown) => {
 
   return /invalid refresh token|refresh token not found/i.test(message);
 };
+
+async function completeIncomingGoogleOAuth(url: string) {
+  try {
+    await completeGoogleOAuthCallback(url, supabase.auth, googleOAuthDedupe);
+  } catch (error) {
+    if (!isGoogleAuthCancelled(error) && typeof __DEV__ !== "undefined" && __DEV__) {
+      console.warn("Could not complete Google sign-in callback.");
+    }
+  }
+}
 
 export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
@@ -73,6 +94,25 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const completeFromUrl = async (url: string | null) => {
+      if (!url || cancelled) return;
+      await completeIncomingGoogleOAuth(url);
+    };
+
+    void Linking.getInitialURL().then(completeFromUrl);
+    const subscription = Linking.addEventListener("url", (event) => {
+      void completeFromUrl(event.url);
+    });
+
+    return () => {
+      cancelled = true;
+      subscription.remove();
+    };
+  }, []);
+
   const value = useMemo<Ctx>(
     () => ({
       session,
@@ -84,10 +124,11 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         if (error && isInvalidRefreshTokenError(error)) {
           await clearStoredSession();
           setSession(null);
-          return;
+          return { remoteSignOutCompleted: false, activeAccountChanged: false };
         }
 
         if (error) throw error;
+        return { remoteSignOutCompleted: true, activeAccountChanged: false };
       },
     }),
     [session, loading]

@@ -22,7 +22,9 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <SessionProvider>
         <StatusBar style="dark" backgroundColor={theme.colors.bg0} translucent={false} />
-        <Stack screenOptions={{ headerShown: false }} />
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="auth/callback" />
+        </Stack>
       </SessionProvider>
     </SafeAreaProvider>
   );

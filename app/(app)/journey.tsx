@@ -6,7 +6,6 @@ import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
 import { formatBRLFromCents, formatBRLInputFromDigits, parseBRLToCents } from "../../src/lib/format";
-import { supabase } from "../../src/lib/supabase";
 import { useSession } from "../../src/providers/SessionProvider";
 import { useHouseholdId } from "../../src/hooks/useHousehold";
 import { useKeyboardAwareScroll } from "../../src/hooks/useKeyboardAwareScroll";
@@ -1138,7 +1137,7 @@ function JourneyDrawer({
 
 export default function JourneyScreen() {
   const params = useLocalSearchParams<{ dreams?: string; values?: string; tab?: string; cycleDate?: string; postImport?: string; importId?: string; reconciledCommitments?: string }>();
-  const { session } = useSession();
+  const { session, signOut } = useSession();
   const userId = session?.user?.id ?? null;
   const { householdId, loading: householdLoading } = useHouseholdId(userId);
   const requestedTab = Array.isArray(params.tab) ? params.tab[0] : params.tab;
@@ -1241,9 +1240,16 @@ export default function JourneyScreen() {
 
   const logout = useCallback(async () => {
     setMenuOpen(false);
-    await supabase.auth.signOut();
+    const result = await signOut();
+    if (result.activeAccountChanged) return;
     router.replace("/(auth)/login");
-  }, []);
+    if (!result.remoteSignOutCompleted) {
+      Alert.alert(
+        "Sessão encerrada neste aparelho",
+        "Não foi possível confirmar a saída dos outros dispositivos. Tente novamente quando estiver conectado.",
+      );
+    }
+  }, [signOut]);
 
   useFocusEffect(
     useCallback(() => {
@@ -1281,7 +1287,7 @@ export default function JourneyScreen() {
 
         Alert.alert(
           "Sair da conta?",
-          "Deseja deslogar do FinApp?",
+          "Deseja deslogar do Sonho+?",
           [
             {
               text: "Cancelar",
