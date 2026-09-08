@@ -1,5 +1,5 @@
 import React from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import Svg, {
   Circle,
   Defs,
@@ -11,6 +11,7 @@ import Svg, {
   Stop,
 } from "react-native-svg";
 import { OB } from "../../ui/OnboardingKit";
+import { DREAMS_COPY } from "./dreamsPresentation";
 
 type TrailPoint = { x: number; y: number };
 type TrailSegment = { start: TrailPoint; c1: TrailPoint; c2: TrailPoint; end: TrailPoint };
@@ -76,11 +77,17 @@ function pointAtProgress(progress: number) {
   return TRAIL_POINTS[TRAIL_POINTS.length - 1];
 }
 
-export function MountainHero({ progress }: { progress: number }) {
+export function MountainHero({
+  progress,
+}: {
+  progress: number;
+  showProgress?: boolean;
+}) {
+  const compact = useWindowDimensions().width < 360;
   const marker = pointAtProgress(progress);
 
   return (
-    <View style={styles.hero}>
+    <View style={[styles.hero, compact && styles.heroCompact]}>
       <Svg pointerEvents="none" viewBox="0 0 390 335" preserveAspectRatio="xMidYMid slice" style={StyleSheet.absoluteFill}>
         <Defs>
           <SvgLinearGradient id="journeySky" x1="0" y1="0" x2="0" y2="335" gradientUnits="userSpaceOnUse">
@@ -145,9 +152,13 @@ export function MountainHero({ progress }: { progress: number }) {
         <Path d="M286 56 L308 64 L286 73Z" fill="#DCEBFF" />
       </Svg>
 
-      <View style={styles.heroTextBlock}>
-        <Text style={styles.heroTitle} accessibilityRole="header">Seus sonhos</Text>
-        <Text style={styles.heroSubtitle}>Acompanhe o progresso dos seus sonhos.</Text>
+      <View style={[styles.heroTextBlock, compact && styles.heroTextBlockCompact]}>
+        <Text style={[styles.heroTitle, compact && styles.heroTitleCompact]} accessibilityRole="header">
+          {DREAMS_COPY.heroTitle}
+        </Text>
+        <Text style={[styles.heroSubtitle, compact && styles.heroSubtitleCompact]}>
+          {DREAMS_COPY.heroSubtitle}
+        </Text>
       </View>
     </View>
   );
@@ -155,30 +166,50 @@ export function MountainHero({ progress }: { progress: number }) {
 
 const styles = StyleSheet.create({
   hero: {
-    height: 236,
+    height: 176,
     backgroundColor: OB.primary,
     overflow: "hidden",
+  },
+  heroCompact: {
+    height: 160,
   },
   heroTextBlock: {
     position: "absolute",
     left: 16,
-    top: 22,
-    width: 184,
+    top: 16,
+    width: 220,
+    maxWidth: "62%",
     alignItems: "flex-start",
     zIndex: 1,
   },
+  heroTextBlockCompact: {
+    left: 14,
+    top: 12,
+    width: 200,
+    maxWidth: "68%",
+  },
   heroTitle: {
     color: OB.offWhite,
-    fontSize: 27,
+    fontSize: 26,
+    lineHeight: 32,
     fontWeight: "900",
     textAlign: "left",
   },
+  heroTitleCompact: {
+    fontSize: 22,
+    lineHeight: 28,
+  },
   heroSubtitle: {
     color: "rgba(220,235,255,0.86)",
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "700",
-    lineHeight: 20,
-    marginTop: 7,
+    lineHeight: 18,
+    marginTop: 6,
     textAlign: "left",
+  },
+  heroSubtitleCompact: {
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 4,
   },
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatBRLInputFromDigits, parseBRLToCents } from "./format";
+import { formatBRLFromCents, formatBRLInputFromDigits, parseBRLToCents } from "./format";
 
 describe("money formatting", () => {
   it.each([
@@ -14,5 +14,12 @@ describe("money formatting", () => {
 
   it("formats digit input without losing cents", () => {
     expect(formatBRLInputFromDigits("1234")).toMatch(/12,34/);
+  });
+
+  it("preserves the sign when formatting a negative amount", () => {
+    const formatted = formatBRLFromCents(-42_000);
+
+    expect(formatted).toContain("-");
+    expect(formatted).toContain("420,00");
   });
 });

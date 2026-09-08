@@ -224,7 +224,7 @@ export default function AllocateSurplusScreen() {
             <View style={styles.flex}>
               <Text style={styles.noticeTitle}>Primeiro separe, depois confirme</Text>
               <Text style={styles.noticeText}>
-                Separe o dinheiro antes de confirmar. Essa destinação não é uma despesa e não reduz o resultado do ciclo. Se a transferência aparecer depois no CSV como uma saída, abra Movimentações e use “Ignorar esta movimentação” para não contar o mesmo valor duas vezes.
+                Separe o dinheiro antes de confirmar. Essa destinação não é uma despesa e não reduz o resultado do ciclo. O app não cria nem ignora uma saída automaticamente. Se a transferência aparecer como saída importada, use “Ignorar esta movimentação”; se você a lançou manualmente como despesa, exclua esse lançamento duplicado.
               </Text>
             </View>
           </View>

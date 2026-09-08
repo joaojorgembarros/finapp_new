@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   calculateFinancialSummary,
   getCycleForOffset,
+  isCommitmentPaymentAmountValid,
 } from "./financialPlanning";
 
 vi.mock("./supabase", () => ({
@@ -58,6 +59,16 @@ describe("financial cycles", () => {
       start: "2026-01-28",
       end: "2026-02-28",
     });
+  });
+});
+
+describe("commitment payment validity", () => {
+  it("accepts only the full linked expense within the commitment value", () => {
+    expect(isCommitmentPaymentAmountValid(40_000, 40_000, 100_000)).toBe(true);
+    expect(isCommitmentPaymentAmountValid(50_000, 80_000, 100_000)).toBe(false);
+    expect(isCommitmentPaymentAmountValid(40_000, 30_000, 100_000)).toBe(false);
+    expect(isCommitmentPaymentAmountValid(80_000, 80_000, 60_000)).toBe(false);
+    expect(isCommitmentPaymentAmountValid(0, 40_000, 100_000)).toBe(false);
   });
 });
 
@@ -159,5 +170,46 @@ describe("conservative financial calculation", () => {
 
     expect(summary.resultCents).toBe(20_000);
     expect(summary.projectedAvailableCents).toBe(0);
+  });
+
+  it("calculates remaining expected income and the signed period-end forecast", () => {
+    const summary = calculateFinancialSummary({
+      expectedIncomeCents: 500_000,
+      realizedIncomeCents: 300_000,
+      realizedExpenseCents: 150_000,
+      totalCommitmentsCents: 200_000,
+      pendingCommitmentsCents: 200_000,
+      reserveCents: 30_000,
+      allocatedCents: 20_000,
+    });
+
+    expect(summary.remainingExpectedIncomeCents).toBe(200_000);
+    expect(summary.periodEndForecastCents).toBe(100_000);
+  });
+
+  it("floors remaining expected income at zero without truncating a negative forecast", () => {
+    const incomeAbovePlan = calculateFinancialSummary({
+      expectedIncomeCents: 300_000,
+      realizedIncomeCents: 350_000,
+      realizedExpenseCents: 100_000,
+      totalCommitmentsCents: 80_000,
+      pendingCommitmentsCents: 80_000,
+      reserveCents: 20_000,
+      allocatedCents: 10_000,
+    });
+    const negativeForecast = calculateFinancialSummary({
+      expectedIncomeCents: 300_000,
+      realizedIncomeCents: 100_000,
+      realizedExpenseCents: 150_000,
+      totalCommitmentsCents: 200_000,
+      pendingCommitmentsCents: 200_000,
+      reserveCents: 30_000,
+      allocatedCents: 20_000,
+    });
+
+    expect(incomeAbovePlan.remainingExpectedIncomeCents).toBe(0);
+    expect(incomeAbovePlan.periodEndForecastCents).toBe(140_000);
+    expect(negativeForecast.remainingExpectedIncomeCents).toBe(200_000);
+    expect(negativeForecast.periodEndForecastCents).toBe(-100_000);
   });
 });

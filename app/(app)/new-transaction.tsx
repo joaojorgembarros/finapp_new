@@ -6,8 +6,9 @@ import { useHouseholdId } from "../../src/hooks/useHousehold";
 import { useKeyboardAwareScroll } from "../../src/hooks/useKeyboardAwareScroll";
 import { BANK_OPTIONS, CASH_ACCOUNT, OTHER_BANK, TransactionAccountId, TransactionAccountOption } from "../../src/lib/banks";
 import { Category, listCategories } from "../../src/lib/categories";
-import { setCommitmentPaid } from "../../src/lib/financialPlanning";
-import { formatBRLInputFromDigits, parseBRLToCents } from "../../src/lib/format";
+import { listCommitmentPayments, setCommitmentPaid } from "../../src/lib/financialPlanning";
+import { getPaymentAmountIssue } from "../../src/lib/financialOverviewPresentation";
+import { formatBRLFromCents, formatBRLInputFromDigits, formatDateBRFromYMD, parseBRLToCents } from "../../src/lib/format";
 import { addTransaction } from "../../src/lib/transactions";
 import { useSession } from "../../src/providers/SessionProvider";
 import { BankLogo } from "../../src/ui/BankLogo";
@@ -140,13 +141,30 @@ export default function NewTransactionScreen() {
     router.replace(destination);
   }, [paymentCycleDate]);
 
+  const enteredAmountCents = parseBRLToCents(amount);
+  const paymentAmountIssue = paymentFlow
+    ? getPaymentAmountIssue(paymentAmountCents, enteredAmountCents)
+    : null;
+
   async function save() {
-    const enteredAmountCents = parseBRLToCents(amount);
     if (!householdId || !userId || !enteredAmountCents || !description.trim() || !accountId || saveInFlightRef.current) return;
+    if (paymentAmountIssue === "exceeds-remaining") {
+      Alert.alert(
+        "Valor maior que o restante",
+        `Este compromisso tem ${formatBRLFromCents(paymentAmountCents)} restante. O app não faz rateio automático; informe um valor igual ou menor.`
+      );
+      return;
+    }
     try {
       saveInFlightRef.current = true;
       setSaving(true);
       let paymentTransaction = paymentFlow ? createdPaymentTransactionRef.current : null;
+      if (paymentFlow && !paymentTransaction) {
+        const existingPayments = await listCommitmentPayments(householdId, paymentCycleKey);
+        if (existingPayments.some((payment) => payment.commitment_id === paymentCommitmentId)) {
+          throw new Error("Este compromisso já possui um pagamento registrado. Volte para revisar o vínculo atual antes de criar outro gasto.");
+        }
+      }
       if (!paymentTransaction) {
         const transaction = await addTransaction({
           householdId,
@@ -182,13 +200,13 @@ export default function NewTransactionScreen() {
         });
         returnToControl();
       } catch {
-        const message = "O gasto foi salvo. Volte ao Resumo, toque na conta pendente e escolha esse gasto para concluir.";
+        const message = "O gasto foi salvo, mas não foi vinculado. Volte ao Resumo e revise o pagamento atual antes de fazer qualquer correção.";
         if (Platform.OS === "web") {
-          Alert.alert("Gasto salvo; falta associar", message);
+          Alert.alert("Gasto salvo sem vínculo", message);
           returnToControl();
         } else {
           Alert.alert(
-            "Gasto salvo; falta associar",
+            "Gasto salvo sem vínculo",
             message,
             [{ text: "Voltar ao Resumo", onPress: returnToControl }],
             { cancelable: false }
@@ -206,7 +224,7 @@ export default function NewTransactionScreen() {
     }
   }
 
-  const valid = Boolean(parseBRLToCents(amount) && description.trim() && accountId && householdId && userId);
+  const valid = Boolean(enteredAmountCents && !paymentAmountIssue && description.trim() && accountId && householdId && userId);
 
   return (
     <OnboardingShell light>
@@ -227,6 +245,19 @@ export default function NewTransactionScreen() {
             title={paymentFlow ? "Registrar pagamento" : "Novo lançamento"}
             subtitle={paymentFlow ? "Escolha a conta e confirme o valor pago." : "Registre entradas e saídas com clareza."}
           />
+
+          {paymentFlow ? (
+            <View style={styles.paymentContextCard} accessibilityRole="summary">
+              <View style={styles.paymentContextItem}>
+                <Text style={styles.paymentContextLabel}>Restante do compromisso</Text>
+                <Text style={styles.paymentContextValue}>{formatBRLFromCents(paymentAmountCents)}</Text>
+              </View>
+              <View style={[styles.paymentContextItem, styles.paymentContextItemDivided]}>
+                <Text style={styles.paymentContextLabel}>Data do pagamento</Text>
+                <Text style={styles.paymentContextValue}>{formatDateBRFromYMD(paymentOccurredOn)}</Text>
+              </View>
+            </View>
+          ) : null}
 
           {!paymentFlow ? (
             <>
@@ -250,7 +281,14 @@ export default function NewTransactionScreen() {
             {accountOptions.map((account) => {
               const active = account.id === accountId;
               return (
-                <Pressable key={account.id} onPress={() => setAccountId(account.id)} style={[styles.account, active && styles.active]}>
+                <Pressable
+                  key={account.id}
+                  onPress={() => setAccountId(account.id)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Conta ${account.name}`}
+                  accessibilityState={{ selected: active }}
+                  style={[styles.account, active && styles.active]}
+                >
                   <BankLogo bankId={account.id} size={34} color={account.color} shortName={account.shortName} />
                   <Text numberOfLines={1} style={[styles.accountText, active && styles.activeText]}>{account.name}</Text>
                   {active ? <Ionicons name="checkmark-circle" size={17} color="#fff" /> : null}
@@ -264,24 +302,29 @@ export default function NewTransactionScreen() {
             <Text style={styles.label}>Valor</Text>
             <View style={styles.inputBox}>
               <Text style={styles.currency}>R$</Text>
-              <TextInput value={amount.replace("R$", "").trim()} onChangeText={(text) => setAmount(formatBRLInputFromDigits(text))} onFocus={() => focusField("amount")} onPressIn={() => focusField("amount")} onSubmitEditing={Keyboard.dismiss} keyboardType="number-pad" returnKeyType="done" selectTextOnFocus placeholder="0,00" placeholderTextColor={OB.support} style={styles.moneyInput} />
+              <TextInput accessibilityLabel="Valor do pagamento" value={amount.replace("R$", "").trim()} onChangeText={(text) => setAmount(formatBRLInputFromDigits(text))} onFocus={() => focusField("amount")} onPressIn={() => focusField("amount")} onSubmitEditing={Keyboard.dismiss} keyboardType="number-pad" returnKeyType="done" selectTextOnFocus placeholder="0,00" placeholderTextColor={OB.support} style={styles.moneyInput} />
             </View>
+            {paymentAmountIssue === "exceeds-remaining" ? (
+              <Text style={styles.paymentAmountError} accessibilityRole="alert" accessibilityLiveRegion="polite">
+                O valor não pode ultrapassar o restante de {formatBRLFromCents(paymentAmountCents)}.
+              </Text>
+            ) : null}
           </View>
 
           <Text style={styles.label}>Categoria</Text>
           <View style={[styles.panel, styles.categoryPanel]}>
             {loading || householdLoading ? <ActivityIndicator color={OB.primary} /> : availableCategories.map((category) => {
               const active = category.id === categoryId;
-              return <Pressable key={category.id} onPress={() => setCategoryId(category.id)} style={[styles.category, active && styles.active]}>{active ? <Ionicons name="checkmark-circle" size={15} color="#fff" /> : null}<Text style={[styles.categoryText, active && styles.activeText]}>{category.name}</Text></Pressable>;
+              return <Pressable key={category.id} onPress={() => setCategoryId(category.id)} accessibilityRole="button" accessibilityLabel={`Categoria ${category.name}`} accessibilityState={{ selected: active }} style={[styles.category, active && styles.active]}>{active ? <Ionicons name="checkmark-circle" size={15} color="#fff" /> : null}<Text style={[styles.categoryText, active && styles.activeText]}>{category.name}</Text></Pressable>;
             })}
           </View>
 
           <View onLayout={registerField("description")}>
             <Text style={styles.label}>Descrição</Text>
-            <TextInput value={description} onChangeText={setDescription} onFocus={() => focusField("description")} onPressIn={() => focusField("description")} onSubmitEditing={Keyboard.dismiss} returnKeyType="done" placeholder="Ex: compra mercado" placeholderTextColor={OB.support} style={styles.textInput} />
+            <TextInput accessibilityLabel="Descrição do pagamento" value={description} onChangeText={setDescription} onFocus={() => focusField("description")} onPressIn={() => focusField("description")} onSubmitEditing={Keyboard.dismiss} returnKeyType="done" placeholder="Ex: compra mercado" placeholderTextColor={OB.support} style={styles.textInput} />
           </View>
 
-          <Pressable onPress={() => void save()} disabled={!valid || saving} style={[styles.saveButton, (!valid || saving) && styles.saveDisabled]}>
+          <Pressable onPress={() => void save()} disabled={!valid || saving} accessibilityRole="button" accessibilityState={{ disabled: !valid || saving }} style={[styles.saveButton, (!valid || saving) && styles.saveDisabled]}>
             <Text style={[styles.saveText, (!valid || saving) && styles.saveTextDisabled]}>
               {saving ? "Salvando..." : paymentFlow ? "Salvar pagamento" : "Salvar lançamento"}
             </Text>
@@ -315,6 +358,11 @@ const styles = StyleSheet.create({
   typeTabActive: { backgroundColor: OB.primary, borderColor: OB.primary },
   typeTabText: { color: OB.support, fontSize: 12, fontWeight: "900" },
   typeTabTextActive: { color: "#fff" },
+  paymentContextCard: { minHeight: 74, borderRadius: 18, padding: 13, flexDirection: "row", backgroundColor: "#fff", borderWidth: 1, borderColor: OB.supportSoft },
+  paymentContextItem: { flex: 1, minWidth: 0, paddingRight: 9 },
+  paymentContextItemDivided: { borderLeftWidth: 1, borderLeftColor: OB.supportSoft, paddingLeft: 10 },
+  paymentContextLabel: { color: "#5E7591", fontSize: 10, lineHeight: 13, fontWeight: "900", textTransform: "uppercase" },
+  paymentContextValue: { color: OB.primary, fontSize: 13, fontWeight: "900", marginTop: 6 },
   label: { color: OB.support, fontSize: 11, fontWeight: "900", letterSpacing: 1, textTransform: "uppercase", marginTop: 2, marginBottom: 4 },
   panel: { gap: 8, borderRadius: 18, borderWidth: 1, borderColor: OB.supportSoft, backgroundColor: "#fff", padding: 10 },
   account: { minHeight: 52, borderRadius: 15, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: OB.offWhite, borderWidth: 1, borderColor: "transparent" },
@@ -325,8 +373,9 @@ const styles = StyleSheet.create({
   inputBox: { minHeight: 58, borderRadius: 17, borderWidth: 1.5, borderColor: OB.supportSoft, backgroundColor: OB.offWhite, flexDirection: "row", alignItems: "center", paddingHorizontal: 15 },
   currency: { color: OB.primary, fontSize: 15, fontWeight: "900", marginRight: 6 },
   moneyInput: { flex: 1, color: OB.primary, fontSize: 16, fontWeight: "900" },
+  paymentAmountError: { color: "#A33F3F", fontSize: 10, lineHeight: 15, fontWeight: "800", marginTop: 6 },
   categoryPanel: { flexDirection: "row", flexWrap: "wrap", gap: 9 },
-  category: { minHeight: 38, borderRadius: 13, paddingHorizontal: 12, paddingVertical: 9, flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: OB.offWhite, borderWidth: 1, borderColor: "transparent" },
+  category: { minHeight: 44, borderRadius: 13, paddingHorizontal: 12, paddingVertical: 9, flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: OB.offWhite, borderWidth: 1, borderColor: "transparent" },
   categoryText: { color: OB.support, fontSize: 12, fontWeight: "900" },
   textInput: { minHeight: 58, borderRadius: 17, borderWidth: 1.5, borderColor: OB.supportSoft, backgroundColor: OB.offWhite, paddingHorizontal: 15, color: OB.primary, fontSize: 15, fontWeight: "800" },
   saveButton: { minHeight: 58, borderRadius: 18, backgroundColor: OB.primary, alignItems: "center", justifyContent: "center", marginTop: 8 },

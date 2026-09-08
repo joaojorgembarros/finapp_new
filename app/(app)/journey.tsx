@@ -16,9 +16,14 @@ import {
   TransactionAccountOption,
 } from "../../src/lib/banks";
 import { GoalProgress, listGoalsWithProgress, syncGoalsFromDreams } from "../../src/lib/goals";
-import { MountainHero } from "../../src/features/journey/MountainHero";
+import { DreamsTab } from "../../src/features/journey/DreamsTab";
 import { getAndroidBackAction } from "../../src/lib/androidBack";
 import { BankLogo } from "../../src/ui/BankLogo";
+import {
+  formatShortDateFromYmd,
+  getCommitmentPaymentProgress,
+  sortPendingCommitments,
+} from "../../src/lib/financialOverviewPresentation";
 import MovementsScreen from "./transaction-history";
 import {
   FinancialOverview,
@@ -26,7 +31,6 @@ import {
   getCycleForOffset,
   getFinancialOverview,
   getFinancialSettings,
-  setCommitmentPaid,
 } from "../../src/lib/financialPlanning";
 
 type Tab = "controle" | "jornada" | "movimentacoes" | "desafios";
@@ -55,11 +59,6 @@ function clampProgress(progress: number) {
   return Math.max(0, Math.min(100, progress));
 }
 
-function progressLabel(progress: number) {
-  const pct = clampProgress(progress);
-  return pct > 0 && pct < 1 ? "<1%" : `${Math.round(pct)}%`;
-}
-
 function readJson<T>(raw: string | string[] | undefined, fallback: T): T {
   try {
     const value = Array.isArray(raw) ? raw[0] : raw;
@@ -83,63 +82,56 @@ function initialsFrom(nameOrEmail: string) {
   return `${parts[0]?.[0] ?? "U"}${parts[parts.length - 1]?.[0] ?? ""}`.toUpperCase();
 }
 
-function ProgressCard({ goal, icon, onOpen }: { goal: GoalProgress; icon: string; onOpen: () => void }) {
-  const progress = clampProgress((goal.contributed_cents / Math.max(goal.target_cents, 1)) * 100);
-  const completed = progress >= 100;
-  return (
-    <Pressable
-      onPress={onOpen}
-      accessibilityRole="button"
-      accessibilityLabel={`Abrir sonho ${goal.title}`}
-      style={({ pressed }) => [styles.goalCard, completed && styles.goalCardCompleted, pressed && styles.goalCardPressed]}
-    >
-      {goal.cover_photo_url ? (
-        <View style={[styles.goalPolaroid, completed && styles.goalPolaroidCompleted]}>
-          <Image source={{ uri: goal.cover_photo_url }} style={styles.goalPolaroidImage} resizeMode="contain" />
-          <View style={[styles.goalPolaroidCaption, completed && styles.goalPolaroidCaptionCompleted]} />
-        </View>
-      ) : (
-        <View style={[styles.goalBadge, completed && styles.goalBadgeCompleted]}>
-          <Ionicons name={(completed ? "checkmark" : icon) as any} size={20} color={completed ? "#169B62" : OB.primary} />
-        </View>
-      )}
-      <View style={styles.goalInfo}>
-        <Text style={styles.goalTitle}>{goal.title}</Text>
-        <Text style={[styles.goalValue, completed && styles.goalValueCompleted]}>{completed && goal.completed_on ? `Concluído em ${formatDate(goal.completed_on)}` : `${formatBRLFromCents(goal.contributed_cents)} de ${formatBRLFromCents(goal.target_cents)}`}</Text>
-        <View style={[styles.smallTrack, completed && styles.smallTrackCompleted]}><View style={[styles.smallFill, completed && styles.smallFillCompleted, { width: `${progress}%` }]} /></View>
-      </View>
-      <View style={[styles.ring, completed && styles.ringCompleted]}>{completed ? <Ionicons name="checkmark" size={21} color="#169B62" /> : <Text style={styles.ringText}>{progressLabel(progress)}</Text>}</View>
-    </Pressable>
-  );
-}
-function MoneySummaryRow({
+function OverviewMetric({
   label,
   value,
-  icon,
   color,
+  divided = false,
 }: {
   label: string;
   value: number;
-  icon: MenuIcon;
   color: string;
+  divided?: boolean;
 }) {
   return (
-    <View style={styles.moneySummaryRow}>
-      <View style={[styles.moneySummaryIcon, { backgroundColor: `${color}16` }]}>
-        <Ionicons name={icon} size={18} color={color} />
-      </View>
-      <View style={styles.moneySummaryCopy}>
-        <Text style={styles.moneySummaryLabel}>{label}</Text>
-        <Text
-          style={[styles.moneySummaryValue, { color }]}
-          numberOfLines={1}
-          adjustsFontSizeToFit
-          minimumFontScale={0.72}
-        >
-          {formatBRLFromCents(value)}
-        </Text>
-      </View>
+    <View style={[styles.overviewMetric, divided && styles.overviewMetricDivided]}>
+      <Text style={styles.overviewMetricLabel}>{label}</Text>
+      <Text
+        style={[styles.overviewMetricValue, { color }]}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.55}
+      >
+        {formatBRLFromCents(value)}
+      </Text>
     </View>
+  );
+}
+
+function SummaryAction({
+  icon,
+  label,
+  onPress,
+  last = false,
+}: {
+  icon: MenuIcon;
+  label: string;
+  onPress: () => void;
+  last?: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      style={({ pressed }) => [styles.summaryAction, last && styles.summaryActionLast, pressed && styles.summaryActionPressed]}
+    >
+      <View style={styles.summaryActionIcon}>
+        <Ionicons name={icon} size={18} color={OB.primary} />
+      </View>
+      <Text style={styles.summaryActionLabel}>{label}</Text>
+      <Ionicons name="chevron-forward" size={16} color={OB.support} />
+    </Pressable>
   );
 }
 
@@ -358,6 +350,7 @@ function ControlPanel({
   postImportId,
   reconciledCommitments = 0,
   onPostImportHandled,
+  onViewTransactions,
 }: {
   householdId: string | null;
   userId: string | null;
@@ -367,6 +360,7 @@ function ControlPanel({
   postImportId?: string;
   reconciledCommitments?: number;
   onPostImportHandled: () => void;
+  onViewTransactions: () => void;
 }) {
   const insets = useSafeAreaInsets();
   const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
@@ -392,7 +386,7 @@ function ControlPanel({
   const [setupGuideDismissed, setSetupGuideDismissed] = useState(false);
   const [planningGuideStarted, setPlanningGuideStarted] = useState(false);
   const [paymentsModalOpen, setPaymentsModalOpen] = useState(false);
-  const [updatingCommitmentId, setUpdatingCommitmentId] = useState<string | null>(null);
+  const [calculationOpen, setCalculationOpen] = useState(false);
   const loadTokenRef = useRef(0);
   const cycleDateRef = useRef(cycleDate);
 
@@ -438,7 +432,10 @@ function ControlPanel({
     }, [load])
   );
 
-  const pendingCommitments = useMemo(() => overview?.commitments.filter((item) => item.pending_cents > 0) ?? [], [overview]);
+  const pendingCommitments = useMemo(
+    () => sortPendingCommitments(overview?.commitments ?? []),
+    [overview]
+  );
   const confirmedCommitments = useMemo(() => overview?.commitments.filter((item) => item.pending_cents <= 0) ?? [], [overview]);
   const visiblePendingCommitments = pendingCommitments.slice(0, 3);
   const postImportMatchesCycle = Boolean(overview && postImportId && overview.transactions.some((transaction) => transaction.statement_import_id === postImportId));
@@ -482,63 +479,24 @@ function ControlPanel({
     onCycleDateChange(localDateYmd(today));
   }, [onCycleDateChange]);
 
-  const toggleCommitment = useCallback(async (commitment: FinancialOverviewCommitment) => {
-    if (!householdId || !userId || !overview) return;
-    const isPaid = commitment.pending_cents <= 0;
+  const openCommitmentPayment = useCallback((commitment: FinancialOverviewCommitment) => {
+    if (!overview) return;
+    setPaymentsModalOpen(false);
+    router.push({
+      pathname: "/(app)/link-commitment",
+      params: {
+        commitmentId: commitment.id,
+        cycleKey: overview.cycle.key,
+        cycleStart: overview.cycle.start,
+        cycleEnd: overview.cycle.end,
+        cycleDate: overview.cycle.start,
+      },
+    });
+  }, [overview]);
 
-    if (!isPaid) {
-      setPaymentsModalOpen(false);
-      router.push({
-        pathname: "/(app)/link-commitment",
-        params: {
-          commitmentId: commitment.id,
-          cycleKey: overview.cycle.key,
-          cycleStart: overview.cycle.start,
-          cycleEnd: overview.cycle.end,
-          cycleDate: overview.cycle.start,
-        },
-      });
-      return;
-    }
-
-    const persist = async () => {
-      try {
-        setUpdatingCommitmentId(commitment.id);
-        await setCommitmentPaid({
-          householdId,
-          userId,
-          commitmentId: commitment.id,
-          cycleKey: overview.cycle.key,
-          paid: false,
-          amountCents: commitment.amount_cents,
-        });
-        await load();
-      } catch (error: any) {
-        const message = error?.message ?? "Não foi possível atualizar este pagamento.";
-        if (Platform.OS === "web") setLoadError(message);
-        else Alert.alert("Pagamento", message);
-      } finally {
-        setUpdatingCommitmentId(null);
-      }
-    };
-
-    if (Platform.OS === "web") {
-      const confirmed = typeof globalThis.confirm === "function"
-        ? globalThis.confirm("Desfazer pagamento? Esta conta voltará a aparecer como pendente neste período. A movimentação original será preservada.")
-        : false;
-      if (confirmed) await persist();
-      return;
-    }
-
-    Alert.alert(
-      "Desfazer pagamento?",
-      "Esta conta voltará a aparecer como pendente neste período. A movimentação original continuará em Movimentações.",
-      [
-        { text: "Cancelar", style: "cancel" },
-        { text: "Desfazer", style: "destructive", onPress: () => void persist() },
-      ]
-    );
-  }, [householdId, load, overview, userId]);
+  const toggleCommitment = useCallback((commitment: FinancialOverviewCommitment) => {
+    openCommitmentPayment(commitment);
+  }, [openCommitmentPayment]);
 
   const openAllocation = useCallback(() => {
     if (!overview || overview.availableCents <= 0) return;
@@ -579,75 +537,70 @@ function ControlPanel({
     router.setParams({ tab: "movimentacoes", importId: postImportId });
   }, [postImportId]);
 
-  const availabilityMessage = !overview
+  const availabilityExplanation = !overview
     ? ""
-    : overview.availableCents > 0
-      ? "Depois das contas, do valor que você quer manter e do que já guardou."
-      : overview.resultCents < 0
-        ? `Neste período, saiu ${formatBRLFromCents(Math.abs(overview.resultCents))} a mais do que entrou.`
-        : overview.pendingCommitmentsCents > 0
-          ? `Há ${formatBRLFromCents(overview.pendingCommitmentsCents)} em contas que ainda não foram registradas como pagas.`
-          : "Ainda não há uma sobra livre neste período.";
-
-  const commitmentsDescription = !overview
-    ? ""
-    : !overview.commitments.length
-      ? "Nenhuma conta cadastrada neste período"
-      : pendingCommitments.length
-        ? `${pendingCommitments.length} ${pendingCommitments.length === 1 ? "pagamento ainda não foi registrado" : "pagamentos ainda não foram registrados"} · ${formatBRLFromCents(overview.pendingCommitmentsCents)}`
-        : "Todos os pagamentos do mês foram registrados";
+    : overview.balance.total_cents === null
+      ? "Sem um saldo bancário atualizado, partimos do que entrou menos o que saiu neste período. Depois, descontamos pagamentos pendentes, sua reserva e o que já foi separado para os sonhos."
+      : "Partimos do que entrou menos o que saiu neste período e usamos o saldo bancário importado como limite. Depois, descontamos pagamentos pendentes, sua reserva e o que já foi separado para os sonhos.";
 
   function renderPaymentRow(commitment: FinancialOverviewCommitment) {
-    const isPaid = commitment.pending_cents <= 0;
-    const hasPartialPayment = !isPaid && commitment.paid_cents > 0;
-    const updating = updatingCommitmentId === commitment.id;
+    const progress = getCommitmentPaymentProgress(commitment.amount_cents, commitment.paid_cents);
+    const isPaid = progress.status === "Pago";
+    const hasPartialPayment = progress.status === "Pago parcialmente";
+    const actionLabel = isPaid || hasPartialPayment ? "Ver pagamento" : "Registrar pagamento";
     return (
       <View key={commitment.id} style={styles.commitmentRow}>
-        <View style={styles.commitmentMainRow}>
+        <Pressable
+          onPress={() => openCommitmentPayment(commitment)}
+          accessibilityRole="button"
+          accessibilityLabel={`Ver detalhes de ${commitment.name}. ${progress.status}. Total ${formatBRLFromCents(progress.totalCents)}, pago ${formatBRLFromCents(progress.paidCents)}, falta ${formatBRLFromCents(progress.remainingCents)}`}
+          style={({ pressed }) => [styles.commitmentMainRow, pressed && styles.commitmentMainRowPressed]}
+        >
           <View style={[styles.commitmentCheck, isPaid && styles.commitmentCheckPaid]}>
             <Ionicons name={isPaid ? "checkmark" : "receipt-outline"} size={17} color={isPaid ? "#fff" : OB.primary} />
           </View>
           <View style={styles.commitmentInfo}>
             <View style={styles.commitmentTitleRow}>
               <Text style={[styles.commitmentName, isPaid && styles.commitmentNamePaid]} numberOfLines={1}>{commitment.name}</Text>
-              <View style={[styles.commitmentStatus, isPaid && styles.commitmentStatusPaid]}>
-                <Text style={[styles.commitmentStatusText, isPaid && styles.commitmentStatusTextPaid]}>{isPaid ? "Pago" : "Pendente"}</Text>
+              <View style={[styles.commitmentStatus, hasPartialPayment && styles.commitmentStatusPartial, isPaid && styles.commitmentStatusPaid]}>
+                <Text style={[styles.commitmentStatusText, hasPartialPayment && styles.commitmentStatusTextPartial, isPaid && styles.commitmentStatusTextPaid]}>{progress.status}</Text>
               </View>
             </View>
             <Text style={styles.commitmentMeta}>
               {commitment.installment_number && commitment.installments_total
                 ? `Parcela ${commitment.installment_number}/${commitment.installments_total} · `
                 : ""}
-              Vence em {formatDate(commitment.due_on)}
+              Vence em {formatShortDateFromYmd(commitment.due_on)}
             </Text>
-            <Text style={styles.commitmentAmount} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78}>
-              {hasPartialPayment
-                ? `Faltam ${formatBRLFromCents(commitment.pending_cents)} de ${formatBRLFromCents(commitment.amount_cents)}`
-                : formatBRLFromCents(commitment.amount_cents)}
-            </Text>
+            <View style={[styles.commitmentFigures, compactPaymentsSheet && styles.commitmentFiguresCompact]}>
+              <View style={[styles.commitmentFigure, compactPaymentsSheet && styles.commitmentFigureCompact]}>
+                <Text style={styles.commitmentFigureLabel}>Total</Text>
+                <Text style={styles.commitmentFigureValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.68}>{formatBRLFromCents(progress.totalCents)}</Text>
+              </View>
+              <View style={[styles.commitmentFigure, styles.commitmentFigureDivided, compactPaymentsSheet && styles.commitmentFigureCompact, compactPaymentsSheet && styles.commitmentFigureDividedCompact]}>
+                <Text style={styles.commitmentFigureLabel}>Pago</Text>
+                <Text style={styles.commitmentFigureValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.68}>{formatBRLFromCents(progress.paidCents)}</Text>
+              </View>
+              <View style={[styles.commitmentFigure, styles.commitmentFigureDivided, compactPaymentsSheet && styles.commitmentFigureCompact, compactPaymentsSheet && styles.commitmentFigureDividedCompact]}>
+                <Text style={styles.commitmentFigureLabel}>Falta</Text>
+                <Text style={styles.commitmentFigureValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.68}>{formatBRLFromCents(progress.remainingCents)}</Text>
+              </View>
+            </View>
           </View>
-        </View>
+          <Ionicons name="chevron-forward" size={17} color={OB.support} style={styles.commitmentOpenIcon} />
+        </Pressable>
         <Pressable
-          onPress={() => void toggleCommitment(commitment)}
-          disabled={updating}
+          onPress={() => toggleCommitment(commitment)}
           accessibilityRole="button"
-          accessibilityLabel={isPaid ? `Pagamento de ${commitment.name} registrado. Desfazer pagamento` : `Registrar pagamento de ${commitment.name}`}
-          accessibilityState={{ disabled: updating }}
+          accessibilityLabel={`${actionLabel} de ${commitment.name}`}
           style={({ pressed }) => [
             styles.commitmentToggle,
             isPaid && styles.commitmentTogglePaid,
-            pressed && !updating && styles.commitmentTogglePressed,
-            updating && styles.commitmentToggleDisabled,
+            pressed && styles.commitmentTogglePressed,
           ]}
         >
-          {updating ? (
-            <ActivityIndicator size="small" color={isPaid ? OB.primary : "#fff"} />
-          ) : (
-            <>
-              <Ionicons name={isPaid ? "arrow-undo-outline" : "checkmark-circle-outline"} size={18} color={isPaid ? OB.primary : "#fff"} />
-              <Text style={[styles.commitmentToggleText, isPaid && styles.commitmentToggleTextPaid]}>{isPaid ? "Desfazer pagamento" : "Registrar pagamento"}</Text>
-            </>
-          )}
+          <Ionicons name={isPaid || hasPartialPayment ? "eye-outline" : "checkmark-circle-outline"} size={18} color={isPaid ? OB.primary : "#fff"} />
+          <Text style={[styles.commitmentToggleText, isPaid && styles.commitmentToggleTextPaid]}>{actionLabel}</Text>
         </Pressable>
       </View>
     );
@@ -656,8 +609,8 @@ function ControlPanel({
   return (
     <ScrollView contentContainerStyle={styles.controlScroll} showsVerticalScrollIndicator={false}>
       <View style={styles.controlHeader}>
-        <Text style={styles.controlTitle} accessibilityRole="header">Resumo financeiro</Text>
-        <Text style={styles.controlSubtitle}>Como estou financeiramente neste período?</Text>
+        <Text style={styles.controlTitle} accessibilityRole="header">Resumo</Text>
+        <Text style={styles.controlSubtitle}>Seu período financeiro, sem complicação.</Text>
       </View>
 
       {!postImportModeActive ? (
@@ -787,123 +740,146 @@ function ControlPanel({
           ) : (
             <>
             <View style={styles.availableHero}>
-              <View style={styles.availableHeroTop}>
-                <View style={styles.availableHeroIcon}><Ionicons name="sparkles-outline" size={20} color="#fff" /></View>
-                <Text style={styles.availableLabel}>Disponível para os sonhos</Text>
-              </View>
-              <Text style={styles.availableValue} maxFontSizeMultiplier={1.25} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.58}>{formatBRLFromCents(overview.availableCents)}</Text>
-              <Text style={styles.availableExplanation}>{availabilityMessage}</Text>
+              <Text style={styles.availableLabel} accessibilityRole="header">Sobra estimada neste período</Text>
+              <Text style={styles.availableValue} maxFontSizeMultiplier={1.25} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.5}>{formatBRLFromCents(overview.availableCents)}</Text>
+              <Text style={styles.availableExplanation}>Uma estimativa conservadora depois do que já aconteceu e dos valores comprometidos.</Text>
+
+              <Pressable
+                onPress={() => setCalculationOpen((open) => !open)}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: calculationOpen }}
+                style={({ pressed }) => [styles.calculationButton, pressed && styles.calculationButtonPressed]}
+              >
+                <Text style={styles.calculationButtonText}>Como calculamos</Text>
+                <Ionicons name={calculationOpen ? "chevron-up" : "chevron-down"} size={16} color="#fff" />
+              </Pressable>
+
+              {calculationOpen ? (
+                <View style={styles.calculationDetails}>
+                  <Text style={styles.calculationDetailsText}>{availabilityExplanation}</Text>
+                </View>
+              ) : null}
 
               {overview.confidence.status !== "reliable" ? (
                 <View style={styles.estimateNotice}>
                   <Ionicons name="information-circle-outline" size={18} color="#fff" />
                   <Text style={styles.estimateNoticeText}>
                     {overview.balance.total_cents === null
-                      ? "Estimativa sem saldo bancário atualizado."
+                      ? "Sem saldo bancário atualizado, este valor é uma estimativa."
                       : overview.balance.status !== "reliable"
-                        ? "Estimativa baseada nos extratos disponíveis."
+                        ? "Este valor usa os extratos disponíveis e pode mudar."
                         : "Revise renda, reserva e contas no planejamento."
                     }
                   </Text>
                 </View>
               ) : null}
 
-              {overview.availableCents > 0 ? (
-                <Pressable onPress={openAllocation} accessibilityRole="button" style={({ pressed }) => [styles.allocateButton, pressed && styles.newButtonPressed]}>
-                  <Ionicons name="heart-outline" size={19} color={OB.primary} />
-                  <Text style={styles.allocateButtonText}>Guardar para um sonho</Text>
-                </Pressable>
-              ) : null}
             </View>
 
-          <View style={styles.projectedPlanCard}>
-            <View style={styles.projectedPlanIcon}>
-              <Ionicons name="calendar-outline" size={21} color={OB.primary} />
-            </View>
-            <View style={styles.projectedPlanCopy}>
-              <Text style={styles.projectedPlanEyebrow}>Projeção do período</Text>
-              <Text style={styles.projectedPlanLabel}>Previsão ao final do período</Text>
-              <Text style={styles.projectedPlanValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
-                {formatBRLFromCents(overview.projectedAvailableCents)}
-              </Text>
-              <Text style={styles.projectedPlanHelper}>Considerando o que já entrou, saiu e ainda falta pagar.</Text>
-            </View>
-          </View>
-
-          <View style={styles.simpleSummaryCard}>
-            <Text style={styles.controlSectionTitle}>Visão rápida do período</Text>
-            <View style={styles.moneySummaryList}>
-              <MoneySummaryRow label="Entrou" value={overview.realizedIncomeCents} color="#168A59" icon="arrow-down-circle-outline" />
-              <MoneySummaryRow label="Saiu" value={overview.realizedExpenseCents} color="#C94949" icon="arrow-up-circle-outline" />
-              <MoneySummaryRow label="Falta pagar" value={overview.pendingCommitmentsCents} color={OB.primary} icon="receipt-outline" />
-            </View>
-          </View>
-
-          <View style={styles.pendingPreviewCard}>
-            <View style={styles.pendingPreviewHeader}>
-              <View style={styles.pendingPreviewIcon}><Ionicons name="receipt-outline" size={20} color={OB.primary} /></View>
-              <View style={styles.pendingPreviewHeading}>
-                <Text style={styles.pendingPreviewTitle}>Próximas contas</Text>
-                <Text style={styles.pendingPreviewDescription}>{commitmentsDescription}</Text>
+            <View style={styles.summarySectionCard}>
+              <View style={styles.summarySectionHeading}>
+                <Text style={styles.controlSectionTitle} accessibilityRole="header">Movimentações do período</Text>
+                <Text style={styles.sectionHelper}>Movimentações registradas neste período.</Text>
+              </View>
+              <View style={styles.overviewMetricPair}>
+                <OverviewMetric label="Entrou" value={overview.realizedIncomeCents} color="#168A59" />
+                <OverviewMetric label="Saiu" value={overview.realizedExpenseCents} color="#C94949" divided />
               </View>
             </View>
 
-            {visiblePendingCommitments.length ? (
-              <View style={styles.pendingPreviewList}>
-                {visiblePendingCommitments.map((commitment) => (
+            <View style={styles.summarySectionCard}>
+              <View style={styles.summarySectionHeading}>
+                <Text style={styles.controlSectionTitle} accessibilityRole="header">Ainda neste período</Text>
+                <Text style={styles.sectionHelper}>O que está previsto no seu planejamento.</Text>
+              </View>
+              <View style={styles.overviewMetricPair}>
+                <OverviewMetric label="Ainda esperado" value={overview.remainingExpectedIncomeCents} color="#168A59" />
+                <OverviewMetric label="A pagar" value={overview.pendingCommitmentsCents} color="#C94949" divided />
+              </View>
+              {overview.remainingExpectedIncomeCents > 0 ? <Text style={styles.plannedIncomeNote}>Com base na sua renda planejada para este período.</Text> : null}
+            </View>
+
+            <View style={styles.summarySectionCard}>
+              <View style={styles.summarySectionHeading}>
+                <Text style={styles.controlSectionTitle} accessibilityRole="header">Pagamentos pendentes</Text>
+                {pendingCommitments.length ? <Text style={styles.sectionHelper}>Os compromissos mais próximos.</Text> : null}
+              </View>
+
+              {visiblePendingCommitments.length ? (
+                <View style={styles.upcomingPaymentsList}>
+                  {visiblePendingCommitments.map((commitment) => (
+                    <Pressable
+                      key={commitment.id}
+                      onPress={() => void toggleCommitment(commitment)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${commitment.name}, ${formatShortDateFromYmd(commitment.due_on)}, ${formatBRLFromCents(commitment.pending_cents)}. Registrar pagamento`}
+                      style={({ pressed }) => [styles.upcomingPaymentRow, pressed && styles.upcomingPaymentRowPressed]}
+                    >
+                      <View style={styles.upcomingPaymentCopy}>
+                        <Text style={styles.upcomingPaymentName} numberOfLines={1}>{commitment.name}</Text>
+                        <Text style={styles.upcomingPaymentDate}>{formatShortDateFromYmd(commitment.due_on)}</Text>
+                      </View>
+                      <View style={styles.upcomingPaymentAction}>
+                        <Text style={styles.upcomingPaymentAmount} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.62}>{formatBRLFromCents(commitment.pending_cents)}</Text>
+                        <Ionicons name="chevron-forward" size={15} color={OB.support} />
+                      </View>
+                    </Pressable>
+                  ))}
                   <Pressable
-                    key={commitment.id}
-                    onPress={() => void toggleCommitment(commitment)}
+                    onPress={() => setPaymentsModalOpen(true)}
                     accessibilityRole="button"
-                    accessibilityLabel={`Registrar pagamento de ${commitment.name}`}
-                    style={({ pressed }) => [styles.pendingPreviewRow, pressed && styles.pendingPreviewRowPressed]}
+                    accessibilityLabel="Ver todos os pagamentos do período"
+                    style={({ pressed }) => [styles.viewAllPaymentsButton, pressed && styles.viewAllPaymentsButtonPressed]}
                   >
-                    <View style={styles.pendingPreviewCopy}>
-                      <Text style={styles.pendingPreviewName} numberOfLines={1}>{commitment.name}</Text>
-                      <Text style={styles.pendingPreviewMeta}>Vence em {formatDate(commitment.due_on)}</Text>
-                    </View>
-                    <View style={styles.pendingPreviewAction}>
-                      <Text style={styles.pendingPreviewAmount} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{formatBRLFromCents(commitment.pending_cents)}</Text>
-                      <Text style={styles.pendingPreviewActionText}>Registrar</Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={17} color={OB.support} />
+                    <Text style={styles.viewAllPaymentsText}>Ver todos</Text>
+                    <Ionicons name="arrow-forward" size={16} color={OB.primary} />
                   </Pressable>
-                ))}
-                {pendingCommitments.length > visiblePendingCommitments.length ? (
-                  <Pressable onPress={() => setPaymentsModalOpen(true)} accessibilityRole="button" accessibilityLabel={`Ver outras ${pendingCommitments.length - visiblePendingCommitments.length} contas pendentes`} style={styles.pendingPreviewMoreButton}>
-                    <Text style={styles.pendingPreviewMore}>Ver outras {pendingCommitments.length - visiblePendingCommitments.length} contas</Text>
-                    <Ionicons name="chevron-forward" size={15} color={OB.support} />
+                </View>
+              ) : (
+                <Text style={styles.summaryEmptyText}>Você não tem pagamentos pendentes neste período.</Text>
+              )}
+            </View>
+
+            <View style={styles.periodPlanCard}>
+              <Text style={styles.periodPlanTitle} accessibilityRole="header">Previsão para o fim do período</Text>
+              <Text
+                style={[styles.periodPlanValue, overview.periodEndForecastCents < 0 && styles.periodPlanValueNegative]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.58}
+              >
+                {formatBRLFromCents(overview.periodEndForecastCents)}
+              </Text>
+              <Text style={styles.periodPlanStatus}>
+                {overview.periodEndForecastCents >= 0
+                  ? "Se o planejamento se mantiver, você deve terminar o período com saldo positivo."
+                  : "Se o planejamento se mantiver, suas saídas previstas ultrapassam suas entradas."}
+              </Text>
+            </View>
+
+            <View style={styles.quickActionsSection}>
+              <Text style={styles.quickActionsTitle} accessibilityRole="header">Ações rápidas</Text>
+              <View style={styles.quickActionsCard}>
+                <SummaryAction icon="add-outline" label="Adicionar movimentação" onPress={() => router.push("/(app)/new-transaction")} />
+                <SummaryAction icon="swap-vertical-outline" label="Ver movimentações" onPress={onViewTransactions} />
+                <SummaryAction icon="checkmark-done-outline" label="Revisar pagamentos" onPress={() => setPaymentsModalOpen(true)} last />
+              </View>
+              <View style={styles.summarySecondaryActions}>
+                <Pressable onPress={() => router.push("/(app)/financial-plan")} accessibilityRole="button" style={({ pressed }) => [styles.summarySecondaryAction, pressed && styles.summarySecondaryActionPressed]}>
+                  <Text style={styles.summarySecondaryActionText}>Ajustar planejamento</Text>
+                </Pressable>
+                {overview.availableCents > 0 ? (
+                  <Pressable onPress={openAllocation} accessibilityRole="button" style={({ pressed }) => [styles.summarySecondaryAction, pressed && styles.summarySecondaryActionPressed]}>
+                    <Text style={styles.summarySecondaryActionText}>Guardar para um sonho</Text>
                   </Pressable>
                 ) : null}
               </View>
-            ) : (
-              <View style={styles.noPendingState}>
-                <Ionicons name="checkmark-circle-outline" size={22} color="#168A59" />
-                <Text style={styles.noPendingText}>{overview.commitments.length ? "Nenhuma conta pendente neste período." : "Nenhuma conta cadastrada neste período."}</Text>
-              </View>
-            )}
-
-            <Pressable
-              onPress={() => setPaymentsModalOpen(true)}
-              accessibilityRole="button"
-              accessibilityLabel="Revisar pagamentos do período selecionado"
-              style={({ pressed }) => [styles.reviewPaymentsButton, pressed && styles.reviewPaymentsButtonPressed]}
-            >
-              <Ionicons name="checkmark-done-outline" size={17} color={OB.primary} />
-              <Text style={styles.reviewPaymentsText}>Revisar pagamentos</Text>
-              <Ionicons name="chevron-forward" size={16} color={OB.support} />
-            </Pressable>
-
-            <Pressable onPress={() => router.push("/(app)/financial-plan")} accessibilityRole="button" style={styles.manageCommitmentsButton}>
-              <Text style={styles.manageCommitmentsText}>Ver planejamento</Text>
-              <Ionicons name="chevron-forward" size={18} color={OB.primary} />
-            </Pressable>
-          </View>
+            </View>
 
             </>
           )}
         </>
-      ) : !householdId ? (
+      ) : loadError ? null : !householdId ? (
         <Text style={emptyStyle}>Conclua as primeiras etapas para criar sua estrutura financeira.</Text>
       ) : (
         <Text style={emptyStyle}>Não foi possível mostrar o resumo deste período.</Text>
@@ -941,7 +917,7 @@ function ControlPanel({
                 >
                   Revisar pagamentos
                 </Text>
-                <Text style={[styles.paymentsModalText, compactPaymentsSheet && styles.paymentsModalTextCompact]}>Confira o que já foi pago neste período.</Text>
+                <Text style={[styles.paymentsModalText, compactPaymentsSheet && styles.paymentsModalTextCompact]}>Veja o que já foi pago e registre o que falta.</Text>
               </View>
               <Pressable
                 onPress={() => setPaymentsModalOpen(false)}
@@ -984,7 +960,7 @@ function ControlPanel({
               {pendingCommitments.length ? (
                 <View style={styles.paymentsModalSection}>
                   <View style={styles.paymentsModalSectionHeading}>
-                    <Text style={styles.paymentsModalSectionTitle}>Pendentes</Text>
+                    <Text style={styles.paymentsModalSectionTitle} accessibilityRole="header">Pendentes</Text>
                     <View style={styles.paymentsModalSectionCount}>
                       <Text style={styles.paymentsModalSectionCountText}>{pendingCommitments.length}</Text>
                     </View>
@@ -996,7 +972,7 @@ function ControlPanel({
               {confirmedCommitments.length ? (
                 <View style={styles.paymentsModalSection}>
                   <View style={styles.paymentsModalSectionHeading}>
-                    <Text style={styles.paymentsModalSectionTitle}>Pagas</Text>
+                    <Text style={styles.paymentsModalSectionTitle} accessibilityRole="header">Pagas</Text>
                     <View style={[styles.paymentsModalSectionCount, styles.paymentsModalSectionCountPaid]}>
                       <Text style={[styles.paymentsModalSectionCountText, styles.paymentsModalSectionCountTextPaid]}>{confirmedCommitments.length}</Text>
                     </View>
@@ -1338,42 +1314,22 @@ export default function JourneyScreen() {
     <OnboardingShell light>
       <View style={styles.root}>
         <View style={styles.content}>
-          {tab === "controle" ? <ControlPanel key={activePostImportId ? `post-import:${activePostImportId}` : "control"} householdId={householdId} userId={userId} householdLoading={householdLoading} cycleDate={controlCycleDate} onCycleDateChange={rememberControlCycle} postImportId={activePostImportId} reconciledCommitments={activePostImportId ? reconciledCommitments : 0} onPostImportHandled={finishPostImport} /> : tab === "movimentacoes" ? <MovementsScreen embedded /> : tab === "jornada" ? (
-            <>
-              <MountainHero progress={journeyProgress} />
-              <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-                <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>Sonhos em andamento</Text>{journeyLoading || householdLoading ? <ActivityIndicator size="small" color={OB.primary} /> : null}</View>
-                {activeGoals.length ? activeGoals.map((goal, index) => <ProgressCard key={goal.id} goal={goal} icon={["home-outline", "trending-up-outline", "flag-outline"][index] ?? "sparkles-outline"} onOpen={() => openGoal(goal)} />) : !journeyLoading && !householdLoading && !goals.length ? (
-                  <Pressable onPress={() => router.push("/(onboarding)/dreams")} style={styles.emptyDreamsCard}>
-                    <Ionicons name="sparkles-outline" size={22} color={OB.primary} /><View style={{ flex: 1 }}><Text style={styles.emptyDreamsTitle}>Configure seus sonhos</Text><Text style={styles.emptyDreamsText}>Escolha seus objetivos para começar sua jornada financeira.</Text></View><Ionicons name="chevron-forward" size={19} color={OB.support} />
-                  </Pressable>
-                ) : !journeyLoading && !householdLoading ? <Text style={styles.allDreamsCompleted}>Você concluiu todos os sonhos atuais. Que tal começar um novo?</Text> : null}
-                {!journeyLoading && activeGoals.length < 3 ? (
-                  <Pressable
-                    onPress={() => router.push({ pathname: "/(onboarding)/dreams", params: { maxDreams: String(3 - activeGoals.length), returnToJourney: "1", excludedDreams: JSON.stringify(goals.map((goal) => goal.title)) } })}
-                    style={styles.addGoalCard}
-                  >
-                    <View style={styles.addGoalIcon}><Ionicons name="add" size={19} color={OB.primary} /></View>
-                    <Text style={styles.addGoalText}>Cadastrar novo sonho</Text>
-                    <Ionicons name="chevron-forward" size={17} color={OB.support} />
-                  </Pressable>
-                ) : null}
-                <View style={styles.monthCard}><View style={styles.monthIcon}><Ionicons name="calendar-outline" size={21} color="#fff" /></View><View><Text style={styles.monthEyebrow}>Avanço deste mês</Text><Text style={styles.monthTitle}>{formatBRLFromCents(monthTotal)} guardados neste mês</Text></View></View>
-                {challengeCard}
-                {completedGoals.length ? (
-                  <View style={styles.achievementsSection}>
-                    <Pressable onPress={() => setAchievementsOpen((open) => !open)} style={styles.achievementsHeader}>
-                      <View style={styles.achievementsTitleRow}>
-                        <View style={styles.achievementsIcon}><Ionicons name="trophy" size={17} color="#169B62" /></View>
-                        <View><Text style={styles.achievementsTitle}>Conquistas</Text><Text style={styles.achievementsCount}>{completedGoals.length} {completedGoals.length === 1 ? "sonho concluído" : "sonhos concluídos"}</Text></View>
-                      </View>
-                      <Ionicons name={achievementsOpen ? "chevron-up" : "chevron-down"} size={19} color={OB.support} />
-                    </Pressable>
-                    {achievementsOpen ? <View style={styles.achievementsList}>{completedGoals.map((goal) => <ProgressCard key={goal.id} goal={goal} icon="checkmark" onOpen={() => openGoal(goal)} />)}</View> : null}
-                  </View>
-                ) : null}
-              </ScrollView>
-            </>
+          {tab === "controle" ? <ControlPanel key={activePostImportId ? `post-import:${activePostImportId}` : "control"} householdId={householdId} userId={userId} householdLoading={householdLoading} cycleDate={controlCycleDate} onCycleDateChange={rememberControlCycle} postImportId={activePostImportId} reconciledCommitments={activePostImportId ? reconciledCommitments : 0} onPostImportHandled={finishPostImport} onViewTransactions={() => selectTab("movimentacoes")} /> : tab === "movimentacoes" ? <MovementsScreen embedded /> : tab === "jornada" ? (
+            <DreamsTab
+              goals={goals}
+              activeGoals={activeGoals}
+              completedGoals={completedGoals}
+              monthTotal={monthTotal}
+              journeyProgress={journeyProgress}
+              loading={journeyLoading || householdLoading}
+              achievementsOpen={achievementsOpen}
+              onToggleAchievements={() => setAchievementsOpen((open) => !open)}
+              onOpenGoal={openGoal}
+              onCreateFirstDream={() => router.push("/(onboarding)/dreams")}
+              onAddDream={() => router.push({ pathname: "/(onboarding)/dreams", params: { maxDreams: String(3 - activeGoals.length), returnToJourney: "1", excludedDreams: JSON.stringify(goals.map((goal) => goal.title)) } })}
+              canAddDream={activeGoals.length < 3}
+              footer={challengeCard}
+            />
           ) : <ScrollView contentContainerStyle={styles.challengesPage}><Ionicons name="trophy-outline" size={42} color={OB.primary} /><Text style={styles.placeholderTitle} accessibilityRole="header">Seus desafios</Text><Text style={styles.placeholderText}>As missões são concluídas automaticamente com seus dados reais.</Text>{challengeCard}</ScrollView>}
         </View>
         <View style={styles.nav}>
@@ -1940,85 +1896,10 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     textAlign: "center",
   },
-  projectedPlanCard: {
-    minHeight: 154,
-    borderRadius: 22,
-    padding: 18,
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 12,
-    backgroundColor: "rgba(123,160,200,0.13)",
-    borderWidth: 1,
-    borderColor: "rgba(123,160,200,0.36)",
-  },
-  projectedPlanIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 15,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.78)",
-  },
-  projectedPlanCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  projectedPlanEyebrow: {
-    color: "#5E7591",
-    fontSize: 10,
-    fontWeight: "900",
-    letterSpacing: 1.2,
-    textTransform: "uppercase",
-  },
-  projectedPlanLabel: {
-    color: OB.primary,
-    fontSize: 14,
-    fontWeight: "900",
-    marginTop: 3,
-  },
-  projectedPlanValue: {
-    color: OB.primary,
-    fontSize: 26,
-    fontWeight: "900",
-    marginTop: 7,
-  },
-  projectionEquation: {
-    gap: 7,
-    marginTop: 12,
-    paddingTop: 11,
-    borderTopWidth: 1,
-    borderTopColor: OB.supportSoft,
-  },
-  projectionLine: {
-    flexDirection: "row",
-    alignItems: "baseline",
-    justifyContent: "space-between",
-    gap: 10,
-  },
-  projectionLineLabel: {
-    flex: 1,
-    color: "#5E7591",
-    fontSize: 10,
-    lineHeight: 14,
-    fontWeight: "700",
-  },
-  projectionLineValue: {
-    color: "#168A59",
-    fontSize: 11,
-    fontWeight: "900",
-  },
-  projectionLineValueSubtract: { color: "#C94949" },
-  projectedPlanHelper: {
-    color: "#5E7591",
-    fontSize: 12,
-    fontWeight: "700",
-    lineHeight: 18,
-    marginTop: 6,
-  },
   availableHero: {
     borderRadius: 24,
-    padding: 20,
-    gap: 10,
+    padding: 22,
+    gap: 9,
     backgroundColor: OB.primary,
     overflow: "hidden",
     shadowColor: OB.primary,
@@ -2027,36 +1908,56 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 6 },
     elevation: 4,
   },
-  availableHeroTop: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  availableHeroIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 13,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.13)",
-  },
   availableLabel: {
-    flex: 1,
     color: OB.textOnDark,
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: "900",
   },
   availableValue: {
     color: "#fff",
-    fontSize: 30,
+    fontSize: 36,
+    lineHeight: 44,
     fontWeight: "900",
-    marginTop: 2,
+    fontVariant: ["tabular-nums"],
+    marginTop: 1,
   },
   availableExplanation: {
     color: "rgba(255,255,255,0.78)",
     fontSize: 13,
     fontWeight: "700",
     lineHeight: 20,
+  },
+  calculationButton: {
+    alignSelf: "flex-start",
+    minHeight: 44,
+    marginTop: 2,
+    paddingHorizontal: 2,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  calculationButtonPressed: {
+    opacity: 0.72,
+  },
+  calculationButtonText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "900",
+    textDecorationLine: "underline",
+  },
+  calculationDetails: {
+    borderRadius: 15,
+    paddingHorizontal: 13,
+    paddingVertical: 12,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+  },
+  calculationDetailsText: {
+    color: "rgba(255,255,255,0.86)",
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: "700",
   },
   estimateNotice: {
     minHeight: 48,
@@ -2075,23 +1976,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     lineHeight: 17,
   },
-  allocateButton: {
-    minHeight: 52,
-    marginTop: 2,
-    borderRadius: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    paddingHorizontal: 14,
-    backgroundColor: "#fff",
-  },
-  allocateButtonText: {
-    flexShrink: 1,
-    color: OB.primary,
-    fontSize: 14,
-    fontWeight: "900",
-  },
   sectionEyebrow: {
     color: "#5E7591",
     fontSize: 10,
@@ -2101,185 +1985,240 @@ const styles = StyleSheet.create({
   },
   controlSectionTitle: {
     color: OB.primary,
-    fontSize: 18,
+    fontSize: 17,
+    lineHeight: 22,
     fontWeight: "900",
-    marginTop: 1,
   },
   sectionHelper: {
     color: "#5E7591",
     fontSize: 12,
     fontWeight: "700",
     lineHeight: 18,
-    marginBottom: 2,
+    marginTop: 3,
   },
-  simpleSummaryCard: {
-    borderRadius: 22,
+  summarySectionCard: {
+    borderRadius: 21,
     padding: 16,
     backgroundColor: "#fff",
     borderWidth: 1,
     borderColor: OB.supportSoft,
   },
-  moneySummaryList: {
+  summarySectionHeading: {
+    minWidth: 0,
+  },
+  overviewMetricPair: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    marginTop: 14,
+  },
+  overviewMetric: {
+    flex: 1,
+    minWidth: 0,
+    paddingRight: 12,
+  },
+  overviewMetricDivided: {
+    paddingRight: 0,
+    paddingLeft: 16,
+    borderLeftWidth: 1,
+    borderLeftColor: OB.supportSoft,
+  },
+  overviewMetricLabel: {
+    color: "#5E7591",
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "800",
+  },
+  overviewMetricValue: {
+    marginTop: 5,
+    fontSize: 20,
+    lineHeight: 26,
+    fontWeight: "900",
+    fontVariant: ["tabular-nums"],
+  },
+  summaryEmptyText: {
+    color: "#5E7591",
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: "700",
+    marginTop: 13,
+  },
+  plannedIncomeNote: {
+    color: "#5E7591",
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: "700",
+    marginTop: 12,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: OB.supportSoft,
+  },
+  upcomingPaymentsList: {
     marginTop: 10,
   },
-  moneySummaryRow: {
-    minHeight: 58,
+  upcomingPaymentRow: {
+    minHeight: 62,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: OB.supportSoft,
+  },
+  upcomingPaymentRowPressed: {
+    opacity: 0.7,
+  },
+  upcomingPaymentCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  upcomingPaymentName: {
+    color: OB.primary,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "900",
+  },
+  upcomingPaymentDate: {
+    color: "#5E7591",
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: "700",
+    marginTop: 2,
+  },
+  upcomingPaymentAction: {
+    maxWidth: "48%",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  upcomingPaymentAmount: {
+    flexShrink: 1,
+    minWidth: 0,
+    color: OB.primary,
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: "900",
+    fontVariant: ["tabular-nums"],
+    textAlign: "right",
+  },
+  viewAllPaymentsButton: {
+    alignSelf: "flex-start",
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    paddingTop: 8,
+    paddingRight: 8,
+  },
+  viewAllPaymentsButtonPressed: {
+    opacity: 0.7,
+  },
+  viewAllPaymentsText: {
+    color: OB.primary,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  periodPlanCard: {
+    borderRadius: 21,
+    padding: 18,
+    backgroundColor: "rgba(123,160,200,0.13)",
+    borderWidth: 1,
+    borderColor: "rgba(123,160,200,0.34)",
+  },
+  periodPlanTitle: {
+    color: OB.primary,
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: "900",
+  },
+  periodPlanValue: {
+    color: OB.primary,
+    fontSize: 27,
+    lineHeight: 34,
+    fontWeight: "900",
+    fontVariant: ["tabular-nums"],
+    marginTop: 7,
+  },
+  periodPlanValueNegative: {
+    color: "#A33F3F",
+  },
+  periodPlanStatus: {
+    color: OB.primary,
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: "800",
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: OB.supportSoft,
+  },
+  quickActionsSection: {
+    gap: 9,
+  },
+  quickActionsTitle: {
+    color: OB.primary,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "900",
+    paddingHorizontal: 2,
+  },
+  quickActionsCard: {
+    borderRadius: 19,
+    paddingHorizontal: 13,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  summaryAction: {
+    minHeight: 52,
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
     borderBottomWidth: 1,
     borderBottomColor: OB.supportSoft,
   },
-  moneySummaryIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 13,
+  summaryActionLast: {
+    borderBottomWidth: 0,
+  },
+  summaryActionPressed: {
+    opacity: 0.68,
+  },
+  summaryActionIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 11,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "rgba(123,160,200,0.14)",
   },
-  moneySummaryCopy: {
+  summaryActionLabel: {
     flex: 1,
     minWidth: 0,
-  },
-  moneySummaryLabel: {
-    color: OB.primary,
-    fontSize: 13,
-    fontWeight: "800",
-  },
-  moneySummaryValue: {
-    fontSize: 15,
-    fontWeight: "900",
-    marginTop: 3,
-  },
-  pendingPreviewCard: {
-    borderRadius: 22,
-    padding: 16,
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: OB.supportSoft,
-  },
-  pendingPreviewHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 11,
-  },
-  pendingPreviewIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(123,160,200,0.15)",
-  },
-  pendingPreviewHeading: {
-    flex: 1,
-    minWidth: 0,
-  },
-  pendingPreviewTitle: {
-    color: OB.primary,
-    fontSize: 16,
-    fontWeight: "900",
-  },
-  pendingPreviewDescription: {
-    color: "#5E7591",
-    fontSize: 11,
-    fontWeight: "700",
-    lineHeight: 16,
-    marginTop: 3,
-  },
-  pendingPreviewList: {
-    marginTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: OB.supportSoft,
-  },
-  pendingPreviewRow: {
-    minHeight: 58,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingVertical: 9,
-    borderBottomWidth: 1,
-    borderBottomColor: OB.supportSoft,
-  },
-  pendingPreviewRowPressed: {
-    opacity: 0.72,
-  },
-  pendingPreviewCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  pendingPreviewName: {
     color: OB.primary,
     fontSize: 12,
-    fontWeight: "900",
-  },
-  pendingPreviewMeta: {
-    color: "#5E7591",
-    fontSize: 10,
-    fontWeight: "700",
-    marginTop: 3,
-  },
-  pendingPreviewAmount: {
-    maxWidth: 108,
-    color: OB.primary,
-    fontSize: 12,
-    fontWeight: "900",
-  },
-  pendingPreviewAction: {
-    alignItems: "flex-end",
-  },
-  pendingPreviewActionText: {
-    color: "#5E7591",
-    fontSize: 9,
-    fontWeight: "900",
-    marginTop: 3,
-  },
-  pendingPreviewMoreButton: {
-    minHeight: 44,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 5,
-  },
-  pendingPreviewMore: {
-    color: "#5E7591",
-    fontSize: 10,
-    fontWeight: "800",
-    textAlign: "center",
-  },
-  noPendingState: {
-    minHeight: 58,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 9,
-    marginTop: 10,
-  },
-  noPendingText: {
-    flex: 1,
-    color: "#5E7591",
-    fontSize: 11,
-    fontWeight: "700",
     lineHeight: 17,
-  },
-  reviewPaymentsButton: {
-    minHeight: 44,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginTop: 8,
-    paddingHorizontal: 12,
-    borderRadius: 13,
-    borderWidth: 1,
-    borderColor: OB.supportSoft,
-  },
-  reviewPaymentsText: {
-    flex: 1,
-    color: OB.primary,
-    fontSize: 11,
     fontWeight: "900",
   },
-  reviewPaymentsButtonPressed: {
-    opacity: 0.72,
+  summarySecondaryActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 2,
+  },
+  summarySecondaryAction: {
+    minHeight: 44,
+    justifyContent: "center",
+    paddingHorizontal: 8,
+  },
+  summarySecondaryActionPressed: {
+    opacity: 0.65,
+  },
+  summarySecondaryActionText: {
+    color: "#5E7591",
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: "800",
+    textDecorationLine: "underline",
   },
   paymentsModalBackdrop: {
     flex: 1,
@@ -2697,8 +2636,11 @@ const styles = StyleSheet.create({
   },
   commitmentMainRow: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: 9,
+  },
+  commitmentMainRowPressed: {
+    opacity: 0.74,
   },
   commitmentCheck: {
     width: 40,
@@ -2742,6 +2684,9 @@ const styles = StyleSheet.create({
   commitmentStatusPaid: {
     backgroundColor: "rgba(22,138,89,0.11)",
   },
+  commitmentStatusPartial: {
+    backgroundColor: "rgba(220,160,64,0.14)",
+  },
   commitmentStatusText: {
     color: OB.primary,
     fontSize: 9,
@@ -2750,6 +2695,9 @@ const styles = StyleSheet.create({
   commitmentStatusTextPaid: {
     color: "#126B45",
   },
+  commitmentStatusTextPartial: {
+    color: "#8A5A12",
+  },
   commitmentMeta: {
     color: "#5E7591",
     fontSize: 10,
@@ -2757,12 +2705,53 @@ const styles = StyleSheet.create({
     lineHeight: 15,
     marginTop: 4,
   },
-  commitmentAmount: {
+  commitmentFigures: {
+    flexDirection: "row",
+    marginTop: 9,
+  },
+  commitmentFiguresCompact: {
+    flexDirection: "column",
+    gap: 6,
+  },
+  commitmentFigure: {
+    flex: 1,
+    minWidth: 0,
+    paddingRight: 7,
+  },
+  commitmentFigureDivided: {
+    borderLeftWidth: 1,
+    borderLeftColor: OB.supportSoft,
+    paddingLeft: 7,
+  },
+  commitmentFigureCompact: {
+    flex: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingRight: 0,
+  },
+  commitmentFigureDividedCompact: {
+    borderLeftWidth: 0,
+    borderTopWidth: 1,
+    borderTopColor: OB.supportSoft,
+    paddingLeft: 0,
+    paddingTop: 6,
+  },
+  commitmentFigureLabel: {
+    color: "#5E7591",
+    fontSize: 10,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  commitmentFigureValue: {
     color: OB.primary,
-    fontSize: 14,
-    lineHeight: 19,
+    fontSize: 12,
     fontWeight: "900",
     marginTop: 3,
+  },
+  commitmentOpenIcon: {
+    alignSelf: "center",
+    marginLeft: -3,
   },
   commitmentToggle: {
     minHeight: 44,
@@ -2826,23 +2815,6 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   confirmedCommitmentsTitle: {
-    flex: 1,
-    color: OB.primary,
-    fontSize: 12,
-    fontWeight: "900",
-  },
-  manageCommitmentsButton: {
-    minHeight: 48,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 8,
-    marginTop: 2,
-    paddingHorizontal: 12,
-    borderRadius: 13,
-    backgroundColor: OB.offWhite,
-  },
-  manageCommitmentsText: {
     flex: 1,
     color: OB.primary,
     fontSize: 12,

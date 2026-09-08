@@ -113,6 +113,7 @@ export type FinancialSummaryInput = {
 
 export type FinancialSummary = {
   expectedIncomeCents: number;
+  remainingExpectedIncomeCents: number;
   realizedIncomeCents: number;
   realizedExpenseCents: number;
   resultCents: number;
@@ -122,6 +123,7 @@ export type FinancialSummary = {
   allocatedCents: number;
   availableCents: number;
   projectedAvailableCents: number;
+  periodEndForecastCents: number;
   positiveResultCents: number;
   balanceCapCents: number | null;
   balanceCapApplied: boolean;
@@ -153,6 +155,22 @@ type SettingsLike = Pick<FinancialSettings, "cycle_mode" | "payday_day">;
 function integerCents(value: unknown) {
   const number = Number(value ?? 0);
   return Number.isFinite(number) ? Math.trunc(number) : 0;
+}
+
+export function isCommitmentPaymentAmountValid(
+  paidCents: number,
+  transactionAmountCents: number,
+  commitmentAmountCents?: number
+) {
+  const paid = integerCents(paidCents);
+  const transactionAmount = integerCents(transactionAmountCents);
+  const commitmentAmount = commitmentAmountCents === undefined
+    ? null
+    : integerCents(commitmentAmountCents);
+  return paid > 0 &&
+    transactionAmount > 0 &&
+    paid === transactionAmount &&
+    (commitmentAmount === null || (commitmentAmount > 0 && paid <= commitmentAmount));
 }
 
 function pad2(value: number) {
@@ -225,6 +243,12 @@ export function calculateFinancialSummary(input: FinancialSummaryInput): Financi
   const reserveCents = Math.max(0, integerCents(input.reserveCents));
   const allocatedCents = Math.max(0, integerCents(input.allocatedCents));
   const resultCents = realizedIncomeCents - realizedExpenseCents;
+  const remainingExpectedIncomeCents = Math.max(0, expectedIncomeCents - realizedIncomeCents);
+  const periodEndForecastCents = resultCents
+    + remainingExpectedIncomeCents
+    - pendingCommitmentsCents
+    - reserveCents
+    - allocatedCents;
   const positiveResultCents = Math.max(0, resultCents);
   const hasBalanceCap = input.trustedBalanceCents !== null && input.trustedBalanceCents !== undefined;
   const balanceCapCents = hasBalanceCap
@@ -236,6 +260,7 @@ export function calculateFinancialSummary(input: FinancialSummaryInput): Financi
 
   return {
     expectedIncomeCents,
+    remainingExpectedIncomeCents,
     realizedIncomeCents,
     realizedExpenseCents,
     resultCents,
@@ -254,6 +279,7 @@ export function calculateFinancialSummary(input: FinancialSummaryInput): Financi
       0,
       expectedIncomeCents - totalCommitmentsCents - reserveCents - allocatedCents
     ),
+    periodEndForecastCents,
     positiveResultCents,
     balanceCapCents,
     balanceCapApplied: balanceCapCents !== null && balanceCapCents < positiveResultCents,
@@ -466,21 +492,32 @@ export type SetCommitmentPaidParams = {
   amountCents?: number;
   paidOn?: string;
   transactionId?: string | null;
+  expectedPaymentId?: string | null;
+  expectedPaymentUpdatedAt?: string | null;
 };
 
 export async function setCommitmentPaid(params: SetCommitmentPaidParams) {
-  let paidCents = integerCents(params.paidCents ?? params.amountCents);
+  const paidCents = integerCents(params.paidCents ?? params.amountCents);
 
   if (params.paid === false) {
-    const { error } = await sb
+    if (!params.expectedPaymentId || !params.expectedPaymentUpdatedAt) {
+      throw new Error("Atualize os pagamentos antes de remover este vínculo.");
+    }
+    const { data, error } = await sb
       .from("financial_commitment_payments")
       .delete()
       .eq("household_id", params.householdId)
       .eq("commitment_id", params.commitmentId)
-      .eq("cycle_key", params.cycleKey);
+      .eq("cycle_key", params.cycleKey)
+      .eq("id", params.expectedPaymentId)
+      .eq("updated_at", params.expectedPaymentUpdatedAt)
+      .select("id");
     if (error) {
       if (isPlanningSchemaMissing(error)) throw planningSchemaError();
       throw error;
+    }
+    if (!data?.length) {
+      throw new Error("Este pagamento mudou enquanto a tela estava aberta. Atualize e revise o vínculo atual.");
     }
     return null;
   }
@@ -513,12 +550,17 @@ export async function setCommitmentPaid(params: SetCommitmentPaidParams) {
   }
   const commitmentAmount = integerCents(commitmentResult.data.amount_cents);
   const transactionAmount = integerCents(transactionResult.data.amount_cents);
-  paidCents = Math.min(paidCents > 0 ? paidCents : commitmentAmount, commitmentAmount, transactionAmount);
   if (paidCents <= 0) throw new Error("O valor contabilizado é inválido.");
+  if (paidCents !== transactionAmount) {
+    throw new Error("O valor do pagamento mudou. Atualize a tela e escolha a despesa novamente.");
+  }
+  if (paidCents > commitmentAmount) {
+    throw new Error("A despesa é maior que o valor do compromisso. O app não faz rateio automático.");
+  }
 
   const { data, error } = await sb
     .from("financial_commitment_payments")
-    .upsert({
+    .insert({
       household_id: params.householdId,
       commitment_id: params.commitmentId,
       cycle_key: params.cycleKey,
@@ -527,11 +569,14 @@ export async function setCommitmentPaid(params: SetCommitmentPaidParams) {
       transaction_id: params.transactionId,
       created_by: params.userId,
       updated_at: new Date().toISOString(),
-    }, { onConflict: "commitment_id,cycle_key" })
+    })
     .select("*")
     .single();
   if (error) {
     if (isPlanningSchemaMissing(error)) throw planningSchemaError();
+    if (error?.code === "23505") {
+      throw new Error("Este compromisso ou esta despesa já possui um vínculo. Atualize e revise os pagamentos.");
+    }
     throw error;
   }
   return { ...data, paid_cents: integerCents(data.paid_cents) } as FinancialCommitmentPayment;
@@ -691,7 +736,11 @@ export async function getFinancialOverview(params: {
     const paymentTransaction = candidatePayment?.transaction_id
       ? transactionsById.get(candidatePayment.transaction_id)
       : null;
-    const payment = paymentTransaction?.type === "expense" ? candidatePayment : undefined;
+    const payment = paymentTransaction?.type === "expense" && candidatePayment && isCommitmentPaymentAmountValid(
+      candidatePayment.paid_cents,
+      paymentTransaction.amount_cents,
+      commitment.amount_cents
+    ) ? candidatePayment : undefined;
     const paidCents = Math.max(0, integerCents(payment?.paid_cents));
     return [{
       ...commitment,

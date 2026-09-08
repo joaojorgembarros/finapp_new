@@ -78,3 +78,26 @@ export function resolveDreamIconKind(title: string): DreamIconKind {
 
   return "other";
 }
+
+export const DREAM_ICON_NAMES: Readonly<Record<DreamIconKind, string>> = {
+  emergency: "shield-checkmark-outline",
+  home: "home-outline",
+  travel: "airplane-outline",
+  car: "car-outline",
+  motorcycle: "bicycle-outline",
+  wedding: "heart-outline",
+  education: "school-outline",
+  business: "briefcase-outline",
+  health: "medkit-outline",
+  retirement: "time-outline",
+  debt: "card-outline",
+  investment: "trending-up-outline",
+  family: "people-outline",
+  relocation: "location-outline",
+  freedom: "lock-open-outline",
+  other: "sparkles-outline",
+};
+
+export function resolveDreamIconName(title: string) {
+  return DREAM_ICON_NAMES[resolveDreamIconKind(title)];
+}

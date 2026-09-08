@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeDreamTitle, resolveDreamIconKind } from "./dreamIconCatalog";
+import { normalizeDreamTitle, resolveDreamIconKind, resolveDreamIconName } from "./dreamIconCatalog";
 
 describe("dreamIconCatalog", () => {
   it("normalizes casing, accents and punctuation", () => {
@@ -57,5 +57,11 @@ describe("dreamIconCatalog", () => {
 
   it("uses the branded fallback for an unknown dream", () => {
     expect(resolveDreamIconKind("Ver a aurora boreal")).toBe("other");
+  });
+
+  it("maps kinds to the existing outline ionicons", () => {
+    expect(resolveDreamIconName("Reserva de emergência")).toBe("shield-checkmark-outline");
+    expect(resolveDreamIconName("Reformar a casa")).toBe("home-outline");
+    expect(resolveDreamIconName("Ver a aurora boreal")).toBe("sparkles-outline");
   });
 });
