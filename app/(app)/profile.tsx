@@ -391,7 +391,7 @@ export default function OnboardingProfileScreen() {
               <Ionicons name="document-text-outline" size={20} color={OB.primary} />
               <View style={styles.settingInfo}>
                 <Text style={styles.settingTitle}>Termos de uso</Text>
-                <Text style={styles.settingSubtitle}>Consulte as regras do FinApp</Text>
+                <Text style={styles.settingSubtitle}>Consulte as regras do Sonho+</Text>
               </View>
               <Ionicons name="open-outline" size={18} color={OB.support} />
             </Pressable>

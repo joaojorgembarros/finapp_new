@@ -6,6 +6,7 @@ import {
   completeGoogleOAuthCallback,
   getGoogleAuthErrorMessage,
   googleOAuthRedirectUrl,
+  GOOGLE_OAUTH_CALLBACK_PATH,
   isGoogleAuthCancelled,
   parseGoogleOAuthCallbackUrl,
   signInWithGoogle,
@@ -18,7 +19,7 @@ import {
 vi.mock("react-native", () => ({ Platform: { OS: "ios" } }));
 vi.mock("expo-linking", () => ({
   // Expo SDK 54 appends the path as-is for a standalone custom scheme.
-  createURL: (path: string) => `finapp://${path}`,
+  createURL: (path: string) => `sonhomais://${path}`,
 }));
 vi.mock("expo-web-browser", () => ({
   maybeCompleteAuthSession: vi.fn(),
@@ -61,7 +62,7 @@ function dependencies(overrides: Partial<GoogleAuthDependencies> = {}): GoogleAu
     coolDownAsync: vi.fn(async () => undefined),
     openAuthSessionAsync: vi.fn(async (): Promise<GoogleAuthBrowserResult> => ({
       type: "success",
-      url: "finapp://auth/callback?code=oauth-code",
+      url: "sonhomais://auth/callback?code=oauth-code",
     })),
     ...overrides,
   };
@@ -69,7 +70,7 @@ function dependencies(overrides: Partial<GoogleAuthDependencies> = {}): GoogleAu
 
 describe("parseGoogleOAuthCallbackUrl", () => {
   it("reads a PKCE code from the production scheme", () => {
-    expect(parseGoogleOAuthCallbackUrl("finapp://auth/callback?code=abc123")).toEqual({
+    expect(parseGoogleOAuthCallbackUrl("sonhomais://auth/callback?code=abc123")).toEqual({
       kind: "code",
       code: "abc123",
     });
@@ -83,14 +84,14 @@ describe("parseGoogleOAuthCallbackUrl", () => {
   });
 
   it("treats Google access_denied as cancellation", () => {
-    expect(parseGoogleOAuthCallbackUrl("finapp://auth/callback?error=access_denied")).toEqual({
+    expect(parseGoogleOAuthCallbackUrl("sonhomais://auth/callback?error=access_denied")).toEqual({
       kind: "cancelled",
     });
   });
 
   it("ignores password recovery and other app URLs", () => {
-    expect(parseGoogleOAuthCallbackUrl("finapp://reset-password?code=abc")).toEqual({ kind: "unrelated" });
-    expect(parseGoogleOAuthCallbackUrl("finapp://settings?code=abc")).toEqual({ kind: "unrelated" });
+    expect(parseGoogleOAuthCallbackUrl("sonhomais://reset-password?code=abc")).toEqual({ kind: "unrelated" });
+    expect(parseGoogleOAuthCallbackUrl("sonhomais://settings?code=abc")).toEqual({ kind: "unrelated" });
   });
 });
 
@@ -98,7 +99,7 @@ describe("completeGoogleOAuthCallback", () => {
   it("exchanges a code once and skips an immediate duplicate", async () => {
     const auth = authClient();
     const dedupe: GoogleOAuthDedupeState = {};
-    const url = "finapp://auth/callback?code=once";
+    const url = "sonhomais://auth/callback?code=once";
 
     const first = await completeGoogleOAuthCallback(url, auth, dedupe, { now: () => 1_000 });
     const second = await completeGoogleOAuthCallback(url, auth, dedupe, { now: () => 1_200 });
@@ -106,6 +107,14 @@ describe("completeGoogleOAuthCallback", () => {
     expect(first.processed).toBe(true);
     expect(second).toMatchObject({ processed: false, reason: "duplicate" });
     expect(auth.exchangeCodeForSession).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("googleOAuthRedirectUrl", () => {
+  it("keeps the Expo Router callback path and standalone scheme", () => {
+    expect(GOOGLE_OAUTH_CALLBACK_PATH).toBe("auth/callback");
+    expect(googleOAuthRedirectUrl()).toBe("sonhomais://auth/callback");
+    expect(googleOAuthRedirectUrl()).not.toBe("sonhomais:///auth/callback");
   });
 });
 
@@ -117,13 +126,13 @@ describe("signInWithGoogle", () => {
     expect(deps.auth.signInWithOAuth).toHaveBeenCalledWith({
       provider: "google",
       options: {
-        redirectTo: "finapp://auth/callback",
+        redirectTo: "sonhomais://auth/callback",
         skipBrowserRedirect: true,
       },
     });
     expect(deps.openAuthSessionAsync).toHaveBeenCalledWith(
       "https://accounts.google.com/o/oauth2",
-      "finapp://auth/callback",
+      "sonhomais://auth/callback",
     );
     expect(session.user.id).toBe("user-1");
   });
@@ -174,13 +183,13 @@ describe("signInWithGoogle", () => {
       getSession: vi.fn(async () => ({ data: { session } })),
     });
     const dedupe: GoogleOAuthDedupeState = {};
-    await completeGoogleOAuthCallback("finapp://auth/callback?code=shared", auth, dedupe);
+    await completeGoogleOAuthCallback("sonhomais://auth/callback?code=shared", auth, dedupe);
 
     const established = await signInWithGoogle(dependencies({
       auth,
       openAuthSessionAsync: vi.fn(async (): Promise<GoogleAuthBrowserResult> => ({
         type: "success",
-        url: "finapp://auth/callback?code=shared",
+        url: "sonhomais://auth/callback?code=shared",
       })),
     }), dedupe);
 

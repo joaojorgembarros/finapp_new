@@ -1,4 +1,4 @@
--- FinApp MVP schema: ordered, idempotent and safe for new/existing projects.
+-- Sonho+ MVP schema: ordered, idempotent and safe for new/existing projects.
 create extension if not exists pgcrypto;
 
 create table if not exists public.households (

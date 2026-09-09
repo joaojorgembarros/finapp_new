@@ -4,11 +4,11 @@ title: Termos de Uso
 permalink: /termos/
 ---
 
-# Termos de Uso do FinApp
+# Termos de Uso do Sonho+
 
 Última atualização: 14 de julho de 2026.
 
-O FinApp é uma ferramenta de organização financeira pessoal. O aplicativo não presta consultoria financeira, contábil, jurídica ou de investimentos e não garante resultados financeiros.
+O Sonho+ é uma ferramenta de organização financeira pessoal. O aplicativo não presta consultoria financeira, contábil, jurídica ou de investimentos e não garante resultados financeiros.
 
 O usuário é responsável pela exatidão dos dados inseridos, pela proteção de suas credenciais e pelo uso lícito do serviço. É proibido tentar acessar contas de terceiros, contornar mecanismos de segurança ou usar o serviço para atividades ilícitas.
 

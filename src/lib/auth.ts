@@ -2,7 +2,7 @@ import * as Linking from "expo-linking";
 import { supabase } from "./supabase";
 
 export function passwordResetRedirectUrl() {
-  return Linking.createURL("/reset-password");
+  return Linking.createURL("reset-password");
 }
 
 export async function requestPasswordReset(email: string) {

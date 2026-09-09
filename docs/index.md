@@ -4,9 +4,9 @@ title: Informações legais
 permalink: /
 ---
 
-# Informações legais do FinApp
+# Informações legais do Sonho+
 
-Consulte os documentos do FinApp ou veja como solicitar a exclusão definitiva da sua conta e dos dados associados.
+Consulte os documentos do Sonho+ ou veja como solicitar a exclusão definitiva da sua conta e dos dados associados.
 
 <div class="legal-links">
   <a href="{{ '/termos/' | relative_url }}">Termos de Uso</a>

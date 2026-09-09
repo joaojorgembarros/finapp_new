@@ -1,6 +1,6 @@
 # Ativos provisórios da Google Play
 
-Estes arquivos usam a identidade visual atual do FinApp e podem ser substituídos quando o nome oficial for definido.
+Estes arquivos usam a identidade visual atual do Sonho+.
 
 - `play-store-icon-512.png`: ícone da ficha da loja, 512 × 512 px.
 - `play-store-feature-graphic-1024x500.png`: gráfico de destaque, 1024 × 500 px.
