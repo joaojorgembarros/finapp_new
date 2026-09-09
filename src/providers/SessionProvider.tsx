@@ -1,5 +1,5 @@
 // src/providers/SessionProvider.tsx
-import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { Linking } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Session } from "@supabase/supabase-js";
@@ -8,6 +8,13 @@ import {
   googleOAuthDedupe,
   isGoogleAuthCancelled,
 } from "../lib/googleAuth";
+import {
+  completePasswordRecoveryCallback,
+  getPasswordRecoveryLinkErrorMessage,
+  parsePasswordRecoveryUrl,
+  passwordRecoveryDedupe,
+  shouldOpenPasswordRecoveryScreen,
+} from "../lib/passwordRecovery";
 import { SUPABASE_AUTH_STORAGE_KEY, supabase } from "../lib/supabase";
 
 export type SignOutResult = {
@@ -19,6 +26,12 @@ type Ctx = {
   session: Session | null;
   userId: string | null;
   loading: boolean;
+  passwordRecoveryPending: boolean;
+  passwordRecoveryActive: boolean;
+  passwordRecoveryError: string | null;
+  passwordRecoveryOpen: boolean;
+  endPasswordRecovery: () => void;
+  consumePasswordRecoveryUrl: (url: string | null | undefined) => Promise<void>;
   signOut: () => Promise<SignOutResult>;
 };
 
@@ -56,6 +69,9 @@ async function completeIncomingGoogleOAuth(url: string) {
 export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [passwordRecoveryPending, setPasswordRecoveryPending] = useState(false);
+  const [passwordRecoveryActive, setPasswordRecoveryActive] = useState(false);
+  const [passwordRecoveryError, setPasswordRecoveryError] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -84,7 +100,12 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
     loadSession();
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, sess) => {
+      if (event === "PASSWORD_RECOVERY") setPasswordRecoveryActive(true);
+      if (event === "SIGNED_OUT") {
+        setPasswordRecoveryActive(false);
+        setPasswordRecoveryPending(false);
+      }
       setSession(sess ?? null);
     });
 
@@ -94,12 +115,42 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  const consumePasswordRecoveryUrl = useCallback(async (url: string | null | undefined) => {
+    if (!url) return;
+    const parsed = parsePasswordRecoveryUrl(url);
+    if (parsed.kind === "unrelated") return;
+    if (parsed.kind === "code" && passwordRecoveryDedupe.lastCode === parsed.code) {
+      setPasswordRecoveryActive(true);
+      setPasswordRecoveryError(null);
+      return;
+    }
+    if (parsed.kind === "code" && passwordRecoveryDedupe.inFlightCode === parsed.code) return;
+
+    setPasswordRecoveryPending(true);
+    setPasswordRecoveryError(null);
+    try {
+      const result = await completePasswordRecoveryCallback(url, supabase.auth, passwordRecoveryDedupe);
+      if (result.processed) {
+        setSession(result.session);
+        setPasswordRecoveryActive(true);
+        setPasswordRecoveryError(null);
+      }
+    } catch (error) {
+      setPasswordRecoveryActive(false);
+      setPasswordRecoveryError(getPasswordRecoveryLinkErrorMessage(error));
+    } finally {
+      setPasswordRecoveryPending(false);
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
 
     const completeFromUrl = async (url: string | null) => {
       if (!url || cancelled) return;
       await completeIncomingGoogleOAuth(url);
+      if (cancelled) return;
+      await consumePasswordRecoveryUrl(url);
     };
 
     void Linking.getInitialURL().then(completeFromUrl);
@@ -111,19 +162,38 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
       subscription.remove();
     };
-  }, []);
+  }, [consumePasswordRecoveryUrl]);
+
+  const endPasswordRecovery = () => {
+    setPasswordRecoveryActive(false);
+    setPasswordRecoveryPending(false);
+    setPasswordRecoveryError(null);
+  };
+
+  const passwordRecoveryOpen = shouldOpenPasswordRecoveryScreen({
+    pending: passwordRecoveryPending,
+    active: passwordRecoveryActive,
+    error: passwordRecoveryError,
+  });
 
   const value = useMemo<Ctx>(
     () => ({
       session,
       userId: session?.user?.id ?? null,
       loading,
+      passwordRecoveryPending,
+      passwordRecoveryActive,
+      passwordRecoveryError,
+      passwordRecoveryOpen,
+      endPasswordRecovery,
+      consumePasswordRecoveryUrl,
       signOut: async () => {
         const { error } = await supabase.auth.signOut();
 
         if (error && isInvalidRefreshTokenError(error)) {
           await clearStoredSession();
           setSession(null);
+          endPasswordRecovery();
           return { remoteSignOutCompleted: false, activeAccountChanged: false };
         }
 
@@ -131,7 +201,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         return { remoteSignOutCompleted: true, activeAccountChanged: false };
       },
     }),
-    [session, loading]
+    [session, loading, passwordRecoveryPending, passwordRecoveryActive, passwordRecoveryError, passwordRecoveryOpen, consumePasswordRecoveryUrl]
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

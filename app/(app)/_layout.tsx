@@ -1,10 +1,11 @@
 import React from "react";
 import { ActivityIndicator, View } from "react-native";
 import { Redirect, Stack } from "expo-router";
+import { PASSWORD_RECOVERY_HREF } from "../../src/lib/passwordRecovery";
 import { useSession } from "../../src/providers/SessionProvider";
 
 export default function AppLayout() {
-  const { session, loading } = useSession();
+  const { session, loading, passwordRecoveryOpen } = useSession();
 
   if (loading) {
     return (
@@ -14,6 +15,7 @@ export default function AppLayout() {
     );
   }
 
+  if (passwordRecoveryOpen) return <Redirect href={PASSWORD_RECOVERY_HREF} />;
   if (!session) return <Redirect href="/(auth)/login" />;
 
   return <Stack screenOptions={{ headerShown: false }} />;

@@ -53,6 +53,7 @@ function RootNavigator() {
             <Stack.Screen name="index" />
             <Stack.Screen name="+not-found" />
             <Stack.Screen name="auth/callback" />
+            <Stack.Screen name="reset-password" />
           </Stack>
         </View>
       </View>
