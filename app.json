@@ -47,7 +47,8 @@
       "edgeToEdgeEnabled": true,
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
-        "backgroundColor": "#070a12"
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#06152E"
       },
       "package": "com.joaojorgembarros.finapp",
       "blockedPermissions": [
