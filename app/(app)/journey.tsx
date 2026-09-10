@@ -1,11 +1,39 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Ionicons } from "@expo/vector-icons";
-import { ActivityIndicator, Alert, BackHandler, Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StatusBar, StyleSheet, Text, TextInput, ToastAndroid, useWindowDimensions, View } from "react-native";
+import {
+  ActivityIndicator,
+  Alert,
+  BackHandler,
+  Image,
+  Keyboard,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  ToastAndroid,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { BlurView } from "expo-blur";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
-import { formatBRLFromCents, formatBRLInputFromDigits, parseBRLToCents } from "../../src/lib/format";
+import {
+  formatBRLFromCents,
+  formatBRLInputFromDigits,
+  parseBRLToCents,
+} from "../../src/lib/format";
 import { useSession } from "../../src/providers/SessionProvider";
 import { useHouseholdId } from "../../src/hooks/useHousehold";
 import { useKeyboardAwareScroll } from "../../src/hooks/useKeyboardAwareScroll";
@@ -15,7 +43,11 @@ import {
   TransactionAccountId,
   TransactionAccountOption,
 } from "../../src/lib/banks";
-import { GoalProgress, listGoalsWithProgress, syncGoalsFromDreams } from "../../src/lib/goals";
+import {
+  GoalProgress,
+  listGoalsWithProgress,
+  syncGoalsFromDreams,
+} from "../../src/lib/goals";
 import { DreamsTab } from "../../src/features/journey/DreamsTab";
 import { getAndroidBackAction } from "../../src/lib/androidBack";
 import { BankLogo } from "../../src/ui/BankLogo";
@@ -36,14 +68,44 @@ import {
 type Tab = "controle" | "jornada" | "movimentacoes" | "desafios";
 type MenuIcon = keyof typeof Ionicons.glyphMap;
 type TxType = "Receita" | "Despesa";
-type TxDraft = { type: TxType; description: string; categoryId: string | null; accountId: TransactionAccountId; amount: number };
+type TxDraft = {
+  type: TxType;
+  description: string;
+  categoryId: string | null;
+  accountId: TransactionAccountId;
+  amount: number;
+};
 
-const MAIN_NAVIGATION_ITEMS: readonly { id: Tab; label: string; icon: MenuIcon }[] = [
+const SHOW_CONTROLE_TAB = false;
+
+type NavigationItem = {
+  id: Tab;
+  label: string;
+  icon: MenuIcon;
+};
+
+const ALL_NAVIGATION_ITEMS: readonly NavigationItem[] = [
   { id: "jornada", label: "Sonhos", icon: "compass-outline" },
-  { id: "movimentacoes", label: "Movimentações", icon: "swap-vertical-outline" },
+  {
+    id: "movimentacoes",
+    label: "Movimentações",
+    icon: "swap-vertical-outline",
+  },
   { id: "controle", label: "Resumo", icon: "bar-chart-outline" },
   { id: "desafios", label: "Desafios", icon: "trophy-outline" },
 ];
+
+const MAIN_NAVIGATION_ITEMS = ALL_NAVIGATION_ITEMS.filter(
+  (item) => SHOW_CONTROLE_TAB || item.id !== "controle",
+);
+
+const DEFAULT_TAB = MAIN_NAVIGATION_ITEMS[0].id;
+
+function parseRequestedTab(raw: string | undefined): Tab {
+  if (raw === "controle") return SHOW_CONTROLE_TAB ? "controle" : DEFAULT_TAB;
+  const match = MAIN_NAVIGATION_ITEMS.find((item) => item.id === raw);
+  return match?.id ?? DEFAULT_TAB;
+}
 
 const WEB_DRAWER_BLUR_STYLE =
   Platform.OS === "web"
@@ -76,7 +138,8 @@ function formatDate(iso: string) {
 function initialsFrom(nameOrEmail: string) {
   const s = (nameOrEmail || "").trim();
   if (!s) return "U";
-  if (s.includes("@")) return (s.split("@")[0]?.slice(0, 2) || "U").toUpperCase();
+  if (s.includes("@"))
+    return (s.split("@")[0]?.slice(0, 2) || "U").toUpperCase();
   const parts = s.split(/\s+/).filter(Boolean);
   if (parts.length === 1) return (parts[0].slice(0, 2) || "U").toUpperCase();
   return `${parts[0]?.[0] ?? "U"}${parts[parts.length - 1]?.[0] ?? ""}`.toUpperCase();
@@ -94,7 +157,9 @@ function OverviewMetric({
   divided?: boolean;
 }) {
   return (
-    <View style={[styles.overviewMetric, divided && styles.overviewMetricDivided]}>
+    <View
+      style={[styles.overviewMetric, divided && styles.overviewMetricDivided]}
+    >
       <Text style={styles.overviewMetricLabel}>{label}</Text>
       <Text
         style={[styles.overviewMetricValue, { color }]}
@@ -124,7 +189,11 @@ function SummaryAction({
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={label}
-      style={({ pressed }) => [styles.summaryAction, last && styles.summaryActionLast, pressed && styles.summaryActionPressed]}
+      style={({ pressed }) => [
+        styles.summaryAction,
+        last && styles.summaryActionLast,
+        pressed && styles.summaryActionPressed,
+      ]}
     >
       <View style={styles.summaryActionIcon}>
         <Ionicons name={icon} size={18} color={OB.primary} />
@@ -153,15 +222,30 @@ export function AddModal({
   onSave: (tx: TxDraft) => Promise<boolean>;
 }) {
   const insets = useSafeAreaInsets();
-  const androidStatusBar = Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0;
+  const androidStatusBar =
+    Platform.OS === "android" ? (StatusBar.currentHeight ?? 0) : 0;
   const topInset = Math.max(insets.top, androidStatusBar, 18);
-  const { scrollRef, keyboardInset, registerField, focusField, cancelPendingScroll } = useKeyboardAwareScroll<"amount" | "description">(18);
+  const {
+    scrollRef,
+    keyboardInset,
+    registerField,
+    focusField,
+    cancelPendingScroll,
+  } = useKeyboardAwareScroll<"amount" | "description">(18);
   const [type, setType] = useState<TxType>("Receita");
   const [amount, setAmount] = useState("");
   const [desc, setDesc] = useState("");
   const [categoryId, setCategoryId] = useState<string | null>(null);
-  const [accountId, setAccountId] = useState<TransactionAccountId | null>(defaultAccountId);
-  const availableCategories = useMemo(() => categories.filter((item) => item.flow === (type === "Receita" ? "income" : "expense")), [categories, type]);
+  const [accountId, setAccountId] = useState<TransactionAccountId | null>(
+    defaultAccountId,
+  );
+  const availableCategories = useMemo(
+    () =>
+      categories.filter(
+        (item) => item.flow === (type === "Receita" ? "income" : "expense"),
+      ),
+    [categories, type],
+  );
 
   useEffect(() => {
     if (!availableCategories.some((item) => item.id === categoryId)) {
@@ -170,8 +254,14 @@ export function AddModal({
   }, [availableCategories, categoryId]);
 
   useEffect(() => {
-    if (accountId && accountOptions.some((account) => account.id === accountId)) return;
-    setAccountId(defaultAccountId && accountOptions.some((account) => account.id === defaultAccountId) ? defaultAccountId : null);
+    if (accountId && accountOptions.some((account) => account.id === accountId))
+      return;
+    setAccountId(
+      defaultAccountId &&
+        accountOptions.some((account) => account.id === defaultAccountId)
+        ? defaultAccountId
+        : null,
+    );
   }, [accountId, accountOptions, defaultAccountId]);
 
   function changeType(next: TxType) {
@@ -182,7 +272,13 @@ export function AddModal({
   async function save() {
     const cents = parseBRLToCents(amount);
     if (!cents || !desc.trim() || !accountId || saving) return;
-    const saved = await onSave({ type, amount: cents, description: desc.trim(), categoryId, accountId });
+    const saved = await onSave({
+      type,
+      amount: cents,
+      description: desc.trim(),
+      categoryId,
+      accountId,
+    });
     if (!saved) return;
     setAmount("");
     setDesc("");
@@ -203,10 +299,20 @@ export function AddModal({
       navigationBarTranslucent={Platform.OS === "android"}
       onRequestClose={onClose}
     >
-      <StatusBar barStyle="dark-content" backgroundColor={OB.offWhite} translucent />
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalShade}>
+      <StatusBar
+        barStyle="dark-content"
+        backgroundColor={OB.offWhite}
+        translucent
+      />
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        style={styles.modalShade}
+      >
         <View style={styles.sheet}>
-          <View pointerEvents="none" style={[styles.modalSafeTop, { height: topInset + 8 }]} />
+          <View
+            pointerEvents="none"
+            style={[styles.modalSafeTop, { height: topInset + 8 }]}
+          />
           <ScrollView
             ref={scrollRef}
             showsVerticalScrollIndicator={false}
@@ -224,21 +330,39 @@ export function AddModal({
             ]}
           >
             <View style={styles.sheetHero}>
-              <Pressable onPress={onClose} style={styles.sheetClose} accessibilityRole="button" accessibilityLabel="Fechar">
+              <Pressable
+                onPress={onClose}
+                style={styles.sheetClose}
+                accessibilityRole="button"
+                accessibilityLabel="Fechar"
+              >
                 <Ionicons name="close" size={21} color="#fff" />
               </Pressable>
               <Text style={styles.sheetEyebrow}>Movimentações</Text>
               <Text style={styles.sheetTitle}>Novo lançamento</Text>
-              <Text style={styles.sheetSubtitle}>Registre entradas e saídas com clareza.</Text>
+              <Text style={styles.sheetSubtitle}>
+                Registre entradas e saídas com clareza.
+              </Text>
             </View>
 
-            <Pressable onPress={openImportStatement} style={styles.importStatementButton}>
+            <Pressable
+              onPress={openImportStatement}
+              style={styles.importStatementButton}
+            >
               <View style={styles.importStatementIcon}>
-                <Ionicons name="cloud-upload-outline" size={18} color={OB.primary} />
+                <Ionicons
+                  name="cloud-upload-outline"
+                  size={18}
+                  color={OB.primary}
+                />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.importStatementTitle}>Importar extrato</Text>
-                <Text style={styles.importStatementText}>Carregue movimentações do banco por arquivo</Text>
+                <Text style={styles.importStatementTitle}>
+                  Importar extrato
+                </Text>
+                <Text style={styles.importStatementText}>
+                  Carregue movimentações do banco por arquivo
+                </Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={OB.support} />
             </Pressable>
@@ -247,14 +371,29 @@ export function AddModal({
               {(["Receita", "Despesa"] as TxType[]).map((item) => {
                 const active = item === type;
                 return (
-                  <Pressable key={item} onPress={() => changeType(item)} style={[styles.typeTab, active && styles.typeTabActive]}>
-                    <Text style={[styles.typeTabText, active && styles.typeTabTextActive]}>{item}</Text>
+                  <Pressable
+                    key={item}
+                    onPress={() => changeType(item)}
+                    style={[styles.typeTab, active && styles.typeTabActive]}
+                  >
+                    <Text
+                      style={[
+                        styles.typeTabText,
+                        active && styles.typeTabTextActive,
+                      ]}
+                    >
+                      {item}
+                    </Text>
                   </Pressable>
                 );
               })}
             </View>
 
-            <Text style={styles.fieldLabel}>{type === "Receita" ? "Onde o dinheiro entrou?" : "De onde o dinheiro saiu?"}</Text>
+            <Text style={styles.fieldLabel}>
+              {type === "Receita"
+                ? "Onde o dinheiro entrou?"
+                : "De onde o dinheiro saiu?"}
+            </Text>
             <View style={styles.accountPanel}>
               {accountOptions.map((account) => {
                 const active = account.id === accountId;
@@ -264,22 +403,62 @@ export function AddModal({
                     onPress={() => setAccountId(account.id)}
                     accessibilityRole="radio"
                     accessibilityState={{ selected: active }}
-                    style={[styles.accountOption, active && styles.accountOptionActive]}
+                    style={[
+                      styles.accountOption,
+                      active && styles.accountOptionActive,
+                    ]}
                   >
-                    <BankLogo bankId={account.id} size={34} color={account.color} shortName={account.shortName} />
-                    <Text numberOfLines={1} style={[styles.accountOptionText, active && styles.accountOptionTextActive]}>{account.name}</Text>
-                    {active ? <Ionicons name="checkmark-circle" size={17} color="#fff" /> : null}
+                    <BankLogo
+                      bankId={account.id}
+                      size={34}
+                      color={account.color}
+                      shortName={account.shortName}
+                    />
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        styles.accountOptionText,
+                        active && styles.accountOptionTextActive,
+                      ]}
+                    >
+                      {account.name}
+                    </Text>
+                    {active ? (
+                      <Ionicons
+                        name="checkmark-circle"
+                        size={17}
+                        color="#fff"
+                      />
+                    ) : null}
                   </Pressable>
                 );
               })}
             </View>
-            {!accountId ? <Text style={styles.accountRequiredText}>Escolha uma conta para continuar.</Text> : null}
+            {!accountId ? (
+              <Text style={styles.accountRequiredText}>
+                Escolha uma conta para continuar.
+              </Text>
+            ) : null}
 
             <View onLayout={registerField("amount")}>
               <Text style={styles.fieldLabel}>Valor</Text>
               <View style={styles.inputBox}>
                 <Text style={styles.currency}>R$</Text>
-                <TextInput value={amount.replace("R$", "").trim()} onChangeText={(text) => setAmount(formatBRLInputFromDigits(text))} placeholder="0,00" placeholderTextColor={OB.support} keyboardType="number-pad" returnKeyType="done" selectTextOnFocus onFocus={() => focusField("amount")} onPressIn={() => focusField("amount")} onSubmitEditing={Keyboard.dismiss} style={styles.input} />
+                <TextInput
+                  value={amount.replace("R$", "").trim()}
+                  onChangeText={(text) =>
+                    setAmount(formatBRLInputFromDigits(text))
+                  }
+                  placeholder="0,00"
+                  placeholderTextColor={OB.support}
+                  keyboardType="number-pad"
+                  returnKeyType="done"
+                  selectTextOnFocus
+                  onFocus={() => focusField("amount")}
+                  onPressIn={() => focusField("amount")}
+                  onSubmitEditing={Keyboard.dismiss}
+                  style={styles.input}
+                />
               </View>
             </View>
 
@@ -288,9 +467,26 @@ export function AddModal({
               {availableCategories.map((item) => {
                 const active = item.id === categoryId;
                 return (
-                  <Pressable key={item.id} onPress={() => setCategoryId(item.id)} style={[styles.category, active && styles.categoryActive]}>
-                    {active ? <Ionicons name="checkmark-circle" size={15} color="#fff" /> : null}
-                    <Text style={[styles.categoryText, active && styles.categoryTextActive]}>{item.name}</Text>
+                  <Pressable
+                    key={item.id}
+                    onPress={() => setCategoryId(item.id)}
+                    style={[styles.category, active && styles.categoryActive]}
+                  >
+                    {active ? (
+                      <Ionicons
+                        name="checkmark-circle"
+                        size={15}
+                        color="#fff"
+                      />
+                    ) : null}
+                    <Text
+                      style={[
+                        styles.categoryText,
+                        active && styles.categoryTextActive,
+                      ]}
+                    >
+                      {item.name}
+                    </Text>
                   </Pressable>
                 );
               })}
@@ -314,8 +510,32 @@ export function AddModal({
               />
             </View>
 
-            <Pressable onPress={save} disabled={saving || !parseBRLToCents(amount) || !desc.trim() || !accountId} style={[styles.saveButton, (saving || !parseBRLToCents(amount) || !desc.trim() || !accountId) && styles.saveButtonDisabled]}>
-              <Text style={[styles.saveButtonText, (saving || !parseBRLToCents(amount) || !desc.trim() || !accountId) && styles.saveButtonTextDisabled]}>{saving ? "Salvando..." : "Salvar lançamento"}</Text>
+            <Pressable
+              onPress={save}
+              disabled={
+                saving || !parseBRLToCents(amount) || !desc.trim() || !accountId
+              }
+              style={[
+                styles.saveButton,
+                (saving ||
+                  !parseBRLToCents(amount) ||
+                  !desc.trim() ||
+                  !accountId) &&
+                  styles.saveButtonDisabled,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.saveButtonText,
+                  (saving ||
+                    !parseBRLToCents(amount) ||
+                    !desc.trim() ||
+                    !accountId) &&
+                    styles.saveButtonTextDisabled,
+                ]}
+              >
+                {saving ? "Salvando..." : "Salvar lançamento"}
+              </Text>
             </Pressable>
           </ScrollView>
         </View>
@@ -327,7 +547,11 @@ export function AddModal({
 function routeCycleReference(cycleDate?: string) {
   const match = cycleDate?.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return new Date();
-  const value = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  const value = new Date(
+    Number(match[1]),
+    Number(match[2]) - 1,
+    Number(match[3]),
+  );
   return Number.isNaN(value.getTime()) ? new Date() : value;
 }
 
@@ -363,10 +587,11 @@ function ControlPanel({
   onViewTransactions: () => void;
 }) {
   const insets = useSafeAreaInsets();
-  const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
+  const { width: viewportWidth, height: viewportHeight } =
+    useWindowDimensions();
   const paymentsSheetTopInset = Math.max(
     insets.top,
-    Platform.OS === "android" ? StatusBar.currentHeight ?? 0 : 0
+    Platform.OS === "android" ? (StatusBar.currentHeight ?? 0) : 0,
   );
   const compactPaymentsSheet = viewportWidth < 360;
   const widePaymentsSheet = viewportWidth >= 720;
@@ -375,14 +600,16 @@ function ControlPanel({
     Math.min(
       viewportHeight * (widePaymentsSheet ? 0.82 : 0.9),
       widePaymentsSheet ? 760 : viewportHeight,
-      viewportHeight - paymentsSheetTopInset - 12
-    )
+      viewportHeight - paymentsSheetTopInset - 12,
+    ),
   );
   const [overview, setOverview] = useState<FinancialOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [cycleOffset, setCycleOffset] = useState(0);
-  const [reference, setReference] = useState(() => routeCycleReference(cycleDate));
+  const [reference, setReference] = useState(() =>
+    routeCycleReference(cycleDate),
+  );
   const [setupGuideDismissed, setSetupGuideDismissed] = useState(false);
   const [planningGuideStarted, setPlanningGuideStarted] = useState(false);
   const [paymentsModalOpen, setPaymentsModalOpen] = useState(false);
@@ -410,7 +637,11 @@ function ControlPanel({
       setLoadError(null);
       const settings = await getFinancialSettings(householdId);
       const cycle = getCycleForOffset(settings, cycleOffset, reference);
-      const nextOverview = await getFinancialOverview({ householdId, userId, cycle });
+      const nextOverview = await getFinancialOverview({
+        householdId,
+        userId,
+        cycle,
+      });
       if (loadToken === loadTokenRef.current) {
         setOverview(nextOverview);
         if (!postImportId) onCycleDateChange(nextOverview.cycle.start);
@@ -419,34 +650,64 @@ function ControlPanel({
       if (loadToken === loadTokenRef.current) {
         const message = "Tente novamente em alguns instantes.";
         setLoadError(message);
-        if (Platform.OS !== "web") Alert.alert("Não foi possível carregar seus valores", error?.message ?? message);
+        if (Platform.OS !== "web")
+          Alert.alert(
+            "Não foi possível carregar seus valores",
+            error?.message ?? message,
+          );
       }
     } finally {
       if (loadToken === loadTokenRef.current) setLoading(false);
     }
-  }, [cycleOffset, householdId, onCycleDateChange, postImportId, reference, userId]);
+  }, [
+    cycleOffset,
+    householdId,
+    onCycleDateChange,
+    postImportId,
+    reference,
+    userId,
+  ]);
 
   useFocusEffect(
     useCallback(() => {
       void load();
-    }, [load])
+    }, [load]),
   );
 
   const pendingCommitments = useMemo(
     () => sortPendingCommitments(overview?.commitments ?? []),
-    [overview]
+    [overview],
   );
-  const confirmedCommitments = useMemo(() => overview?.commitments.filter((item) => item.pending_cents <= 0) ?? [], [overview]);
+  const confirmedCommitments = useMemo(
+    () => overview?.commitments.filter((item) => item.pending_cents <= 0) ?? [],
+    [overview],
+  );
   const visiblePendingCommitments = pendingCommitments.slice(0, 3);
-  const postImportMatchesCycle = Boolean(overview && postImportId && overview.transactions.some((transaction) => transaction.statement_import_id === postImportId));
-  const needsPlanningSetup = Boolean(overview && overview.settings.updated_by === null);
+  const postImportMatchesCycle = Boolean(
+    overview &&
+    postImportId &&
+    overview.transactions.some(
+      (transaction) => transaction.statement_import_id === postImportId,
+    ),
+  );
+  const needsPlanningSetup = Boolean(
+    overview && overview.settings.updated_by === null,
+  );
   const needsPlanningFlow = needsPlanningSetup || planningGuideStarted;
   const showPlanningGuide = postImportMatchesCycle && !setupGuideDismissed;
   const postImportModeActive = Boolean(postImportId && !setupGuideDismissed);
   const busy = loading || householdLoading;
-  const emptyStyle = { color: "#5E7591", fontSize: 14, fontWeight: "700" as const, paddingVertical: 24, textAlign: "center" as const };
+  const emptyStyle = {
+    color: "#5E7591",
+    fontSize: 14,
+    fontWeight: "700" as const,
+    paddingVertical: 24,
+    textAlign: "center" as const,
+  };
   const todayYmd = localDateYmd();
-  const viewingCurrentCycle = overview ? overview.cycle.start <= todayYmd && overview.cycle.end > todayYmd : cycleOffset === 0;
+  const viewingCurrentCycle = overview
+    ? overview.cycle.start <= todayYmd && overview.cycle.end > todayYmd
+    : cycleOffset === 0;
 
   useEffect(() => {
     setSetupGuideDismissed(false);
@@ -457,7 +718,8 @@ function ControlPanel({
   }, [postImportId]);
 
   useEffect(() => {
-    if (overview && postImportId && !postImportMatchesCycle) onPostImportHandled();
+    if (overview && postImportId && !postImportMatchesCycle)
+      onPostImportHandled();
   }, [onPostImportHandled, overview, postImportId, postImportMatchesCycle]);
 
   const changeCycle = useCallback((offset: number) => {
@@ -479,24 +741,30 @@ function ControlPanel({
     onCycleDateChange(localDateYmd(today));
   }, [onCycleDateChange]);
 
-  const openCommitmentPayment = useCallback((commitment: FinancialOverviewCommitment) => {
-    if (!overview) return;
-    setPaymentsModalOpen(false);
-    router.push({
-      pathname: "/(app)/link-commitment",
-      params: {
-        commitmentId: commitment.id,
-        cycleKey: overview.cycle.key,
-        cycleStart: overview.cycle.start,
-        cycleEnd: overview.cycle.end,
-        cycleDate: overview.cycle.start,
-      },
-    });
-  }, [overview]);
+  const openCommitmentPayment = useCallback(
+    (commitment: FinancialOverviewCommitment) => {
+      if (!overview) return;
+      setPaymentsModalOpen(false);
+      router.push({
+        pathname: "/(app)/link-commitment",
+        params: {
+          commitmentId: commitment.id,
+          cycleKey: overview.cycle.key,
+          cycleStart: overview.cycle.start,
+          cycleEnd: overview.cycle.end,
+          cycleDate: overview.cycle.start,
+        },
+      });
+    },
+    [overview],
+  );
 
-  const toggleCommitment = useCallback((commitment: FinancialOverviewCommitment) => {
-    openCommitmentPayment(commitment);
-  }, [openCommitmentPayment]);
+  const toggleCommitment = useCallback(
+    (commitment: FinancialOverviewCommitment) => {
+      openCommitmentPayment(commitment);
+    },
+    [openCommitmentPayment],
+  );
 
   const openAllocation = useCallback(() => {
     if (!overview || overview.availableCents <= 0) return;
@@ -521,7 +789,10 @@ function ControlPanel({
     if (busy) return;
     if (needsPlanningFlow) {
       setPlanningGuideStarted(true);
-      router.push({ pathname: "/(app)/financial-plan", params: { guided: "1" } });
+      router.push({
+        pathname: "/(app)/financial-plan",
+        params: { guided: "1" },
+      });
       return;
     }
     const nextCommitment = pendingCommitments[0];
@@ -530,7 +801,13 @@ function ControlPanel({
       return;
     }
     finishPostImportGuide();
-  }, [busy, finishPostImportGuide, needsPlanningFlow, pendingCommitments, toggleCommitment]);
+  }, [
+    busy,
+    finishPostImportGuide,
+    needsPlanningFlow,
+    pendingCommitments,
+    toggleCommitment,
+  ]);
 
   const openImportedTransactions = useCallback(() => {
     if (!postImportId) return;
@@ -544,26 +821,64 @@ function ControlPanel({
       : "Partimos do que entrou menos o que saiu neste período e usamos o saldo bancário importado como limite. Depois, descontamos pagamentos pendentes, sua reserva e o que já foi separado para os sonhos.";
 
   function renderPaymentRow(commitment: FinancialOverviewCommitment) {
-    const progress = getCommitmentPaymentProgress(commitment.amount_cents, commitment.paid_cents);
+    const progress = getCommitmentPaymentProgress(
+      commitment.amount_cents,
+      commitment.paid_cents,
+    );
     const isPaid = progress.status === "Pago";
     const hasPartialPayment = progress.status === "Pago parcialmente";
-    const actionLabel = isPaid || hasPartialPayment ? "Ver pagamento" : "Registrar pagamento";
+    const actionLabel =
+      isPaid || hasPartialPayment ? "Ver pagamento" : "Registrar pagamento";
     return (
       <View key={commitment.id} style={styles.commitmentRow}>
         <Pressable
           onPress={() => openCommitmentPayment(commitment)}
           accessibilityRole="button"
           accessibilityLabel={`Ver detalhes de ${commitment.name}. ${progress.status}. Total ${formatBRLFromCents(progress.totalCents)}, pago ${formatBRLFromCents(progress.paidCents)}, falta ${formatBRLFromCents(progress.remainingCents)}`}
-          style={({ pressed }) => [styles.commitmentMainRow, pressed && styles.commitmentMainRowPressed]}
+          style={({ pressed }) => [
+            styles.commitmentMainRow,
+            pressed && styles.commitmentMainRowPressed,
+          ]}
         >
-          <View style={[styles.commitmentCheck, isPaid && styles.commitmentCheckPaid]}>
-            <Ionicons name={isPaid ? "checkmark" : "receipt-outline"} size={17} color={isPaid ? "#fff" : OB.primary} />
+          <View
+            style={[
+              styles.commitmentCheck,
+              isPaid && styles.commitmentCheckPaid,
+            ]}
+          >
+            <Ionicons
+              name={isPaid ? "checkmark" : "receipt-outline"}
+              size={17}
+              color={isPaid ? "#fff" : OB.primary}
+            />
           </View>
           <View style={styles.commitmentInfo}>
             <View style={styles.commitmentTitleRow}>
-              <Text style={[styles.commitmentName, isPaid && styles.commitmentNamePaid]} numberOfLines={1}>{commitment.name}</Text>
-              <View style={[styles.commitmentStatus, hasPartialPayment && styles.commitmentStatusPartial, isPaid && styles.commitmentStatusPaid]}>
-                <Text style={[styles.commitmentStatusText, hasPartialPayment && styles.commitmentStatusTextPartial, isPaid && styles.commitmentStatusTextPaid]}>{progress.status}</Text>
+              <Text
+                style={[
+                  styles.commitmentName,
+                  isPaid && styles.commitmentNamePaid,
+                ]}
+                numberOfLines={1}
+              >
+                {commitment.name}
+              </Text>
+              <View
+                style={[
+                  styles.commitmentStatus,
+                  hasPartialPayment && styles.commitmentStatusPartial,
+                  isPaid && styles.commitmentStatusPaid,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.commitmentStatusText,
+                    hasPartialPayment && styles.commitmentStatusTextPartial,
+                    isPaid && styles.commitmentStatusTextPaid,
+                  ]}
+                >
+                  {progress.status}
+                </Text>
               </View>
             </View>
             <Text style={styles.commitmentMeta}>
@@ -572,22 +887,72 @@ function ControlPanel({
                 : ""}
               Vence em {formatShortDateFromYmd(commitment.due_on)}
             </Text>
-            <View style={[styles.commitmentFigures, compactPaymentsSheet && styles.commitmentFiguresCompact]}>
-              <View style={[styles.commitmentFigure, compactPaymentsSheet && styles.commitmentFigureCompact]}>
+            <View
+              style={[
+                styles.commitmentFigures,
+                compactPaymentsSheet && styles.commitmentFiguresCompact,
+              ]}
+            >
+              <View
+                style={[
+                  styles.commitmentFigure,
+                  compactPaymentsSheet && styles.commitmentFigureCompact,
+                ]}
+              >
                 <Text style={styles.commitmentFigureLabel}>Total</Text>
-                <Text style={styles.commitmentFigureValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.68}>{formatBRLFromCents(progress.totalCents)}</Text>
+                <Text
+                  style={styles.commitmentFigureValue}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.68}
+                >
+                  {formatBRLFromCents(progress.totalCents)}
+                </Text>
               </View>
-              <View style={[styles.commitmentFigure, styles.commitmentFigureDivided, compactPaymentsSheet && styles.commitmentFigureCompact, compactPaymentsSheet && styles.commitmentFigureDividedCompact]}>
+              <View
+                style={[
+                  styles.commitmentFigure,
+                  styles.commitmentFigureDivided,
+                  compactPaymentsSheet && styles.commitmentFigureCompact,
+                  compactPaymentsSheet && styles.commitmentFigureDividedCompact,
+                ]}
+              >
                 <Text style={styles.commitmentFigureLabel}>Pago</Text>
-                <Text style={styles.commitmentFigureValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.68}>{formatBRLFromCents(progress.paidCents)}</Text>
+                <Text
+                  style={styles.commitmentFigureValue}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.68}
+                >
+                  {formatBRLFromCents(progress.paidCents)}
+                </Text>
               </View>
-              <View style={[styles.commitmentFigure, styles.commitmentFigureDivided, compactPaymentsSheet && styles.commitmentFigureCompact, compactPaymentsSheet && styles.commitmentFigureDividedCompact]}>
+              <View
+                style={[
+                  styles.commitmentFigure,
+                  styles.commitmentFigureDivided,
+                  compactPaymentsSheet && styles.commitmentFigureCompact,
+                  compactPaymentsSheet && styles.commitmentFigureDividedCompact,
+                ]}
+              >
                 <Text style={styles.commitmentFigureLabel}>Falta</Text>
-                <Text style={styles.commitmentFigureValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.68}>{formatBRLFromCents(progress.remainingCents)}</Text>
+                <Text
+                  style={styles.commitmentFigureValue}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.68}
+                >
+                  {formatBRLFromCents(progress.remainingCents)}
+                </Text>
               </View>
             </View>
           </View>
-          <Ionicons name="chevron-forward" size={17} color={OB.support} style={styles.commitmentOpenIcon} />
+          <Ionicons
+            name="chevron-forward"
+            size={17}
+            color={OB.support}
+            style={styles.commitmentOpenIcon}
+          />
         </Pressable>
         <Pressable
           onPress={() => toggleCommitment(commitment)}
@@ -599,40 +964,86 @@ function ControlPanel({
             pressed && styles.commitmentTogglePressed,
           ]}
         >
-          <Ionicons name={isPaid || hasPartialPayment ? "eye-outline" : "checkmark-circle-outline"} size={18} color={isPaid ? OB.primary : "#fff"} />
-          <Text style={[styles.commitmentToggleText, isPaid && styles.commitmentToggleTextPaid]}>{actionLabel}</Text>
+          <Ionicons
+            name={
+              isPaid || hasPartialPayment
+                ? "eye-outline"
+                : "checkmark-circle-outline"
+            }
+            size={18}
+            color={isPaid ? OB.primary : "#fff"}
+          />
+          <Text
+            style={[
+              styles.commitmentToggleText,
+              isPaid && styles.commitmentToggleTextPaid,
+            ]}
+          >
+            {actionLabel}
+          </Text>
         </Pressable>
       </View>
     );
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.controlScroll} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      contentContainerStyle={styles.controlScroll}
+      showsVerticalScrollIndicator={false}
+    >
       <View style={styles.controlHeader}>
-        <Text style={styles.controlTitle} accessibilityRole="header">Resumo</Text>
-        <Text style={styles.controlSubtitle}>Seu período financeiro, sem complicação.</Text>
+        <Text style={styles.controlTitle} accessibilityRole="header">
+          Resumo
+        </Text>
+        <Text style={styles.controlSubtitle}>
+          Seu período financeiro, sem complicação.
+        </Text>
       </View>
 
       {!postImportModeActive ? (
         <View style={styles.cycleNavigator}>
-          <Pressable onPress={() => changeCycle(-1)} accessibilityRole="button" accessibilityLabel="Período anterior" style={styles.cycleArrow}>
+          <Pressable
+            onPress={() => changeCycle(-1)}
+            accessibilityRole="button"
+            accessibilityLabel="Período anterior"
+            style={styles.cycleArrow}
+          >
             <Ionicons name="chevron-back" size={20} color={OB.primary} />
           </Pressable>
           <View style={styles.cycleLabelWrap}>
             <Text style={styles.cycleEyebrow}>Período</Text>
-            <Text style={styles.cycleLabel}>{overview?.cycle.label ?? (loadError ? "Valores indisponíveis" : "Carregando...")}</Text>
-            {overview ? <Text style={styles.cycleRange}>{formatDate(overview.cycle.start)} a {formatDate(previousDate(overview.cycle.end))}</Text> : null}
+            <Text style={styles.cycleLabel}>
+              {overview?.cycle.label ??
+                (loadError ? "Valores indisponíveis" : "Carregando...")}
+            </Text>
+            {overview ? (
+              <Text style={styles.cycleRange}>
+                {formatDate(overview.cycle.start)} a{" "}
+                {formatDate(previousDate(overview.cycle.end))}
+              </Text>
+            ) : null}
           </View>
-          <Pressable onPress={() => changeCycle(1)} accessibilityRole="button" accessibilityLabel="Próximo período" style={styles.cycleArrow}>
+          <Pressable
+            onPress={() => changeCycle(1)}
+            accessibilityRole="button"
+            accessibilityLabel="Próximo período"
+            style={styles.cycleArrow}
+          >
             <Ionicons name="chevron-forward" size={20} color={OB.primary} />
           </Pressable>
         </View>
       ) : null}
 
       {!postImportModeActive && !viewingCurrentCycle ? (
-        <Pressable onPress={showToday} accessibilityRole="button" style={styles.todayButton}>
+        <Pressable
+          onPress={showToday}
+          accessibilityRole="button"
+          style={styles.todayButton}
+        >
           <Ionicons name="today-outline" size={16} color={OB.primary} />
-          <Text style={styles.todayButtonText}>Voltar para o período atual</Text>
+          <Text style={styles.todayButtonText}>
+            Voltar para o período atual
+          </Text>
         </Pressable>
       ) : null}
 
@@ -647,10 +1058,16 @@ function ControlPanel({
         <View style={styles.loadErrorCard} accessibilityRole="alert">
           <Ionicons name="alert-circle-outline" size={22} color="#A33F3F" />
           <View style={styles.loadErrorCopy}>
-            <Text style={styles.loadErrorTitle}>Não foi possível atualizar os valores</Text>
+            <Text style={styles.loadErrorTitle}>
+              Não foi possível atualizar os valores
+            </Text>
             <Text style={styles.loadErrorText}>{loadError}</Text>
           </View>
-          <Pressable onPress={() => void load()} accessibilityRole="button" style={styles.loadErrorButton}>
+          <Pressable
+            onPress={() => void load()}
+            accessibilityRole="button"
+            style={styles.loadErrorButton}
+          >
             <Text style={styles.loadErrorButtonText}>Tentar novamente</Text>
           </Pressable>
         </View>
@@ -659,7 +1076,9 @@ function ControlPanel({
       {busy && !overview ? (
         <View style={styles.controlLoading}>
           <ActivityIndicator color={OB.primary} />
-          <Text style={styles.controlLoadingText}>Organizando seu período...</Text>
+          <Text style={styles.controlLoadingText}>
+            Organizando seu período...
+          </Text>
         </View>
       ) : overview ? (
         <>
@@ -669,12 +1088,18 @@ function ControlPanel({
                 <Ionicons name="checkmark" size={25} color="#fff" />
               </View>
               <Text style={styles.postImportTitle}>Extrato importado</Text>
-              <Text style={styles.postImportText}>Suas entradas e gastos estão no app.</Text>
+              <Text style={styles.postImportText}>
+                Suas entradas e gastos estão no app.
+              </Text>
               {reconciledCommitments > 0 ? (
                 <View style={styles.postImportReconciledNotice}>
                   <Ionicons name="link-outline" size={17} color="#168A59" />
                   <Text style={styles.postImportReconciledText}>
-                    {reconciledCommitments} {reconciledCommitments === 1 ? "conta foi reconhecida" : "contas foram reconhecidas"} automaticamente.
+                    {reconciledCommitments}{" "}
+                    {reconciledCommitments === 1
+                      ? "conta foi reconhecida"
+                      : "contas foram reconhecidas"}{" "}
+                    automaticamente.
                   </Text>
                 </View>
               ) : null}
@@ -702,19 +1127,29 @@ function ControlPanel({
                 disabled={busy}
                 accessibilityRole="button"
                 accessibilityState={{ disabled: busy }}
-                style={({ pressed }) => [styles.postImportPrimaryButton, busy && styles.newButtonUnavailable, pressed && !busy && styles.newButtonPressed]}
+                style={({ pressed }) => [
+                  styles.postImportPrimaryButton,
+                  busy && styles.newButtonUnavailable,
+                  pressed && !busy && styles.newButtonPressed,
+                ]}
               >
                 {busy ? (
                   <>
                     <ActivityIndicator size="small" color="#fff" />
-                    <Text style={styles.postImportPrimaryButtonText}>Atualizando...</Text>
+                    <Text style={styles.postImportPrimaryButtonText}>
+                      Atualizando...
+                    </Text>
                   </>
                 ) : (
                   <>
                     <Text style={styles.postImportPrimaryButtonText}>
                       {needsPlanningFlow
-                        ? planningGuideStarted && !needsPlanningSetup ? "Continuar meu resumo" : "Preparar meu resumo"
-                        : pendingCommitments.length ? "Registrar próximo pagamento" : "Ver meu resumo"}
+                        ? planningGuideStarted && !needsPlanningSetup
+                          ? "Continuar meu resumo"
+                          : "Preparar meu resumo"
+                        : pendingCommitments.length
+                          ? "Registrar próximo pagamento"
+                          : "Ver meu resumo"}
                     </Text>
                     <Ionicons name="arrow-forward" size={19} color="#fff" />
                   </>
@@ -726,7 +1161,9 @@ function ControlPanel({
                 accessibilityRole="button"
                 style={styles.postImportSecondaryButton}
               >
-                <Text style={styles.postImportLinkText}>Ver o que foi importado</Text>
+                <Text style={styles.postImportLinkText}>
+                  Ver o que foi importado
+                </Text>
               </Pressable>
 
               <Pressable
@@ -734,155 +1171,303 @@ function ControlPanel({
                 accessibilityRole="button"
                 style={styles.postImportSecondaryButton}
               >
-                <Text style={styles.postImportSecondaryButtonText}>Agora não</Text>
+                <Text style={styles.postImportSecondaryButtonText}>
+                  Agora não
+                </Text>
               </Pressable>
             </View>
           ) : (
             <>
-            <View style={styles.availableHero}>
-              <Text style={styles.availableLabel} accessibilityRole="header">Sobra estimada neste período</Text>
-              <Text style={styles.availableValue} maxFontSizeMultiplier={1.25} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.5}>{formatBRLFromCents(overview.availableCents)}</Text>
-              <Text style={styles.availableExplanation}>Uma estimativa conservadora depois do que já aconteceu e dos valores comprometidos.</Text>
+              <View style={styles.availableHero}>
+                <Text style={styles.availableLabel} accessibilityRole="header">
+                  Sobra estimada neste período
+                </Text>
+                <Text
+                  style={styles.availableValue}
+                  maxFontSizeMultiplier={1.25}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.5}
+                >
+                  {formatBRLFromCents(overview.availableCents)}
+                </Text>
+                <Text style={styles.availableExplanation}>
+                  Uma estimativa conservadora depois do que já aconteceu e dos
+                  valores comprometidos.
+                </Text>
 
-              <Pressable
-                onPress={() => setCalculationOpen((open) => !open)}
-                accessibilityRole="button"
-                accessibilityState={{ expanded: calculationOpen }}
-                style={({ pressed }) => [styles.calculationButton, pressed && styles.calculationButtonPressed]}
-              >
-                <Text style={styles.calculationButtonText}>Como calculamos</Text>
-                <Ionicons name={calculationOpen ? "chevron-up" : "chevron-down"} size={16} color="#fff" />
-              </Pressable>
-
-              {calculationOpen ? (
-                <View style={styles.calculationDetails}>
-                  <Text style={styles.calculationDetailsText}>{availabilityExplanation}</Text>
-                </View>
-              ) : null}
-
-              {overview.confidence.status !== "reliable" ? (
-                <View style={styles.estimateNotice}>
-                  <Ionicons name="information-circle-outline" size={18} color="#fff" />
-                  <Text style={styles.estimateNoticeText}>
-                    {overview.balance.total_cents === null
-                      ? "Sem saldo bancário atualizado, este valor é uma estimativa."
-                      : overview.balance.status !== "reliable"
-                        ? "Este valor usa os extratos disponíveis e pode mudar."
-                        : "Revise renda, reserva e contas no planejamento."
-                    }
+                <Pressable
+                  onPress={() => setCalculationOpen((open) => !open)}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: calculationOpen }}
+                  style={({ pressed }) => [
+                    styles.calculationButton,
+                    pressed && styles.calculationButtonPressed,
+                  ]}
+                >
+                  <Text style={styles.calculationButtonText}>
+                    Como calculamos
                   </Text>
-                </View>
-              ) : null}
-
-            </View>
-
-            <View style={styles.summarySectionCard}>
-              <View style={styles.summarySectionHeading}>
-                <Text style={styles.controlSectionTitle} accessibilityRole="header">Movimentações do período</Text>
-                <Text style={styles.sectionHelper}>Movimentações registradas neste período.</Text>
-              </View>
-              <View style={styles.overviewMetricPair}>
-                <OverviewMetric label="Entrou" value={overview.realizedIncomeCents} color="#168A59" />
-                <OverviewMetric label="Saiu" value={overview.realizedExpenseCents} color="#C94949" divided />
-              </View>
-            </View>
-
-            <View style={styles.summarySectionCard}>
-              <View style={styles.summarySectionHeading}>
-                <Text style={styles.controlSectionTitle} accessibilityRole="header">Ainda neste período</Text>
-                <Text style={styles.sectionHelper}>O que está previsto no seu planejamento.</Text>
-              </View>
-              <View style={styles.overviewMetricPair}>
-                <OverviewMetric label="Ainda esperado" value={overview.remainingExpectedIncomeCents} color="#168A59" />
-                <OverviewMetric label="A pagar" value={overview.pendingCommitmentsCents} color="#C94949" divided />
-              </View>
-              {overview.remainingExpectedIncomeCents > 0 ? <Text style={styles.plannedIncomeNote}>Com base na sua renda planejada para este período.</Text> : null}
-            </View>
-
-            <View style={styles.summarySectionCard}>
-              <View style={styles.summarySectionHeading}>
-                <Text style={styles.controlSectionTitle} accessibilityRole="header">Pagamentos pendentes</Text>
-                {pendingCommitments.length ? <Text style={styles.sectionHelper}>Os compromissos mais próximos.</Text> : null}
-              </View>
-
-              {visiblePendingCommitments.length ? (
-                <View style={styles.upcomingPaymentsList}>
-                  {visiblePendingCommitments.map((commitment) => (
-                    <Pressable
-                      key={commitment.id}
-                      onPress={() => void toggleCommitment(commitment)}
-                      accessibilityRole="button"
-                      accessibilityLabel={`${commitment.name}, ${formatShortDateFromYmd(commitment.due_on)}, ${formatBRLFromCents(commitment.pending_cents)}. Registrar pagamento`}
-                      style={({ pressed }) => [styles.upcomingPaymentRow, pressed && styles.upcomingPaymentRowPressed]}
-                    >
-                      <View style={styles.upcomingPaymentCopy}>
-                        <Text style={styles.upcomingPaymentName} numberOfLines={1}>{commitment.name}</Text>
-                        <Text style={styles.upcomingPaymentDate}>{formatShortDateFromYmd(commitment.due_on)}</Text>
-                      </View>
-                      <View style={styles.upcomingPaymentAction}>
-                        <Text style={styles.upcomingPaymentAmount} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.62}>{formatBRLFromCents(commitment.pending_cents)}</Text>
-                        <Ionicons name="chevron-forward" size={15} color={OB.support} />
-                      </View>
-                    </Pressable>
-                  ))}
-                  <Pressable
-                    onPress={() => setPaymentsModalOpen(true)}
-                    accessibilityRole="button"
-                    accessibilityLabel="Ver todos os pagamentos do período"
-                    style={({ pressed }) => [styles.viewAllPaymentsButton, pressed && styles.viewAllPaymentsButtonPressed]}
-                  >
-                    <Text style={styles.viewAllPaymentsText}>Ver todos</Text>
-                    <Ionicons name="arrow-forward" size={16} color={OB.primary} />
-                  </Pressable>
-                </View>
-              ) : (
-                <Text style={styles.summaryEmptyText}>Você não tem pagamentos pendentes neste período.</Text>
-              )}
-            </View>
-
-            <View style={styles.periodPlanCard}>
-              <Text style={styles.periodPlanTitle} accessibilityRole="header">Previsão para o fim do período</Text>
-              <Text
-                style={[styles.periodPlanValue, overview.periodEndForecastCents < 0 && styles.periodPlanValueNegative]}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-                minimumFontScale={0.58}
-              >
-                {formatBRLFromCents(overview.periodEndForecastCents)}
-              </Text>
-              <Text style={styles.periodPlanStatus}>
-                {overview.periodEndForecastCents >= 0
-                  ? "Se o planejamento se mantiver, você deve terminar o período com saldo positivo."
-                  : "Se o planejamento se mantiver, suas saídas previstas ultrapassam suas entradas."}
-              </Text>
-            </View>
-
-            <View style={styles.quickActionsSection}>
-              <Text style={styles.quickActionsTitle} accessibilityRole="header">Ações rápidas</Text>
-              <View style={styles.quickActionsCard}>
-                <SummaryAction icon="add-outline" label="Adicionar movimentação" onPress={() => router.push("/(app)/new-transaction")} />
-                <SummaryAction icon="swap-vertical-outline" label="Ver movimentações" onPress={onViewTransactions} />
-                <SummaryAction icon="checkmark-done-outline" label="Revisar pagamentos" onPress={() => setPaymentsModalOpen(true)} last />
-              </View>
-              <View style={styles.summarySecondaryActions}>
-                <Pressable onPress={() => router.push("/(app)/financial-plan")} accessibilityRole="button" style={({ pressed }) => [styles.summarySecondaryAction, pressed && styles.summarySecondaryActionPressed]}>
-                  <Text style={styles.summarySecondaryActionText}>Ajustar planejamento</Text>
+                  <Ionicons
+                    name={calculationOpen ? "chevron-up" : "chevron-down"}
+                    size={16}
+                    color="#fff"
+                  />
                 </Pressable>
-                {overview.availableCents > 0 ? (
-                  <Pressable onPress={openAllocation} accessibilityRole="button" style={({ pressed }) => [styles.summarySecondaryAction, pressed && styles.summarySecondaryActionPressed]}>
-                    <Text style={styles.summarySecondaryActionText}>Guardar para um sonho</Text>
-                  </Pressable>
+
+                {calculationOpen ? (
+                  <View style={styles.calculationDetails}>
+                    <Text style={styles.calculationDetailsText}>
+                      {availabilityExplanation}
+                    </Text>
+                  </View>
+                ) : null}
+
+                {overview.confidence.status !== "reliable" ? (
+                  <View style={styles.estimateNotice}>
+                    <Ionicons
+                      name="information-circle-outline"
+                      size={18}
+                      color="#fff"
+                    />
+                    <Text style={styles.estimateNoticeText}>
+                      {overview.balance.total_cents === null
+                        ? "Sem saldo bancário atualizado, este valor é uma estimativa."
+                        : overview.balance.status !== "reliable"
+                          ? "Este valor usa os extratos disponíveis e pode mudar."
+                          : "Revise renda, reserva e contas no planejamento."}
+                    </Text>
+                  </View>
                 ) : null}
               </View>
-            </View>
 
+              <View style={styles.summarySectionCard}>
+                <View style={styles.summarySectionHeading}>
+                  <Text
+                    style={styles.controlSectionTitle}
+                    accessibilityRole="header"
+                  >
+                    Movimentações do período
+                  </Text>
+                  <Text style={styles.sectionHelper}>
+                    Movimentações registradas neste período.
+                  </Text>
+                </View>
+                <View style={styles.overviewMetricPair}>
+                  <OverviewMetric
+                    label="Entrou"
+                    value={overview.realizedIncomeCents}
+                    color="#168A59"
+                  />
+                  <OverviewMetric
+                    label="Saiu"
+                    value={overview.realizedExpenseCents}
+                    color="#C94949"
+                    divided
+                  />
+                </View>
+              </View>
+
+              <View style={styles.summarySectionCard}>
+                <View style={styles.summarySectionHeading}>
+                  <Text
+                    style={styles.controlSectionTitle}
+                    accessibilityRole="header"
+                  >
+                    Ainda neste período
+                  </Text>
+                  <Text style={styles.sectionHelper}>
+                    O que está previsto no seu planejamento.
+                  </Text>
+                </View>
+                <View style={styles.overviewMetricPair}>
+                  <OverviewMetric
+                    label="Ainda esperado"
+                    value={overview.remainingExpectedIncomeCents}
+                    color="#168A59"
+                  />
+                  <OverviewMetric
+                    label="A pagar"
+                    value={overview.pendingCommitmentsCents}
+                    color="#C94949"
+                    divided
+                  />
+                </View>
+                {overview.remainingExpectedIncomeCents > 0 ? (
+                  <Text style={styles.plannedIncomeNote}>
+                    Com base na sua renda planejada para este período.
+                  </Text>
+                ) : null}
+              </View>
+
+              <View style={styles.summarySectionCard}>
+                <View style={styles.summarySectionHeading}>
+                  <Text
+                    style={styles.controlSectionTitle}
+                    accessibilityRole="header"
+                  >
+                    Pagamentos pendentes
+                  </Text>
+                  {pendingCommitments.length ? (
+                    <Text style={styles.sectionHelper}>
+                      Os compromissos mais próximos.
+                    </Text>
+                  ) : null}
+                </View>
+
+                {visiblePendingCommitments.length ? (
+                  <View style={styles.upcomingPaymentsList}>
+                    {visiblePendingCommitments.map((commitment) => (
+                      <Pressable
+                        key={commitment.id}
+                        onPress={() => void toggleCommitment(commitment)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${commitment.name}, ${formatShortDateFromYmd(commitment.due_on)}, ${formatBRLFromCents(commitment.pending_cents)}. Registrar pagamento`}
+                        style={({ pressed }) => [
+                          styles.upcomingPaymentRow,
+                          pressed && styles.upcomingPaymentRowPressed,
+                        ]}
+                      >
+                        <View style={styles.upcomingPaymentCopy}>
+                          <Text
+                            style={styles.upcomingPaymentName}
+                            numberOfLines={1}
+                          >
+                            {commitment.name}
+                          </Text>
+                          <Text style={styles.upcomingPaymentDate}>
+                            {formatShortDateFromYmd(commitment.due_on)}
+                          </Text>
+                        </View>
+                        <View style={styles.upcomingPaymentAction}>
+                          <Text
+                            style={styles.upcomingPaymentAmount}
+                            numberOfLines={1}
+                            adjustsFontSizeToFit
+                            minimumFontScale={0.62}
+                          >
+                            {formatBRLFromCents(commitment.pending_cents)}
+                          </Text>
+                          <Ionicons
+                            name="chevron-forward"
+                            size={15}
+                            color={OB.support}
+                          />
+                        </View>
+                      </Pressable>
+                    ))}
+                    <Pressable
+                      onPress={() => setPaymentsModalOpen(true)}
+                      accessibilityRole="button"
+                      accessibilityLabel="Ver todos os pagamentos do período"
+                      style={({ pressed }) => [
+                        styles.viewAllPaymentsButton,
+                        pressed && styles.viewAllPaymentsButtonPressed,
+                      ]}
+                    >
+                      <Text style={styles.viewAllPaymentsText}>Ver todos</Text>
+                      <Ionicons
+                        name="arrow-forward"
+                        size={16}
+                        color={OB.primary}
+                      />
+                    </Pressable>
+                  </View>
+                ) : (
+                  <Text style={styles.summaryEmptyText}>
+                    Você não tem pagamentos pendentes neste período.
+                  </Text>
+                )}
+              </View>
+
+              <View style={styles.periodPlanCard}>
+                <Text style={styles.periodPlanTitle} accessibilityRole="header">
+                  Previsão para o fim do período
+                </Text>
+                <Text
+                  style={[
+                    styles.periodPlanValue,
+                    overview.periodEndForecastCents < 0 &&
+                      styles.periodPlanValueNegative,
+                  ]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.58}
+                >
+                  {formatBRLFromCents(overview.periodEndForecastCents)}
+                </Text>
+                <Text style={styles.periodPlanStatus}>
+                  {overview.periodEndForecastCents >= 0
+                    ? "Se o planejamento se mantiver, você deve terminar o período com saldo positivo."
+                    : "Se o planejamento se mantiver, suas saídas previstas ultrapassam suas entradas."}
+                </Text>
+              </View>
+
+              <View style={styles.quickActionsSection}>
+                <Text
+                  style={styles.quickActionsTitle}
+                  accessibilityRole="header"
+                >
+                  Ações rápidas
+                </Text>
+                <View style={styles.quickActionsCard}>
+                  <SummaryAction
+                    icon="add-outline"
+                    label="Adicionar movimentação"
+                    onPress={() => router.push("/(app)/new-transaction")}
+                  />
+                  <SummaryAction
+                    icon="swap-vertical-outline"
+                    label="Ver movimentações"
+                    onPress={onViewTransactions}
+                  />
+                  <SummaryAction
+                    icon="checkmark-done-outline"
+                    label="Revisar pagamentos"
+                    onPress={() => setPaymentsModalOpen(true)}
+                    last
+                  />
+                </View>
+                <View style={styles.summarySecondaryActions}>
+                  <Pressable
+                    onPress={() => router.push("/(app)/financial-plan")}
+                    accessibilityRole="button"
+                    style={({ pressed }) => [
+                      styles.summarySecondaryAction,
+                      pressed && styles.summarySecondaryActionPressed,
+                    ]}
+                  >
+                    <Text style={styles.summarySecondaryActionText}>
+                      Ajustar planejamento
+                    </Text>
+                  </Pressable>
+                  {overview.availableCents > 0 ? (
+                    <Pressable
+                      onPress={openAllocation}
+                      accessibilityRole="button"
+                      style={({ pressed }) => [
+                        styles.summarySecondaryAction,
+                        pressed && styles.summarySecondaryActionPressed,
+                      ]}
+                    >
+                      <Text style={styles.summarySecondaryActionText}>
+                        Guardar para um sonho
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              </View>
             </>
           )}
         </>
       ) : loadError ? null : !householdId ? (
-        <Text style={emptyStyle}>Conclua as primeiras etapas para criar sua estrutura financeira.</Text>
+        <Text style={emptyStyle}>
+          Conclua as primeiras etapas para criar sua estrutura financeira.
+        </Text>
       ) : (
-        <Text style={emptyStyle}>Não foi possível mostrar o resumo deste período.</Text>
+        <Text style={emptyStyle}>
+          Não foi possível mostrar o resumo deste período.
+        </Text>
       )}
 
       <Modal
@@ -904,12 +1489,25 @@ function ControlPanel({
               },
             ]}
           >
-            <View style={[styles.paymentsModalHeader, compactPaymentsSheet && styles.paymentsModalHeaderCompact]}>
-              <View pointerEvents="none" style={styles.paymentsModalActionSlot} />
+            <View
+              style={[
+                styles.paymentsModalHeader,
+                compactPaymentsSheet && styles.paymentsModalHeaderCompact,
+              ]}
+            >
+              <View
+                pointerEvents="none"
+                style={styles.paymentsModalActionSlot}
+              />
               <View style={styles.paymentsModalHeaderCopy}>
-                <Text style={styles.paymentsModalEyebrow}>Resumo financeiro</Text>
+                <Text style={styles.paymentsModalEyebrow}>
+                  Resumo financeiro
+                </Text>
                 <Text
-                  style={[styles.paymentsModalTitle, compactPaymentsSheet && styles.paymentsModalTitleCompact]}
+                  style={[
+                    styles.paymentsModalTitle,
+                    compactPaymentsSheet && styles.paymentsModalTitleCompact,
+                  ]}
                   accessibilityRole="header"
                   numberOfLines={1}
                   adjustsFontSizeToFit
@@ -917,13 +1515,23 @@ function ControlPanel({
                 >
                   Revisar pagamentos
                 </Text>
-                <Text style={[styles.paymentsModalText, compactPaymentsSheet && styles.paymentsModalTextCompact]}>Veja o que já foi pago e registre o que falta.</Text>
+                <Text
+                  style={[
+                    styles.paymentsModalText,
+                    compactPaymentsSheet && styles.paymentsModalTextCompact,
+                  ]}
+                >
+                  Veja o que já foi pago e registre o que falta.
+                </Text>
               </View>
               <Pressable
                 onPress={() => setPaymentsModalOpen(false)}
                 accessibilityRole="button"
                 accessibilityLabel="Fechar revisão de pagamentos"
-                style={({ pressed }) => [styles.paymentsModalClose, pressed && styles.paymentsModalClosePressed]}
+                style={({ pressed }) => [
+                  styles.paymentsModalClose,
+                  pressed && styles.paymentsModalClosePressed,
+                ]}
               >
                 <Ionicons name="close" size={21} color="#fff" />
               </Pressable>
@@ -940,29 +1548,56 @@ function ControlPanel({
               {overview ? (
                 <View style={styles.paymentsPeriodBar}>
                   <View style={styles.paymentsPeriodIcon}>
-                    <Ionicons name="calendar-outline" size={18} color={OB.primary} />
+                    <Ionicons
+                      name="calendar-outline"
+                      size={18}
+                      color={OB.primary}
+                    />
                   </View>
                   <View style={styles.paymentsPeriodCopy}>
-                    <Text style={styles.paymentsPeriodEyebrow}>Período selecionado</Text>
-                    <Text style={styles.paymentsPeriodLabel}>{overview.cycle.label}</Text>
-                    <Text style={styles.paymentsPeriodRange}>{formatDate(overview.cycle.start)} a {formatDate(previousDate(overview.cycle.end))}</Text>
+                    <Text style={styles.paymentsPeriodEyebrow}>
+                      Período selecionado
+                    </Text>
+                    <Text style={styles.paymentsPeriodLabel}>
+                      {overview.cycle.label}
+                    </Text>
+                    <Text style={styles.paymentsPeriodRange}>
+                      {formatDate(overview.cycle.start)} a{" "}
+                      {formatDate(previousDate(overview.cycle.end))}
+                    </Text>
                   </View>
                 </View>
               ) : null}
 
               {loadError ? (
-                <View style={styles.paymentsInlineError} accessibilityRole="alert">
-                  <Ionicons name="alert-circle-outline" size={20} color="#A33F3F" />
-                  <Text style={styles.paymentsInlineErrorText}>{loadError}</Text>
+                <View
+                  style={styles.paymentsInlineError}
+                  accessibilityRole="alert"
+                >
+                  <Ionicons
+                    name="alert-circle-outline"
+                    size={20}
+                    color="#A33F3F"
+                  />
+                  <Text style={styles.paymentsInlineErrorText}>
+                    {loadError}
+                  </Text>
                 </View>
               ) : null}
 
               {pendingCommitments.length ? (
                 <View style={styles.paymentsModalSection}>
                   <View style={styles.paymentsModalSectionHeading}>
-                    <Text style={styles.paymentsModalSectionTitle} accessibilityRole="header">Pendentes</Text>
+                    <Text
+                      style={styles.paymentsModalSectionTitle}
+                      accessibilityRole="header"
+                    >
+                      Pendentes
+                    </Text>
                     <View style={styles.paymentsModalSectionCount}>
-                      <Text style={styles.paymentsModalSectionCountText}>{pendingCommitments.length}</Text>
+                      <Text style={styles.paymentsModalSectionCountText}>
+                        {pendingCommitments.length}
+                      </Text>
                     </View>
                   </View>
                   {pendingCommitments.map(renderPaymentRow)}
@@ -972,9 +1607,26 @@ function ControlPanel({
               {confirmedCommitments.length ? (
                 <View style={styles.paymentsModalSection}>
                   <View style={styles.paymentsModalSectionHeading}>
-                    <Text style={styles.paymentsModalSectionTitle} accessibilityRole="header">Pagas</Text>
-                    <View style={[styles.paymentsModalSectionCount, styles.paymentsModalSectionCountPaid]}>
-                      <Text style={[styles.paymentsModalSectionCountText, styles.paymentsModalSectionCountTextPaid]}>{confirmedCommitments.length}</Text>
+                    <Text
+                      style={styles.paymentsModalSectionTitle}
+                      accessibilityRole="header"
+                    >
+                      Pagas
+                    </Text>
+                    <View
+                      style={[
+                        styles.paymentsModalSectionCount,
+                        styles.paymentsModalSectionCountPaid,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.paymentsModalSectionCountText,
+                          styles.paymentsModalSectionCountTextPaid,
+                        ]}
+                      >
+                        {confirmedCommitments.length}
+                      </Text>
                     </View>
                   </View>
                   {confirmedCommitments.map(renderPaymentRow)}
@@ -984,10 +1636,18 @@ function ControlPanel({
               {!overview?.commitments.length ? (
                 <View style={styles.paymentsEmptyState}>
                   <View style={styles.paymentsEmptyIcon}>
-                    <Ionicons name="checkmark-circle-outline" size={30} color="#168A59" />
+                    <Ionicons
+                      name="checkmark-circle-outline"
+                      size={30}
+                      color="#168A59"
+                    />
                   </View>
-                  <Text style={styles.paymentsEmptyTitle}>Tudo certo por aqui</Text>
-                  <Text style={styles.paymentsEmptyText}>Não há pagamentos para revisar neste período.</Text>
+                  <Text style={styles.paymentsEmptyTitle}>
+                    Tudo certo por aqui
+                  </Text>
+                  <Text style={styles.paymentsEmptyText}>
+                    Não há pagamentos para revisar neste período.
+                  </Text>
                 </View>
               ) : null}
             </ScrollView>
@@ -1016,10 +1676,21 @@ function DrawerButton({
   onPress: () => void;
 }) {
   return (
-    <Pressable onPress={onPress} style={[styles.drawerItem, active && styles.drawerItemActive]}>
+    <Pressable
+      onPress={onPress}
+      style={[styles.drawerItem, active && styles.drawerItemActive]}
+    >
       <Ionicons name={icon} size={20} color={active ? "#fff" : OB.support} />
-      <Text style={[styles.drawerItemText, active && styles.drawerItemTextActive]}>{label}</Text>
-      <Ionicons name="chevron-forward" size={15} color={active ? "rgba(255,255,255,0.74)" : OB.support} />
+      <Text
+        style={[styles.drawerItemText, active && styles.drawerItemTextActive]}
+      >
+        {label}
+      </Text>
+      <Ionicons
+        name="chevron-forward"
+        size={15}
+        color={active ? "rgba(255,255,255,0.74)" : OB.support}
+      />
     </Pressable>
   );
 }
@@ -1060,7 +1731,10 @@ function JourneyDrawer({
 
   return (
     <View style={styles.drawerLayer}>
-      <Pressable onPress={onClose} style={[styles.drawerScrim, WEB_DRAWER_BLUR_STYLE]}>
+      <Pressable
+        onPress={onClose}
+        style={[styles.drawerScrim, WEB_DRAWER_BLUR_STYLE]}
+      >
         <BlurView
           intensity={24}
           tint="default"
@@ -1073,31 +1747,58 @@ function JourneyDrawer({
       </Pressable>
       <View style={styles.drawerPanel}>
         <View style={styles.drawerHero}>
-          <Pressable onPress={onClose} style={styles.drawerClose} accessibilityRole="button" accessibilityLabel="Fechar menu">
+          <Pressable
+            onPress={onClose}
+            style={styles.drawerClose}
+            accessibilityRole="button"
+            accessibilityLabel="Fechar menu"
+          >
             <Ionicons name="close" size={21} color="#fff" />
           </Pressable>
           <View style={styles.drawerProfile}>
-            <Pressable onPress={goProfile} style={styles.drawerAvatar} accessibilityRole="button" accessibilityLabel="Editar perfil">
+            <Pressable
+              onPress={goProfile}
+              style={styles.drawerAvatar}
+              accessibilityRole="button"
+              accessibilityLabel="Editar perfil"
+            >
               {avatarUrl ? (
-                <Image source={{ uri: avatarUrl }} style={styles.drawerAvatarImage} resizeMode="contain" />
+                <Image
+                  source={{ uri: avatarUrl }}
+                  style={styles.drawerAvatarImage}
+                  resizeMode="contain"
+                />
               ) : (
-                <Text style={styles.drawerAvatarText}>{initialsFrom(displayName)}</Text>
+                <Text style={styles.drawerAvatarText}>
+                  {initialsFrom(displayName)}
+                </Text>
               )}
               <View style={styles.drawerAvatarEdit}>
                 <Ionicons name="camera" size={12} color="#fff" />
               </View>
             </Pressable>
-            <Text style={styles.drawerUserName} numberOfLines={1}>{displayName}</Text>
+            <Text style={styles.drawerUserName} numberOfLines={1}>
+              {displayName}
+            </Text>
             <Text style={styles.drawerSubtitle}>Realize seus sonhos</Text>
           </View>
         </View>
 
         <View style={styles.drawerList}>
-          <DrawerButton icon="compass-outline" label="Sonhos" active={activeTab === "jornada"} onPress={() => goTab("jornada")} />
-          <DrawerButton icon="swap-vertical-outline" label="Movimentações" active={activeTab === "movimentacoes"} onPress={() => goTab("movimentacoes")} />
-          <DrawerButton icon="wallet-outline" label="Resumo" active={activeTab === "controle"} onPress={() => goTab("controle")} />
-          <DrawerButton icon="pricetags-outline" label="Categorias" onPress={goCategories} />
-          <DrawerButton icon="trophy-outline" label="Desafios" active={activeTab === "desafios"} onPress={() => goTab("desafios")} />
+          {MAIN_NAVIGATION_ITEMS.map(({ id, label, icon }) => (
+            <DrawerButton
+              key={id}
+              icon={icon}
+              label={label}
+              active={activeTab === id}
+              onPress={() => goTab(id)}
+            />
+          ))}
+          <DrawerButton
+            icon="pricetags-outline"
+            label="Categorias"
+            onPress={goCategories}
+          />
         </View>
 
         <View style={styles.drawerFooter}>
@@ -1112,25 +1813,43 @@ function JourneyDrawer({
 }
 
 export default function JourneyScreen() {
-  const params = useLocalSearchParams<{ dreams?: string; values?: string; tab?: string; cycleDate?: string; postImport?: string; importId?: string; reconciledCommitments?: string }>();
+  const params = useLocalSearchParams<{
+    dreams?: string;
+    values?: string;
+    tab?: string;
+    cycleDate?: string;
+    postImport?: string;
+    importId?: string;
+    reconciledCommitments?: string;
+  }>();
   const { session, signOut } = useSession();
   const userId = session?.user?.id ?? null;
   const { householdId, loading: householdLoading } = useHouseholdId(userId);
   const requestedTab = Array.isArray(params.tab) ? params.tab[0] : params.tab;
-  const requestedCycleDate = Array.isArray(params.cycleDate) ? params.cycleDate[0] : params.cycleDate;
-  const requestedPostImport = Array.isArray(params.postImport) ? params.postImport[0] : params.postImport;
-  const requestedImportId = Array.isArray(params.importId) ? params.importId[0] : params.importId;
-  const requestedReconciledCommitments = Array.isArray(params.reconciledCommitments) ? params.reconciledCommitments[0] : params.reconciledCommitments;
+  const requestedCycleDate = Array.isArray(params.cycleDate)
+    ? params.cycleDate[0]
+    : params.cycleDate;
+  const requestedPostImport = Array.isArray(params.postImport)
+    ? params.postImport[0]
+    : params.postImport;
+  const requestedImportId = Array.isArray(params.importId)
+    ? params.importId[0]
+    : params.importId;
+  const requestedReconciledCommitments = Array.isArray(
+    params.reconciledCommitments,
+  )
+    ? params.reconciledCommitments[0]
+    : params.reconciledCommitments;
   const parsedReconciledCommitments = Number(requestedReconciledCommitments);
   const reconciledCommitments = Number.isFinite(parsedReconciledCommitments)
     ? Math.max(0, Math.trunc(parsedReconciledCommitments))
     : 0;
-  const initialTab: Tab = requestedTab === "controle" || requestedTab === "jornada" || requestedTab === "movimentacoes" || requestedTab === "desafios"
-    ? requestedTab
-    : "jornada";
+  const initialTab = parseRequestedTab(requestedTab);
   const [tab, setTab] = useState<Tab>(initialTab);
   const [controlCycleDate, setControlCycleDate] = useState(requestedCycleDate);
-  const [postImportId, setPostImportId] = useState(requestedPostImport === "1" ? requestedImportId : undefined);
+  const [postImportId, setPostImportId] = useState(
+    requestedPostImport === "1" ? requestedImportId : undefined,
+  );
   const [menuOpen, setMenuOpen] = useState(false);
   const [goals, setGoals] = useState<GoalProgress[]>([]);
   const [journeyLoading, setJourneyLoading] = useState(true);
@@ -1144,18 +1863,35 @@ export default function JourneyScreen() {
     router.setParams({ tab: nextTab });
   }, []);
 
-  const userMeta = session?.user?.user_metadata as Record<string, any> | undefined;
-  const displayName = userMeta?.full_name || userMeta?.name || session?.user?.email?.split("@")[0] || "Usuário";
+  const userMeta = session?.user?.user_metadata as
+    | Record<string, any>
+    | undefined;
+  const displayName =
+    userMeta?.full_name ||
+    userMeta?.name ||
+    session?.user?.email?.split("@")[0] ||
+    "Usuário";
   const avatarUrl = userMeta?.avatar_url || userMeta?.picture || null;
-  const savedDreams = Array.isArray(userMeta?.finapp_dreams) ? JSON.stringify(userMeta.finapp_dreams) : undefined;
-  const savedValues = userMeta?.finapp_dream_values && typeof userMeta.finapp_dream_values === "object" ? JSON.stringify(userMeta.finapp_dream_values) : undefined;
-  const dreams = useMemo(() => readJson<string[]>(params.dreams ?? savedDreams, []), [params.dreams, savedDreams]);
-  const values = useMemo(() => readJson<Record<string, string>>(params.values ?? savedValues, {}), [params.values, savedValues]);
+  const savedDreams = Array.isArray(userMeta?.finapp_dreams)
+    ? JSON.stringify(userMeta.finapp_dreams)
+    : undefined;
+  const savedValues =
+    userMeta?.finapp_dream_values &&
+    typeof userMeta.finapp_dream_values === "object"
+      ? JSON.stringify(userMeta.finapp_dream_values)
+      : undefined;
+  const dreams = useMemo(
+    () => readJson<string[]>(params.dreams ?? savedDreams, []),
+    [params.dreams, savedDreams],
+  );
+  const values = useMemo(
+    () => readJson<Record<string, string>>(params.values ?? savedValues, {}),
+    [params.values, savedValues],
+  );
 
   useEffect(() => {
-    if (requestedTab === "controle" || requestedTab === "jornada" || requestedTab === "movimentacoes" || requestedTab === "desafios") {
-      setTab(requestedTab);
-    }
+    if (!requestedTab) return;
+    setTab(parseRequestedTab(requestedTab));
   }, [requestedTab]);
 
   useEffect(() => {
@@ -1163,7 +1899,11 @@ export default function JourneyScreen() {
   }, [requestedCycleDate]);
 
   useEffect(() => {
-    setPostImportId(requestedPostImport === "1" && requestedImportId ? requestedImportId : undefined);
+    setPostImportId(
+      requestedPostImport === "1" && requestedImportId
+        ? requestedImportId
+        : undefined,
+    );
   }, [requestedImportId, requestedPostImport]);
 
   const rememberControlCycle = useCallback((nextCycleDate: string) => {
@@ -1172,25 +1912,43 @@ export default function JourneyScreen() {
 
   const finishPostImport = useCallback(() => {
     setPostImportId(undefined);
-    router.setParams({ postImport: undefined, importId: undefined, reconciledCommitments: undefined });
+    router.setParams({
+      postImport: undefined,
+      importId: undefined,
+      reconciledCommitments: undefined,
+    });
   }, []);
 
-  const activePostImportId = requestedPostImport === "1" && requestedImportId === postImportId
-    ? postImportId
-    : undefined;
+  const activePostImportId =
+    requestedPostImport === "1" && requestedImportId === postImportId
+      ? postImportId
+      : undefined;
 
   const loadJourney = useCallback(async () => {
-    if (!householdId || !userId) { setGoals([]); setJourneyLoading(false); return; }
+    if (!householdId || !userId) {
+      setGoals([]);
+      setJourneyLoading(false);
+      return;
+    }
     try {
       setJourneyLoading(true);
-      if (dreams.length) await syncGoalsFromDreams({ householdId, userId, dreams, values });
-      const [goalRows, txRows] = await Promise.all([listGoalsWithProgress(householdId), listTransactionsByMonth(householdId)]);
+      if (dreams.length)
+        await syncGoalsFromDreams({ householdId, userId, dreams, values });
+      const [goalRows, txRows] = await Promise.all([
+        listGoalsWithProgress(householdId),
+        listTransactionsByMonth(householdId),
+      ]);
       setGoals(goalRows);
       const now = new Date();
       const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-      setExpenseToday(txRows.some((tx) => tx.type === "expense" && tx.occurred_on === today));
+      setExpenseToday(
+        txRows.some((tx) => tx.type === "expense" && tx.occurred_on === today),
+      );
     } catch (error: any) {
-      Alert.alert("Seus sonhos", error?.message ?? "Não foi possível carregar seus sonhos.");
+      Alert.alert(
+        "Seus sonhos",
+        error?.message ?? "Não foi possível carregar seus sonhos.",
+      );
     } finally {
       setJourneyLoading(false);
     }
@@ -1199,19 +1957,39 @@ export default function JourneyScreen() {
   useFocusEffect(
     useCallback(() => {
       if (tab === "jornada" || tab === "desafios") void loadJourney();
-    }, [loadJourney, tab])
+    }, [loadJourney, tab]),
   );
 
-  const activeGoals = useMemo(() => goals.filter((goal) => goal.contributed_cents < goal.target_cents), [goals]);
-  const completedGoals = useMemo(() => goals.filter((goal) => goal.contributed_cents >= goal.target_cents), [goals]);
+  const activeGoals = useMemo(
+    () => goals.filter((goal) => goal.contributed_cents < goal.target_cents),
+    [goals],
+  );
+  const completedGoals = useMemo(
+    () => goals.filter((goal) => goal.contributed_cents >= goal.target_cents),
+    [goals],
+  );
   const progressGoals = activeGoals.length ? activeGoals : completedGoals;
-  const targetTotal = progressGoals.reduce((sum, goal) => sum + goal.target_cents, 0);
-  const contributedTotal = progressGoals.reduce((sum, goal) => sum + Math.min(goal.contributed_cents, goal.target_cents), 0);
-  const monthTotal = goals.reduce((sum, goal) => sum + goal.month_contributed_cents, 0);
-  const journeyProgress = clampProgress((contributedTotal / Math.max(targetTotal, 1)) * 100);
+  const targetTotal = progressGoals.reduce(
+    (sum, goal) => sum + goal.target_cents,
+    0,
+  );
+  const contributedTotal = progressGoals.reduce(
+    (sum, goal) => sum + Math.min(goal.contributed_cents, goal.target_cents),
+    0,
+  );
+  const monthTotal = goals.reduce(
+    (sum, goal) => sum + goal.month_contributed_cents,
+    0,
+  );
+  const journeyProgress = clampProgress(
+    (contributedTotal / Math.max(targetTotal, 1)) * 100,
+  );
 
   function openGoal(goal: GoalProgress) {
-    router.push({ pathname: "/(app)/dream/[goalId]", params: { goalId: goal.id } });
+    router.push({
+      pathname: "/(app)/dream/[goalId]",
+      params: { goalId: goal.id },
+    });
   }
 
   const logout = useCallback(async () => {
@@ -1231,72 +2009,79 @@ export default function JourneyScreen() {
     useCallback(() => {
       if (Platform.OS !== "android") return undefined;
 
-      const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
-        const now = Date.now();
-        const action = getAndroidBackAction({
-          menuOpen,
-          tab,
-          isSecondPress: now - lastBackPressRef.current <= ANDROID_BACK_PRESS_WINDOW_MS,
-        });
+      const subscription = BackHandler.addEventListener(
+        "hardwareBackPress",
+        () => {
+          const now = Date.now();
+          const action = getAndroidBackAction({
+            menuOpen,
+            tab,
+            isSecondPress:
+              now - lastBackPressRef.current <= ANDROID_BACK_PRESS_WINDOW_MS,
+          });
 
-        if (action === "close-menu") {
-          setMenuOpen(false);
-          lastBackPressRef.current = 0;
-          return true;
-        }
-
-        if (action === "go-home") {
-          selectTab("jornada");
-          lastBackPressRef.current = 0;
-          return true;
-        }
-
-        if (action === "warn-exit") {
-          lastBackPressRef.current = now;
-          ToastAndroid.show("Pressione voltar novamente para sair da conta", ToastAndroid.SHORT);
-          return true;
-        }
-
-        lastBackPressRef.current = 0;
-        if (logoutPromptOpenRef.current) return true;
-        logoutPromptOpenRef.current = true;
-
-        Alert.alert(
-          "Sair da conta?",
-          "Deseja deslogar do Sonho+?",
-          [
-            {
-              text: "Cancelar",
-              style: "cancel",
-              onPress: () => {
-                logoutPromptOpenRef.current = false;
-              },
-            },
-            {
-              text: "Deslogar",
-              style: "destructive",
-              onPress: () => {
-                logoutPromptOpenRef.current = false;
-                void logout();
-              },
-            },
-          ],
-          {
-            cancelable: true,
-            onDismiss: () => {
-              logoutPromptOpenRef.current = false;
-            },
+          if (action === "close-menu") {
+            setMenuOpen(false);
+            lastBackPressRef.current = 0;
+            return true;
           }
-        );
-        return true;
-      });
+
+          if (action === "go-home") {
+            selectTab("jornada");
+            lastBackPressRef.current = 0;
+            return true;
+          }
+
+          if (action === "warn-exit") {
+            lastBackPressRef.current = now;
+            ToastAndroid.show(
+              "Pressione voltar novamente para sair da conta",
+              ToastAndroid.SHORT,
+            );
+            return true;
+          }
+
+          lastBackPressRef.current = 0;
+          if (logoutPromptOpenRef.current) return true;
+          logoutPromptOpenRef.current = true;
+
+          Alert.alert(
+            "Sair da conta?",
+            "Deseja deslogar do Sonho+?",
+            [
+              {
+                text: "Cancelar",
+                style: "cancel",
+                onPress: () => {
+                  logoutPromptOpenRef.current = false;
+                },
+              },
+              {
+                text: "Deslogar",
+                style: "destructive",
+                onPress: () => {
+                  logoutPromptOpenRef.current = false;
+                  void logout();
+                },
+              },
+            ],
+            {
+              cancelable: true,
+              onDismiss: () => {
+                logoutPromptOpenRef.current = false;
+              },
+            },
+          );
+          return true;
+        },
+      );
 
       return () => {
         subscription.remove();
         lastBackPressRef.current = 0;
         logoutPromptOpenRef.current = false;
       };
-    }, [logout, menuOpen, selectTab, tab])
+    }, [logout, menuOpen, selectTab, tab]),
   );
 
   const challengeCard = (
@@ -1304,9 +2089,21 @@ export default function JourneyScreen() {
       <View style={{ flex: 1 }}>
         <Text style={styles.challengeEyebrow}>Desafio de hoje</Text>
         <Text style={styles.challengeTitle}>Registre uma despesa do dia</Text>
-        <Text style={styles.challengeText}>{expenseToday ? "Concluído com um lançamento real de hoje." : "Adicione uma despesa na aba Movimentações para concluir."}</Text>
+        <Text style={styles.challengeText}>
+          {expenseToday
+            ? "Concluído com um lançamento real de hoje."
+            : "Adicione uma despesa na aba Movimentações para concluir."}
+        </Text>
       </View>
-      <View style={[styles.checkButton, expenseToday && styles.checkButtonDone]}><Ionicons name={expenseToday ? "checkmark" : "receipt-outline"} size={21} color={expenseToday ? "#fff" : OB.support} /></View>
+      <View
+        style={[styles.checkButton, expenseToday && styles.checkButtonDone]}
+      >
+        <Ionicons
+          name={expenseToday ? "checkmark" : "receipt-outline"}
+          size={21}
+          color={expenseToday ? "#fff" : OB.support}
+        />
+      </View>
     </View>
   );
 
@@ -1314,7 +2111,28 @@ export default function JourneyScreen() {
     <OnboardingShell light>
       <View style={styles.root}>
         <View style={styles.content}>
-          {tab === "controle" ? <ControlPanel key={activePostImportId ? `post-import:${activePostImportId}` : "control"} householdId={householdId} userId={userId} householdLoading={householdLoading} cycleDate={controlCycleDate} onCycleDateChange={rememberControlCycle} postImportId={activePostImportId} reconciledCommitments={activePostImportId ? reconciledCommitments : 0} onPostImportHandled={finishPostImport} onViewTransactions={() => selectTab("movimentacoes")} /> : tab === "movimentacoes" ? <MovementsScreen embedded /> : tab === "jornada" ? (
+          {tab === "controle" ? (
+            <ControlPanel
+              key={
+                activePostImportId
+                  ? `post-import:${activePostImportId}`
+                  : "control"
+              }
+              householdId={householdId}
+              userId={userId}
+              householdLoading={householdLoading}
+              cycleDate={controlCycleDate}
+              onCycleDateChange={rememberControlCycle}
+              postImportId={activePostImportId}
+              reconciledCommitments={
+                activePostImportId ? reconciledCommitments : 0
+              }
+              onPostImportHandled={finishPostImport}
+              onViewTransactions={() => selectTab("movimentacoes")}
+            />
+          ) : tab === "movimentacoes" ? (
+            <MovementsScreen embedded />
+          ) : tab === "jornada" ? (
             <DreamsTab
               goals={goals}
               activeGoals={activeGoals}
@@ -1326,20 +2144,94 @@ export default function JourneyScreen() {
               onToggleAchievements={() => setAchievementsOpen((open) => !open)}
               onOpenGoal={openGoal}
               onCreateFirstDream={() => router.push("/(onboarding)/dreams")}
-              onAddDream={() => router.push({ pathname: "/(onboarding)/dreams", params: { maxDreams: String(3 - activeGoals.length), returnToJourney: "1", excludedDreams: JSON.stringify(goals.map((goal) => goal.title)) } })}
+              onAddDream={() =>
+                router.push({
+                  pathname: "/(onboarding)/dreams",
+                  params: {
+                    maxDreams: String(3 - activeGoals.length),
+                    returnToJourney: "1",
+                    excludedDreams: JSON.stringify(
+                      goals.map((goal) => goal.title),
+                    ),
+                  },
+                })
+              }
               canAddDream={activeGoals.length < 3}
               footer={challengeCard}
             />
-          ) : <ScrollView contentContainerStyle={styles.challengesPage}><Ionicons name="trophy-outline" size={42} color={OB.primary} /><Text style={styles.placeholderTitle} accessibilityRole="header">Seus desafios</Text><Text style={styles.placeholderText}>As missões são concluídas automaticamente com seus dados reais.</Text>{challengeCard}</ScrollView>}
+          ) : (
+            <ScrollView contentContainerStyle={styles.challengesPage}>
+              <Ionicons name="trophy-outline" size={42} color={OB.primary} />
+              <Text style={styles.placeholderTitle} accessibilityRole="header">
+                Seus desafios
+              </Text>
+              <Text style={styles.placeholderText}>
+                As missões são concluídas automaticamente com seus dados reais.
+              </Text>
+              {challengeCard}
+            </ScrollView>
+          )}
         </View>
         <View style={styles.nav}>
-          <Pressable onPress={() => setMenuOpen(true)} style={[styles.navItem, styles.navMenuItem]} accessibilityRole="button" accessibilityLabel="Abrir menu"><Ionicons name="menu-outline" size={21} color={menuOpen ? OB.primary : OB.support} /><Text style={[styles.navText, menuOpen && styles.navTextActive]} numberOfLines={1}>Menu</Text>{menuOpen ? <View style={styles.navIndicator} /> : null}</Pressable>
+          <Pressable
+            onPress={() => setMenuOpen(true)}
+            style={[styles.navItem, styles.navMenuItem]}
+            accessibilityRole="button"
+            accessibilityLabel="Abrir menu"
+          >
+            <Ionicons
+              name="menu-outline"
+              size={21}
+              color={menuOpen ? OB.primary : OB.support}
+            />
+            <Text
+              style={[styles.navText, menuOpen && styles.navTextActive]}
+              numberOfLines={1}
+            >
+              Menu
+            </Text>
+            {menuOpen ? <View style={styles.navIndicator} /> : null}
+          </Pressable>
           {MAIN_NAVIGATION_ITEMS.map(({ id, label, icon }) => {
             const active = tab === id;
-            return <Pressable key={id} onPress={() => selectTab(id)} style={[styles.navItem, id === "movimentacoes" && styles.navMovementsItem]} accessibilityRole="button" accessibilityLabel={`Abrir ${label}`}><Ionicons name={icon} size={21} color={active ? OB.primary : OB.support} /><Text style={[styles.navText, active && styles.navTextActive]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.82}>{label}</Text>{active ? <View style={styles.navIndicator} /> : null}</Pressable>;
+            return (
+              <Pressable
+                key={id}
+                onPress={() => selectTab(id)}
+                style={[
+                  styles.navItem,
+                  id === "movimentacoes" && styles.navMovementsItem,
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel={`Abrir ${label}`}
+              >
+                <Ionicons
+                  name={icon}
+                  size={21}
+                  color={active ? OB.primary : OB.support}
+                />
+                <Text
+                  style={[styles.navText, active && styles.navTextActive]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.82}
+                >
+                  {label}
+                </Text>
+                {active ? <View style={styles.navIndicator} /> : null}
+              </Pressable>
+            );
           })}
         </View>
-        <JourneyDrawer open={menuOpen} activeTab={tab} displayName={displayName} avatarUrl={avatarUrl} onClose={() => setMenuOpen(false)} onTab={selectTab} onLogout={logout} />
+        <JourneyDrawer
+          open={menuOpen}
+          activeTab={tab}
+          displayName={displayName}
+          avatarUrl={avatarUrl}
+          onClose={() => setMenuOpen(false)}
+          onTab={selectTab}
+          onLogout={logout}
+        />
       </View>
     </OnboardingShell>
   );
@@ -1399,7 +2291,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: OB.supportSoft,
   },
-  goalCardCompleted: { borderColor: "rgba(22,155,98,0.26)", backgroundColor: "#FBFFFD" },
+  goalCardCompleted: {
+    borderColor: "rgba(22,155,98,0.26)",
+    backgroundColor: "#FBFFFD",
+  },
   goalCardPressed: { opacity: 0.72, transform: [{ scale: 0.99 }] },
   goalBadge: {
     width: 44,
@@ -1486,16 +2381,58 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "900",
   },
-  allDreamsCompleted: { color: OB.support, fontSize: 12, fontWeight: "700", lineHeight: 18, paddingHorizontal: 2 },
-  addGoalCard: { minHeight: 52, borderRadius: 17, borderWidth: 1, borderStyle: "dashed", borderColor: OB.support, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 13, backgroundColor: "rgba(255,255,255,0.55)" },
-  addGoalIcon: { width: 32, height: 32, borderRadius: 11, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(123,160,200,0.14)" },
+  allDreamsCompleted: {
+    color: OB.support,
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 18,
+    paddingHorizontal: 2,
+  },
+  addGoalCard: {
+    minHeight: 52,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: OB.support,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 13,
+    backgroundColor: "rgba(255,255,255,0.55)",
+  },
+  addGoalIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(123,160,200,0.14)",
+  },
   addGoalText: { flex: 1, color: OB.primary, fontSize: 12, fontWeight: "900" },
   achievementsSection: { gap: 10, marginTop: 4 },
-  achievementsHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 4, paddingHorizontal: 2 },
+  achievementsHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 4,
+    paddingHorizontal: 2,
+  },
   achievementsTitleRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  achievementsIcon: { width: 36, height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: "#E5F7EE" },
+  achievementsIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#E5F7EE",
+  },
   achievementsTitle: { color: OB.primary, fontSize: 15, fontWeight: "900" },
-  achievementsCount: { color: OB.support, fontSize: 10, fontWeight: "700", marginTop: 2 },
+  achievementsCount: {
+    color: OB.support,
+    fontSize: 10,
+    fontWeight: "700",
+    marginTop: 2,
+  },
   achievementsList: { gap: 10 },
   monthCard: {
     flexDirection: "row",
@@ -3159,7 +4096,13 @@ const styles = StyleSheet.create({
   saveButtonTextDisabled: {
     color: OB.support,
   },
-  challengesPage: { flexGrow: 1, justifyContent: "center", alignItems: "center", padding: 28, gap: 8 },
+  challengesPage: {
+    flexGrow: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 28,
+    gap: 8,
+  },
   placeholder: {
     flex: 1,
     alignItems: "center",
