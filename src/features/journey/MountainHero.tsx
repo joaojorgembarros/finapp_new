@@ -5,9 +5,9 @@ import Svg, {
   Defs,
   Ellipse,
   G,
+  Image as SvgImage,
   LinearGradient as SvgLinearGradient,
   Path,
-  RadialGradient,
   Rect,
   Stop,
 } from "react-native-svg";
@@ -20,12 +20,16 @@ type TrailSegment = { start: TrailPoint; c1: TrailPoint; c2: TrailPoint; end: Tr
 const HERO_WIDTH = 390;
 const HERO_HEIGHT = 248;
 const PEAK = { x: 292, y: 64 };
+const PEAK_SYMBOL_WIDTH = 34;
+const PEAK_SYMBOL_HEIGHT = PEAK_SYMBOL_WIDTH * (824 / 784);
+const PEAK_SYMBOL_X = PEAK.x - PEAK_SYMBOL_WIDTH / 2;
+const PEAK_SYMBOL_Y = PEAK.y - 22 - PEAK_SYMBOL_HEIGHT / 2;
 
 const TRAIL_SEGMENTS: TrailSegment[] = [
-  { start: { x: 42, y: 228 }, c1: { x: 108, y: 224 }, c2: { x: 168, y: 214 }, end: { x: 214, y: 196 } },
-  { start: { x: 214, y: 196 }, c1: { x: 262, y: 176 }, c2: { x: 278, y: 158 }, end: { x: 246, y: 142 } },
-  { start: { x: 246, y: 142 }, c1: { x: 214, y: 128 }, c2: { x: 228, y: 108 }, end: { x: 268, y: 94 } },
-  { start: { x: 268, y: 94 }, c1: { x: 292, y: 84 }, c2: { x: 296, y: 74 }, end: { x: PEAK.x, y: PEAK.y } },
+  { start: { x: 42, y: 228 }, c1: { x: 110, y: 224 }, c2: { x: 182, y: 214 }, end: { x: 238, y: 198 } },
+  { start: { x: 238, y: 198 }, c1: { x: 288, y: 184 }, c2: { x: 296, y: 168 }, end: { x: 266, y: 152 } },
+  { start: { x: 266, y: 152 }, c1: { x: 252, y: 138 }, c2: { x: 258, y: 124 }, end: { x: 268, y: 112 } },
+  { start: { x: 268, y: 112 }, c1: { x: 280, y: 96 }, c2: { x: 288, y: 78 }, end: { x: PEAK.x, y: PEAK.y } },
 ];
 
 const TRAIL_PATH =
@@ -122,10 +126,6 @@ export function MountainHero({
             <Stop offset="0%" stopColor="#BBDDFF" />
             <Stop offset="100%" stopColor="#FFFFFF" />
           </SvgLinearGradient>
-          <RadialGradient id="starGlow" cx={PEAK.x} cy={PEAK.y - 22} r="18" gradientUnits="userSpaceOnUse">
-            <Stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.55" />
-            <Stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
-          </RadialGradient>
         </Defs>
 
         <Rect width={HERO_WIDTH} height={HERO_HEIGHT} fill="url(#journeySky)" />
@@ -163,10 +163,13 @@ export function MountainHero({
         <Circle cx={marker.x} cy={marker.y} r="10" fill="#FFFFFF" />
         <Circle cx={marker.x} cy={marker.y} r="5.5" fill="#2F73E0" />
 
-        <Circle cx={PEAK.x} cy={PEAK.y - 22} r="16" fill="url(#starGlow)" />
-        <Path
-          d={`M${PEAK.x} ${PEAK.y - 38}c1.2 12.4 4.6 16.4 16.8 18-12.2 1.6-15.6 5.6-16.8 18-1.2-12.4-4.6-16.4-16.8-18 12.2-1.6 15.6-5.6 16.8-18Z`}
-          fill="#F4F7FF"
+        <SvgImage
+          href={require("../../../assets/splash-brand-symbol.png")}
+          x={PEAK_SYMBOL_X}
+          y={PEAK_SYMBOL_Y}
+          width={PEAK_SYMBOL_WIDTH}
+          height={PEAK_SYMBOL_HEIGHT}
+          preserveAspectRatio="xMidYMid meet"
         />
       </Svg>
 
