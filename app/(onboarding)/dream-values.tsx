@@ -17,33 +17,15 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
-import { resolveDreamIconKind } from "../../src/features/journey/dreamIconCatalog";
+import { DREAM_ICON_NAMES, resolveDreamIconKind } from "../../src/features/journey/dreamIconCatalog";
 import { useKeyboardAwareScroll } from "../../src/hooks/useKeyboardAwareScroll";
-import { formatBRLInputFromDigits, parseBRLToCents } from "../../src/lib/format";
+import { formatBRLInputFromDigits } from "../../src/lib/format";
+import { hasAllPositiveDreamValues } from "../../src/lib/onboardingDreamValues";
 import { markNewOnboardingDone, saveNewOnboardingDraft } from "../../src/lib/newOnboarding";
 import { useSession } from "../../src/providers/SessionProvider";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
 
 const BRAND_SYMBOL = require("../../assets/splash-brand-symbol.png");
-
-const DREAM_MARK_ICONS = {
-  emergency: "shield-checkmark-outline",
-  home: "home-outline",
-  travel: "airplane-outline",
-  car: "car-outline",
-  motorcycle: "bicycle-outline",
-  wedding: "heart-outline",
-  education: "school-outline",
-  business: "briefcase-outline",
-  health: "medkit-outline",
-  retirement: "time-outline",
-  debt: "card-outline",
-  investment: "trending-up-outline",
-  family: "people-outline",
-  relocation: "location-outline",
-  freedom: "lock-open-outline",
-  other: "flag-outline",
-} as const;
 
 function readDreams(raw: string | string[] | undefined) {
   try {
@@ -114,9 +96,9 @@ function DreamValueCard({
       <View ref={inputRef} collapsable={false} style={styles.cardBody}>
         <View style={styles.goalMark}>
           <Ionicons
-            name={DREAM_MARK_ICONS[resolveDreamIconKind(label)]}
+            name={DREAM_ICON_NAMES[resolveDreamIconKind(label)] as keyof typeof Ionicons.glyphMap}
             size={18}
-            color={active ? "#FFFFFF" : "#BCD0EE"}
+            color={active ? "#F4F7FF" : "#AFC7E8"}
           />
         </View>
 
@@ -151,7 +133,7 @@ function DreamValueCard({
           onPress={onFocus}
           style={({ pressed }) => [styles.editButton, pressed && styles.editButtonPressed]}
         >
-          <Ionicons name="pencil" size={15} color={active ? "#FFFFFF" : "#C2CBD9"} />
+          <Ionicons name="pencil-outline" size={15} color={active ? "#F4F7FF" : "#AFC7E8"} />
         </Pressable>
       </View>
     </Pressable>
@@ -192,8 +174,7 @@ export default function DreamValuesScreen() {
   const textInputRefs = useRef<Record<string, TextInput | null>>({});
   const totalSteps = params.returnToJourney === "1" ? 2 : 3;
 
-  const filled = Object.values(values).filter((value) => parseBRLToCents(value) > 0).length;
-  const canContinue = dreams.length > 0 && filled > 0;
+  const canContinue = hasAllPositiveDreamValues(dreams, values);
 
   useEffect(() => {
     if (Platform.OS !== "android") return;
@@ -516,27 +497,32 @@ const styles = StyleSheet.create({
     paddingTop: 4,
   },
   valueCard: {
-    width: "92%",
+    width: "100%",
     minHeight: 108,
-    borderRadius: 18,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: "rgba(140,154,174,0.22)",
-    backgroundColor: "rgba(255,255,255,0.03)",
+    borderColor: "rgba(175,199,232,0.16)",
+    backgroundColor: "#0B1F42",
     paddingVertical: 16,
     paddingLeft: 16,
-    paddingRight: 10,
+    paddingRight: 12,
+    shadowColor: "#020817",
+    shadowOpacity: 0.28,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 3,
   },
   valueCardOffset: {
-    alignSelf: "flex-end",
+    alignSelf: "center",
   },
   valueCardActive: {
-    borderColor: "rgba(255,255,255,0.88)",
-    backgroundColor: "rgba(255,255,255,0.045)",
-    shadowColor: "#FFFFFF",
-    shadowOpacity: 0.18,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 0 },
-    elevation: 6,
+    borderColor: "rgba(175,199,232,0.38)",
+    backgroundColor: "#10264D",
+    shadowColor: "#020817",
+    shadowOpacity: 0.32,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 4,
   },
   cardBody: {
     flexDirection: "row",
@@ -546,21 +532,23 @@ const styles = StyleSheet.create({
   goalMark: {
     width: 42,
     height: 42,
-    borderRadius: 21,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.05)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.28)",
+    borderColor: "rgba(175,199,232,0.18)",
   },
   goalCopy: {
     flex: 1,
     minWidth: 0,
   },
   goalTitle: {
-    color: "#FFFFFF",
+    color: "#F4F7FF",
     fontSize: 16,
     lineHeight: 21,
-    fontWeight: "600",
+    fontWeight: "700",
+    letterSpacing: -0.2,
   },
   inputLabel: {
     marginTop: 8,
@@ -597,13 +585,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 0,
   },
   editButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 34,
+    height: 34,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.04)",
     borderWidth: 1,
-    borderColor: "rgba(140,154,174,0.28)",
+    borderColor: "rgba(175,199,232,0.14)",
     alignSelf: "flex-start",
     marginTop: 2,
   },

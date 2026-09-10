@@ -86,14 +86,19 @@ export async function markNewOnboardingDone(
       financialSituation.debts,
       financialSituation.debtDetails
     );
-    if (!debtSyncError) {
-      await syncOnboardingDebtCommitments({
-        householdId,
-        userId,
-        selectedDebts: financialSituation.debts,
-        debtDetails: financialSituation.debtDetails,
-      });
-    }
+    if (debtSyncError) throw new Error(debtSyncError);
+    const { debtDetails } = await syncOnboardingDebtCommitments({
+      householdId,
+      userId,
+      selectedDebts: financialSituation.debts,
+      debtDetails: financialSituation.debtDetails,
+    });
+    await syncNewOnboardingCompletion(dreams, values, {
+      ...financialSituation,
+      debtDetails,
+    });
+    await AsyncStorage.setItem(keyFor(userId), "done");
+    return;
   }
   await syncNewOnboardingCompletion(dreams, values, financialSituation);
   await AsyncStorage.setItem(keyFor(userId), "done");

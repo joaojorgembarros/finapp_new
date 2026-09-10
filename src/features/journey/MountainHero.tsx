@@ -7,6 +7,7 @@ import Svg, {
   G,
   LinearGradient as SvgLinearGradient,
   Path,
+  RadialGradient,
   Rect,
   Stop,
 } from "react-native-svg";
@@ -16,11 +17,15 @@ import { DREAMS_COPY } from "./dreamsPresentation";
 type TrailPoint = { x: number; y: number };
 type TrailSegment = { start: TrailPoint; c1: TrailPoint; c2: TrailPoint; end: TrailPoint };
 
+const HERO_WIDTH = 390;
+const HERO_HEIGHT = 248;
+const PEAK = { x: 292, y: 64 };
+
 const TRAIL_SEGMENTS: TrailSegment[] = [
-  { start: { x: 34, y: 274 }, c1: { x: 96, y: 264 }, c2: { x: 176, y: 260 }, end: { x: 250, y: 246 } },
-  { start: { x: 250, y: 246 }, c1: { x: 316, y: 232 }, c2: { x: 309, y: 214 }, end: { x: 254, y: 201 } },
-  { start: { x: 254, y: 201 }, c1: { x: 207, y: 191 }, c2: { x: 223, y: 169 }, end: { x: 282, y: 151 } },
-  { start: { x: 282, y: 151 }, c1: { x: 320, y: 136 }, c2: { x: 306, y: 106 }, end: { x: 286, y: 88 } },
+  { start: { x: 42, y: 228 }, c1: { x: 108, y: 224 }, c2: { x: 168, y: 214 }, end: { x: 214, y: 196 } },
+  { start: { x: 214, y: 196 }, c1: { x: 262, y: 176 }, c2: { x: 278, y: 158 }, end: { x: 246, y: 142 } },
+  { start: { x: 246, y: 142 }, c1: { x: 214, y: 128 }, c2: { x: 228, y: 108 }, end: { x: 268, y: 94 } },
+  { start: { x: 268, y: 94 }, c1: { x: 292, y: 84 }, c2: { x: 296, y: 74 }, end: { x: PEAK.x, y: PEAK.y } },
 ];
 
 const TRAIL_PATH =
@@ -87,69 +92,82 @@ export function MountainHero({
   const marker = pointAtProgress(progress);
 
   return (
-    <View style={[styles.hero, compact && styles.heroCompact]}>
-      <Svg pointerEvents="none" viewBox="0 0 390 335" preserveAspectRatio="xMidYMid slice" style={StyleSheet.absoluteFill}>
+    <View style={styles.hero}>
+      <Svg
+        pointerEvents="none"
+        viewBox={`0 0 ${HERO_WIDTH} ${HERO_HEIGHT}`}
+        preserveAspectRatio="xMaxYMid meet"
+        style={StyleSheet.absoluteFill}
+      >
         <Defs>
-          <SvgLinearGradient id="journeySky" x1="0" y1="0" x2="0" y2="335" gradientUnits="userSpaceOnUse">
+          <SvgLinearGradient id="journeySky" x1="0" y1="0" x2="0" y2={HERO_HEIGHT} gradientUnits="userSpaceOnUse">
             <Stop offset="0%" stopColor="#061936" />
-            <Stop offset="46%" stopColor="#0A3674" />
+            <Stop offset="48%" stopColor="#0A3674" />
             <Stop offset="100%" stopColor="#06152E" />
           </SvgLinearGradient>
-          <SvgLinearGradient id="farMountain" x1="0" y1="118" x2="0" y2="300" gradientUnits="userSpaceOnUse">
+          <SvgLinearGradient id="farMountain" x1="0" y1="88" x2="0" y2="248" gradientUnits="userSpaceOnUse">
             <Stop offset="0%" stopColor="#2B83E8" />
             <Stop offset="100%" stopColor="#0B2A5E" />
           </SvgLinearGradient>
-          <SvgLinearGradient id="mainMountain" x1="250" y1="76" x2="250" y2="300" gradientUnits="userSpaceOnUse">
+          <SvgLinearGradient id="mainMountain" x1="250" y1="52" x2="250" y2="248" gradientUnits="userSpaceOnUse">
             <Stop offset="0%" stopColor="#4EA0FF" />
             <Stop offset="52%" stopColor="#1D68C7" />
             <Stop offset="100%" stopColor="#0A2B63" />
           </SvgLinearGradient>
-          <SvgLinearGradient id="frontRidge" x1="0" y1="230" x2="0" y2="350" gradientUnits="userSpaceOnUse">
+          <SvgLinearGradient id="frontRidge" x1="0" y1="176" x2="0" y2="248" gradientUnits="userSpaceOnUse">
             <Stop offset="0%" stopColor="#164D95" />
             <Stop offset="100%" stopColor="#061833" />
           </SvgLinearGradient>
-          <SvgLinearGradient id="pathGlow" x1="40" y1="286" x2="286" y2="88" gradientUnits="userSpaceOnUse">
+          <SvgLinearGradient id="pathGlow" x1="42" y1="228" x2={PEAK.x} y2={PEAK.y} gradientUnits="userSpaceOnUse">
             <Stop offset="0%" stopColor="#BBDDFF" />
             <Stop offset="100%" stopColor="#FFFFFF" />
           </SvgLinearGradient>
+          <RadialGradient id="starGlow" cx={PEAK.x} cy={PEAK.y - 22} r="18" gradientUnits="userSpaceOnUse">
+            <Stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.55" />
+            <Stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
+          </RadialGradient>
         </Defs>
 
-        <Rect width="390" height="335" fill="url(#journeySky)" />
-        <Circle cx="285" cy="92" r="118" fill="#2D8BFF" opacity="0.18" />
-        <Circle cx="82" cy="270" r="150" fill="#1E72D7" opacity="0.16" />
-        {[38, 118, 248, 320].map((x, index) => (
-          <Circle key={x} cx={x} cy={[50, 76, 42, 116][index]} r={index === 1 ? 1.5 : 1.1} fill="#7BA0C8" opacity={0.85} />
+        <Rect width={HERO_WIDTH} height={HERO_HEIGHT} fill="url(#journeySky)" />
+        <Circle cx="300" cy="70" r="108" fill="#2D8BFF" opacity="0.16" />
+        <Circle cx="78" cy="210" r="128" fill="#1E72D7" opacity="0.14" />
+        {[38, 118, 248, 338].map((x, index) => (
+          <Circle key={x} cx={x} cy={[42, 58, 34, 92][index]} r={index === 1 ? 1.5 : 1.1} fill="#7BA0C8" opacity={0.85} />
         ))}
-        {[70, 170, 235, 310].map((x, index) => (
-          <Circle key={`small-${x}`} cx={x} cy={[24, 112, 66, 48][index]} r={0.8} fill="#BBDDFF" opacity={0.42} />
+        {[70, 170, 235, 352].map((x, index) => (
+          <Circle key={`small-${x}`} cx={x} cy={[20, 86, 48, 36][index]} r={0.8} fill="#BBDDFF" opacity={0.42} />
         ))}
 
-        <Path d="M-20 228 L72 176 L122 202 L188 148 L242 178 L302 96 L410 186 L410 335 L-20 335Z" fill="url(#farMountain)" opacity="0.72" />
-        <Path d="M125 212 L174 158 L220 188 L286 88 L372 198 L410 224 L410 335 L125 335Z" fill="url(#mainMountain)" />
-        <Path d="M286 88 L306 168 L260 140Z" fill="#7DBBFF" opacity="0.38" />
-        <Path d="M286 88 L246 184 L220 188Z" fill="#72B7FF" opacity="0.30" />
-        <Path d="M188 148 L208 192 L150 184Z" fill="#7DBBFF" opacity="0.22" />
-        <Ellipse cx="235" cy="132" rx="30" ry="5" fill="#69A9ED" opacity="0.24" />
-        <Path d="M48 188 C74 174 86 174 112 189 C132 201 168 194 198 208 C116 208 52 206 -10 218Z" fill="#0C2E64" opacity="0.70" />
-        <Path d="M-20 252 C54 216 120 260 190 232 C252 204 305 236 410 204 L410 335 L-20 335Z" fill="url(#frontRidge)" opacity="0.92" />
-        <Path d="M-20 282 C52 250 112 292 178 266 C242 238 296 270 410 236 L410 335 L-20 335Z" fill="#061D40" opacity="0.84" />
+        <Path d="M-20 176 L68 132 L118 154 L176 108 L228 136 L302 58 L410 148 L410 248 L-20 248Z" fill="url(#farMountain)" opacity="0.72" />
+        <Path d="M132 168 L184 118 L228 142 L292 64 L372 154 L410 176 L410 248 L132 248Z" fill="url(#mainMountain)" />
+        <Path d={`M${PEAK.x} ${PEAK.y} L312 128 L266 108Z`} fill="#7DBBFF" opacity="0.38" />
+        <Path d={`M${PEAK.x} ${PEAK.y} L256 138 L228 142Z`} fill="#72B7FF" opacity="0.30" />
+        <Path d="M176 108 L196 146 L142 140Z" fill="#7DBBFF" opacity="0.22" />
+        <Ellipse cx="248" cy="102" rx="28" ry="4.5" fill="#69A9ED" opacity="0.24" />
+        <Path d="M48 148 C74 134 86 134 112 149 C132 161 168 154 198 168 C116 168 52 166 -10 178Z" fill="#0C2E64" opacity="0.70" />
+        <Path d="M-20 196 C54 168 120 204 190 180 C252 156 305 184 410 160 L410 248 L-20 248Z" fill="url(#frontRidge)" opacity="0.92" />
+        <Path d="M-20 218 C52 194 112 226 178 206 C242 184 296 210 410 186 L410 248 L-20 248Z" fill="#061D40" opacity="0.84" />
 
         <G opacity="0.82">
-          {[8, 29, 58, 353, 368, 382].map((x, index) => (
+          {[16, 38, 66, 348, 366, 382].map((x, index) => (
             <Path
               key={`tree-${x}`}
-              d={`M${x} ${index < 3 ? 248 + index * 10 : 206 + (index - 3) * 15} l10 30 h-20 z M${x} ${index < 3 ? 232 + index * 10 : 190 + (index - 3) * 15} l8 24 h-16 z M${x} ${index < 3 ? 218 + index * 10 : 176 + (index - 3) * 15} l7 20 h-14 z`}
+              d={`M${x} ${index < 3 ? 198 + index * 8 : 154 + (index - 3) * 12} l9 26 h-18 z M${x} ${index < 3 ? 184 + index * 8 : 140 + (index - 3) * 12} l7 20 h-14 z M${x} ${index < 3 ? 172 + index * 8 : 128 + (index - 3) * 12} l6 16 h-12 z`}
               fill="#03152E"
             />
           ))}
         </G>
 
-        <Path d={TRAIL_PATH} stroke="rgba(255,255,255,0.26)" strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-        <Path d={TRAIL_PATH} stroke="url(#pathGlow)" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-        <Circle cx={marker.x} cy={marker.y} r="12" fill="#FFFFFF" />
-        <Circle cx={marker.x} cy={marker.y} r="6.5" fill="#2F73E0" />
-        <Path d="M286 56 L286 88" stroke="#DCEBFF" strokeWidth="2" strokeLinecap="round" />
-        <Path d="M286 56 L308 64 L286 73Z" fill="#DCEBFF" />
+        <Path d={TRAIL_PATH} stroke="rgba(255,255,255,0.22)" strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+        <Path d={TRAIL_PATH} stroke="url(#pathGlow)" strokeWidth="3.6" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+        <Circle cx={marker.x} cy={marker.y} r="10" fill="#FFFFFF" />
+        <Circle cx={marker.x} cy={marker.y} r="5.5" fill="#2F73E0" />
+
+        <Circle cx={PEAK.x} cy={PEAK.y - 22} r="16" fill="url(#starGlow)" />
+        <Path
+          d={`M${PEAK.x} ${PEAK.y - 38}c1.2 12.4 4.6 16.4 16.8 18-12.2 1.6-15.6 5.6-16.8 18-1.2-12.4-4.6-16.4-16.8-18 12.2-1.6 15.6-5.6 16.8-18Z`}
+          fill="#F4F7FF"
+        />
       </Svg>
 
       <View style={[styles.heroTextBlock, compact && styles.heroTextBlockCompact]}>
@@ -166,27 +184,25 @@ export function MountainHero({
 
 const styles = StyleSheet.create({
   hero: {
-    height: 176,
+    width: "100%",
+    aspectRatio: HERO_WIDTH / HERO_HEIGHT,
     backgroundColor: OB.primary,
     overflow: "hidden",
-  },
-  heroCompact: {
-    height: 160,
   },
   heroTextBlock: {
     position: "absolute",
     left: 16,
-    top: 16,
-    width: 220,
-    maxWidth: "62%",
+    top: 18,
+    width: 200,
+    maxWidth: "58%",
     alignItems: "flex-start",
     zIndex: 1,
   },
   heroTextBlockCompact: {
     left: 14,
-    top: 12,
-    width: 200,
-    maxWidth: "68%",
+    top: 14,
+    width: 188,
+    maxWidth: "64%",
   },
   heroTitle: {
     color: OB.offWhite,

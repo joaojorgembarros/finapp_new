@@ -30,13 +30,22 @@ import {
   saveFinancialSettings,
   updateCommitment,
 } from "../../src/lib/financialPlanning";
+import {
+  MAX_ONBOARDING_DEBT_NOTE_LENGTH,
+  onboardingDebtsPendingCommitment,
+  ownedOnboardingDetailForCommitment,
+  parseOnboardingDebtDetails,
+  saveOnboardingDebtMetadata,
+  upsertOnboardingDebtDetail,
+  type OnboardingDebtDetail,
+} from "../../src/lib/onboardingDebts";
 import { formatBRLFromCents, formatBRLInputFromDigits, parseBRLToCents } from "../../src/lib/format";
 import { useSession } from "../../src/providers/SessionProvider";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
 import { ScreenHeaderCard } from "../../src/ui/ScreenHeaderCard";
 
 type SettingsField = "payday" | "reserve";
-type CommitmentField = "name" | "amount" | "due" | "start" | "installments";
+type CommitmentField = "name" | "amount" | "due" | "start" | "installments" | "balance" | "note";
 
 type CommitmentDraft = {
   name: string;
@@ -45,6 +54,9 @@ type CommitmentDraft = {
   dueDay: string;
   startMonth: string;
   installmentCount: string;
+  balance: string;
+  note: string;
+  onboardingType: string | null;
 };
 
 const KIND_OPTIONS: {
@@ -70,6 +82,9 @@ function emptyDraft(): CommitmentDraft {
     dueDay: "",
     startMonth: currentMonth(),
     installmentCount: "",
+    balance: "",
+    note: "",
+    onboardingType: null,
   };
 }
 
@@ -99,7 +114,7 @@ export default function FinancialPlanScreen() {
   const requestedGuided = Array.isArray(params.guided) ? params.guided[0] : params.guided;
   const guided = requestedGuided === "1";
   const insets = useSafeAreaInsets();
-  const { userId } = useSession();
+  const { session, userId } = useSession();
   const { householdId, loading: householdLoading } = useHouseholdId(userId);
   const settingsKeyboard = useKeyboardAwareScroll<SettingsField>(18);
   const modalKeyboard = useKeyboardAwareScroll<CommitmentField>(18, {
@@ -121,6 +136,17 @@ export default function FinancialPlanScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const [editing, setEditing] = useState<FinancialCommitment | null>(null);
   const [draft, setDraft] = useState<CommitmentDraft>(emptyDraft);
+  const [localDebtDetails, setLocalDebtDetails] = useState<OnboardingDebtDetail[] | null>(null);
+
+  const metadataDebtDetails = useMemo(
+    () => parseOnboardingDebtDetails(session?.user.user_metadata?.finapp_debt_details),
+    [session]
+  );
+  const debtDetails = localDebtDetails ?? metadataDebtDetails;
+  const orphanDebts = useMemo(
+    () => onboardingDebtsPendingCommitment(debtDetails, commitments.map((item) => item.id)),
+    [commitments, debtDetails]
+  );
 
   const applySettings = useCallback((settings: FinancialSettings | null) => {
     if (!settings) return;
@@ -170,17 +196,26 @@ export default function FinancialPlanScreen() {
 
   const commitmentValid = useMemo(() => {
     const amountCents = parseBRLToCents(draft.amount);
+    const balanceCents = parseBRLToCents(draft.balance);
     const dueDay = Number(draft.dueDay);
     const installments = draft.installmentCount ? Number(draft.installmentCount) : null;
+    const dueValid = Number.isInteger(dueDay) && dueDay >= 1 && dueDay <= 28;
+    const monthValid = isValidMonth(draft.startMonth);
+    const installmentValid = draft.kind !== "installment"
+      || (installments !== null && Number.isInteger(installments) && installments > 0 && installments <= 600);
+    if (draft.onboardingType) {
+      return Boolean(
+        draft.name.trim()
+        && balanceCents > 0
+        && (amountCents === 0 || (amountCents > 0 && dueValid && monthValid && installmentValid))
+      );
+    }
     return Boolean(
       draft.name.trim() &&
         amountCents > 0 &&
-        Number.isInteger(dueDay) &&
-        dueDay >= 1 &&
-        dueDay <= 28 &&
-        isValidMonth(draft.startMonth) &&
-        (draft.kind !== "installment"
-          || (installments !== null && Number.isInteger(installments) && installments > 0 && installments <= 600))
+        dueValid &&
+        monthValid &&
+        installmentValid
     );
   }, [draft]);
 
@@ -225,6 +260,8 @@ export default function FinancialPlanScreen() {
     Keyboard.dismiss();
     setCommitmentSaveError("");
     setEditing(commitment);
+    const stored = ownedOnboardingDetailForCommitment(debtDetails, commitment.id);
+    const onboardingType = stored?.name ?? null;
     setDraft({
       name: commitment.name,
       kind: commitment.kind,
@@ -234,6 +271,26 @@ export default function FinancialPlanScreen() {
       installmentCount: commitment.installments_total
         ? String(commitment.installments_total)
         : "",
+      balance: stored?.balanceCents ? formatBRLFromCents(stored.balanceCents) : "",
+      note: stored?.note ?? "",
+      onboardingType,
+    });
+    setModalVisible(true);
+  }
+
+  function openEditOnboardingDebt(detail: OnboardingDebtDetail) {
+    Keyboard.dismiss();
+    setCommitmentSaveError("");
+    setEditing(null);
+    setDraft({
+      ...emptyDraft(),
+      name: detail.name,
+      kind: "debt",
+      amount: detail.amountCents > 0 ? formatBRLFromCents(detail.amountCents) : "",
+      dueDay: String(detail.dueDay || 10),
+      balance: detail.balanceCents ? formatBRLFromCents(detail.balanceCents) : "",
+      note: detail.note ?? "",
+      onboardingType: detail.name,
     });
     setModalVisible(true);
   }
@@ -247,9 +304,10 @@ export default function FinancialPlanScreen() {
 
   async function saveCommitment() {
     if (!householdId || !userId || !commitmentValid || savingCommitment) return;
+    const onboardingType = draft.onboardingType;
     const values = {
       householdId,
-      name: draft.name.trim(),
+      name: onboardingType || draft.name.trim(),
       kind: draft.kind,
       amountCents: parseBRLToCents(draft.amount),
       dueDay: Number(draft.dueDay),
@@ -262,10 +320,43 @@ export default function FinancialPlanScreen() {
     try {
       setSavingCommitment(true);
       setCommitmentSaveError("");
-      if (editing) {
-        await updateCommitment({ ...values, commitmentId: editing.id });
-      } else {
-        await createCommitment({ ...values, userId });
+      let nextCommitmentId: string | null = editing?.id ?? (
+        onboardingType
+          ? debtDetails.find((detail) => detail.name === onboardingType)?.commitmentId ?? null
+          : null
+      );
+      if (values.amountCents > 0) {
+        if (editing) {
+          await updateCommitment({ ...values, commitmentId: editing.id });
+          nextCommitmentId = editing.id;
+        } else {
+          const created = await createCommitment({ ...values, userId });
+          nextCommitmentId = created.id;
+        }
+      } else if (editing) {
+        await archiveCommitment(householdId, editing.id);
+        nextCommitmentId = null;
+      }
+      if (onboardingType) {
+        const nextDetails = upsertOnboardingDebtDetail(debtDetails, {
+          name: onboardingType,
+          balanceCents: parseBRLToCents(draft.balance),
+          amountCents: values.amountCents,
+          dueDay: Number.isInteger(values.dueDay) && values.dueDay >= 1 && values.dueDay <= 28
+            ? values.dueDay
+            : 10,
+          installmentsRemaining: values.installmentsTotal,
+          note: draft.note.trim() || null,
+          commitmentId: nextCommitmentId,
+        });
+        const debts = [...new Set([
+          ...(Array.isArray(session?.user.user_metadata?.finapp_debts)
+            ? session.user.user_metadata.finapp_debts.map(String)
+            : debtDetails.map((detail) => detail.name)),
+          onboardingType,
+        ])];
+        await saveOnboardingDebtMetadata({ debts, debtDetails: nextDetails });
+        setLocalDebtDetails(nextDetails);
       }
       const rows = await listCommitments(householdId);
       setCommitments(rows);
@@ -286,6 +377,19 @@ export default function FinancialPlanScreen() {
         setCommitmentSaveError("");
         await archiveCommitment(householdId, commitment.id);
         setCommitments((current) => current.filter((item) => item.id !== commitment.id));
+        const stored = ownedOnboardingDetailForCommitment(debtDetails, commitment.id);
+        if (stored) {
+          const nextDetails = upsertOnboardingDebtDetail(debtDetails, {
+            ...stored,
+            amountCents: 0,
+            commitmentId: null,
+          });
+          const debts = Array.isArray(session?.user.user_metadata?.finapp_debts)
+            ? session.user.user_metadata.finapp_debts.map(String)
+            : debtDetails.map((detail) => detail.name);
+          await saveOnboardingDebtMetadata({ debts, debtDetails: nextDetails });
+          setLocalDebtDetails(nextDetails);
+        }
       } catch (error: any) {
         const message = error?.message ?? "Tente novamente.";
         if (Platform.OS === "web") setCommitmentSaveError(message);
@@ -503,7 +607,10 @@ export default function FinancialPlanScreen() {
                     </View>
                   ) : null}
 
-                  {commitments.length ? commitments.map((commitment) => (
+                  {commitments.length ? commitments.map((commitment) => {
+                    const stored = ownedOnboardingDetailForCommitment(debtDetails, commitment.id);
+                    const onboardingType = stored?.name ?? null;
+                    return (
                     <View key={commitment.id} style={styles.commitmentCard}>
                       <View style={styles.commitmentIcon}>
                         <Ionicons
@@ -517,6 +624,14 @@ export default function FinancialPlanScreen() {
                         <Text style={styles.commitmentMeta}>
                           {kindLabel(commitment.kind)} · vence dia {commitment.due_day}
                         </Text>
+                        {stored?.note ? (
+                          <Text style={styles.installmentText}>{stored.note}</Text>
+                        ) : null}
+                        {stored?.balanceCents ? (
+                          <Text style={styles.installmentText}>
+                            Saldo {formatBRLFromCents(stored.balanceCents)}
+                          </Text>
+                        ) : null}
                         {commitment.installments_total ? (
                           <Text style={styles.installmentText}>{commitment.installments_total} parcelas no planejamento</Text>
                         ) : null}
@@ -526,11 +641,17 @@ export default function FinancialPlanScreen() {
                         <Pressable
                           onPress={() => openEditCommitment(commitment)}
                           hitSlop={8}
-                          style={styles.iconButton}
+                          style={onboardingType ? styles.editDebtButton : styles.iconButton}
                           accessibilityRole="button"
-                          accessibilityLabel={`Editar ${commitment.name}`}
+                          accessibilityLabel={onboardingType
+                            ? `Editar dívida ${commitment.name}`
+                            : `Editar ${commitment.name}`}
                         >
-                          <Ionicons name="pencil-outline" size={17} color={OB.primary} />
+                          {onboardingType ? (
+                            <Text style={styles.editDebtButtonText}>Editar dívida</Text>
+                          ) : (
+                            <Ionicons name="pencil-outline" size={17} color={OB.primary} />
+                          )}
                         </Pressable>
                         <Pressable
                           onPress={() => confirmArchive(commitment)}
@@ -543,7 +664,37 @@ export default function FinancialPlanScreen() {
                         </Pressable>
                       </View>
                     </View>
-                  )) : (
+                    );
+                  }) : null}
+
+                  {orphanDebts.map((detail) => (
+                    <View key={`debt-${detail.name}`} style={styles.commitmentCard}>
+                      <View style={styles.commitmentIcon}>
+                        <Ionicons name="alert-circle-outline" size={20} color={OB.primary} />
+                      </View>
+                      <View style={styles.flex}>
+                        <Text style={styles.commitmentName} numberOfLines={2}>{detail.name}</Text>
+                        <Text style={styles.commitmentMeta}>Dívida · sem parcela mensal</Text>
+                        {detail.note ? (
+                          <Text style={styles.installmentText}>{detail.note}</Text>
+                        ) : null}
+                        <Text style={styles.commitmentAmount}>{formatBRLFromCents(detail.balanceCents)}</Text>
+                      </View>
+                      <View style={styles.cardActions}>
+                        <Pressable
+                          onPress={() => openEditOnboardingDebt(detail)}
+                          hitSlop={8}
+                          style={styles.editDebtButton}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Editar dívida ${detail.name}`}
+                        >
+                          <Text style={styles.editDebtButtonText}>Editar dívida</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  ))}
+
+                  {!commitments.length && !orphanDebts.length ? (
                     <View style={styles.emptyCard}>
                       <View style={styles.emptyIcon}>
                         <Ionicons name="shield-checkmark-outline" size={26} color={OB.primary} />
@@ -556,7 +707,7 @@ export default function FinancialPlanScreen() {
                         <Text style={styles.secondaryButtonText}>Adicionar uma conta</Text>
                       </Pressable>
                     </View>
-                  )}
+                  ) : null}
 
                   {guided ? (
                     <Pressable
@@ -593,7 +744,13 @@ export default function FinancialPlanScreen() {
               <View style={styles.modalHeader}>
                 <View style={styles.flex}>
                   <Text style={styles.modalEyebrow}>Planejamento</Text>
-                  <Text style={styles.modalTitle}>{editing ? "Editar compromisso" : "Novo compromisso"}</Text>
+                  <Text style={styles.modalTitle}>
+                    {draft.onboardingType
+                      ? "Editar dívida"
+                      : editing
+                        ? "Editar compromisso"
+                        : "Novo compromisso"}
+                  </Text>
                 </View>
                 <Pressable
                   onPress={closeModal}
@@ -635,7 +792,8 @@ export default function FinancialPlanScreen() {
                     placeholder="Ex: Aluguel"
                     placeholderTextColor={OB.support}
                     returnKeyType="next"
-                    style={styles.input}
+                    editable={!draft.onboardingType}
+                    style={[styles.input, draft.onboardingType && styles.inputReadonly]}
                     accessibilityLabel="Nome do compromisso"
                   />
                 </View>
@@ -664,7 +822,9 @@ export default function FinancialPlanScreen() {
                   onLayout={modalKeyboard.registerField("amount")}
                   collapsable={false}
                 >
-                  <Text style={styles.label}>Valor pago por mês</Text>
+                  <Text style={styles.label}>
+                    {draft.onboardingType ? "Parcela mensal (opcional)" : "Valor pago por mês"}
+                  </Text>
                   <TextInput
                     value={draft.amount}
                     onChangeText={(value) => setDraft((current) => ({
@@ -679,10 +839,66 @@ export default function FinancialPlanScreen() {
                     returnKeyType="done"
                     onSubmitEditing={Keyboard.dismiss}
                     style={styles.input}
-                    accessibilityLabel="Valor pago por mês deste compromisso"
+                    accessibilityLabel={draft.onboardingType
+                      ? "Parcela mensal desta dívida"
+                      : "Valor pago por mês deste compromisso"}
                   />
-                  <Text style={styles.helper}>Informe o valor que vence em cada mês, não o saldo total da dívida.</Text>
+                  <Text style={styles.helper}>
+                    {draft.onboardingType
+                      ? "Deixe vazio se não houver parcela mensal. Informe o valor que vence em cada mês, não o saldo total."
+                      : "Informe o valor que vence em cada mês, não o saldo total da dívida."}
+                  </Text>
                 </View>
+
+                {draft.onboardingType ? (
+                  <>
+                    <View
+                      ref={modalKeyboard.registerFieldNode("balance")}
+                      onLayout={modalKeyboard.registerField("balance")}
+                      collapsable={false}
+                    >
+                      <Text style={styles.label}>Saldo da dívida</Text>
+                      <TextInput
+                        value={draft.balance}
+                        onChangeText={(value) => setDraft((current) => ({
+                          ...current,
+                          balance: formatBRLInputFromDigits(value),
+                        }))}
+                        onFocus={() => modalKeyboard.focusField("balance")}
+                        onPressIn={() => modalKeyboard.focusField("balance")}
+                        keyboardType="number-pad"
+                        placeholder="R$ 0,00"
+                        placeholderTextColor={OB.support}
+                        returnKeyType="done"
+                        onSubmitEditing={Keyboard.dismiss}
+                        style={styles.input}
+                        accessibilityLabel="Saldo da dívida"
+                      />
+                    </View>
+                    <View
+                      ref={modalKeyboard.registerFieldNode("note")}
+                      onLayout={modalKeyboard.registerField("note")}
+                      collapsable={false}
+                    >
+                      <Text style={styles.label}>Observação</Text>
+                      <TextInput
+                        value={draft.note}
+                        onChangeText={(note) => setDraft((current) => ({
+                          ...current,
+                          note: note.slice(0, MAX_ONBOARDING_DEBT_NOTE_LENGTH),
+                        }))}
+                        onFocus={() => modalKeyboard.focusField("note")}
+                        onPressIn={() => modalKeyboard.focusField("note")}
+                        placeholder="Ex.: Nubank"
+                        placeholderTextColor={OB.support}
+                        returnKeyType="done"
+                        onSubmitEditing={Keyboard.dismiss}
+                        style={styles.input}
+                        accessibilityLabel="Observação da dívida"
+                      />
+                    </View>
+                  </>
+                ) : null}
 
                 <View style={styles.twoColumns}>
                   <View
@@ -777,7 +993,9 @@ export default function FinancialPlanScreen() {
                   accessibilityState={{ disabled: !commitmentValid || savingCommitment }}
                 >
                   {savingCommitment ? <ActivityIndicator color="#fff" /> : (
-                    <Text style={styles.primaryButtonText}>{editing ? "Salvar alterações" : "Adicionar compromisso"}</Text>
+                    <Text style={styles.primaryButtonText}>
+                      {editing || draft.onboardingType ? "Salvar alterações" : "Adicionar compromisso"}
+                    </Text>
                   )}
                 </Pressable>
               </ScrollView>
@@ -846,6 +1064,9 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "800",
   },
+  inputReadonly: {
+    opacity: 0.72,
+  },
   inputError: { borderColor: "#D46A6A" },
   helper: { color: OB.support, fontSize: 10, fontWeight: "700", lineHeight: 15, marginTop: 6 },
   primaryButton: {
@@ -890,7 +1111,7 @@ const styles = StyleSheet.create({
   commitmentMeta: { color: OB.support, fontSize: 10, fontWeight: "800", marginTop: 4 },
   installmentText: { color: OB.support, fontSize: 9, fontWeight: "700", marginTop: 3 },
   commitmentAmount: { color: OB.primary, fontSize: 16, fontWeight: "900", marginTop: 8 },
-  cardActions: { gap: 7 },
+  cardActions: { gap: 7, alignItems: "flex-end" },
   iconButton: {
     width: 34,
     height: 34,
@@ -900,6 +1121,23 @@ const styles = StyleSheet.create({
     backgroundColor: OB.offWhite,
     borderWidth: 1,
     borderColor: OB.supportSoft,
+  },
+  editDebtButton: {
+    minHeight: 34,
+    maxWidth: 92,
+    borderRadius: 11,
+    paddingHorizontal: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: OB.offWhite,
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  editDebtButtonText: {
+    color: OB.primary,
+    fontSize: 9,
+    fontWeight: "900",
+    textAlign: "center",
   },
   emptyCard: {
     minHeight: 210,
