@@ -23,9 +23,9 @@ import {
 } from "../../src/lib/googleAuth";
 
 const NAVY = "#06152E";
-const CREAM = "#FDECD6";
+const WHITE = "#FFFFFF";
 const SECONDARY = "#8C9AAE";
-const BORDER = "rgba(253, 236, 214, 0.28)";
+const BORDER = "rgba(255, 255, 255, 0.28)";
 const SYMBOL = require("../../assets/splash-brand-symbol.png");
 const GOOGLE_G_LOGO = require("../../assets/google-g-logo.png");
 
@@ -73,7 +73,7 @@ export default function LoginMethodScreen() {
               resizeMode="contain"
               source={SYMBOL}
               style={styles.symbol}
-              tintColor={CREAM}
+              tintColor={WHITE}
             />
             <Text style={styles.title}>Acesse o Sonho+</Text>
             <Text style={styles.subtitle}>Escolha como deseja continuar.</Text>
@@ -90,7 +90,7 @@ export default function LoginMethodScreen() {
             >
               <View style={styles.iconSlot}>
                 {loading ? (
-                  <ActivityIndicator color={CREAM} size="small" />
+                  <ActivityIndicator color={WHITE} size="small" />
                 ) : (
                   <Image
                     accessible={false}
@@ -119,7 +119,7 @@ export default function LoginMethodScreen() {
               style={({ pressed }) => [styles.methodButton, pressed && !loading && styles.methodPressed]}
             >
               <View style={styles.iconSlot}>
-                <Ionicons name="mail-outline" size={31} color={CREAM} />
+                <Ionicons name="mail-outline" size={31} color={WHITE} />
               </View>
               <View style={styles.verticalDivider} />
               <Text style={styles.methodText}>Continuar com e-mail</Text>
@@ -137,7 +137,7 @@ export default function LoginMethodScreen() {
               style={({ pressed }) => [styles.signupButton, pressed && !loading && styles.pressed]}
             >
               <Text style={styles.signupText}>Criar conta</Text>
-              <Ionicons name="chevron-forward" size={20} color={CREAM} />
+              <Ionicons name="chevron-forward" size={20} color={WHITE} />
             </Pressable>
           </View>
         </ScrollView>
@@ -174,7 +174,7 @@ const styles = StyleSheet.create({
     marginBottom: 28,
   },
   title: {
-    color: CREAM,
+    color: WHITE,
     fontSize: 30,
     fontWeight: "700",
     letterSpacing: 0.1,
@@ -202,8 +202,8 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.01)",
   },
   methodPressed: {
-    backgroundColor: "rgba(253,236,214,0.06)",
-    borderColor: "rgba(253,236,214,0.48)",
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderColor: "rgba(255,255,255,0.48)",
   },
   iconSlot: {
     width: 74,
@@ -222,7 +222,7 @@ const styles = StyleSheet.create({
   methodText: {
     flex: 1,
     paddingHorizontal: 18,
-    color: CREAM,
+    color: WHITE,
     fontSize: 16,
     fontWeight: "700",
     lineHeight: 21,
@@ -268,7 +268,7 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   signupText: {
-    color: CREAM,
+    color: WHITE,
     fontSize: 16,
     fontWeight: "700",
   },

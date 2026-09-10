@@ -19,7 +19,6 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
-import Svg, { Circle, Path } from "react-native-svg";
 import { resolveDreamIconKind } from "../../src/features/journey/dreamIconCatalog";
 import { useKeyboardAwareScroll } from "../../src/hooks/useKeyboardAwareScroll";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
@@ -77,35 +76,7 @@ function readSelectedDreams(raw: string | string[] | undefined) {
 }
 
 function DreamsBackground() {
-  return (
-    <View pointerEvents="none" style={styles.background}>
-      <Svg
-        width="100%"
-        height="100%"
-        viewBox="0 0 390 844"
-        preserveAspectRatio="xMidYMid slice"
-        style={StyleSheet.absoluteFill}
-      >
-        <Path
-          d="M-28 786C66 752 160 809 253 770C309 747 341 719 418 701"
-          fill="none"
-          stroke="#7BA0C8"
-          strokeOpacity={0.22}
-          strokeWidth={1.1}
-        />
-        <Path
-          d="M-18 817C72 789 166 835 258 796C316 771 350 749 416 742"
-          fill="none"
-          stroke="#7BA0C8"
-          strokeOpacity={0.1}
-          strokeWidth={0.8}
-        />
-        <Circle cx="335" cy="735" r="1.7" fill="#FFFFFF" opacity={0.34} />
-        <Circle cx="349" cy="728" r="0.9" fill="#FFFFFF" opacity={0.22} />
-        <Circle cx="62" cy="776" r="1" fill="#FFFFFF" opacity={0.16} />
-      </Svg>
-    </View>
-  );
+  return <View pointerEvents="none" style={styles.background} />;
 }
 
 function DreamChoice({ dream, onPress }: { dream: Dream; onPress: () => void }) {

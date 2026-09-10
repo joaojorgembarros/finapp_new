@@ -23,6 +23,8 @@ import {
   OnboardingShell,
 } from "../../src/ui/OnboardingKit";
 import { markNewOnboardingDone } from "../../src/lib/newOnboarding";
+import { discardInvalidAuthSession, isMissingAuthUserError } from "../../src/lib/sessionValidity";
+import { supabase } from "../../src/lib/supabase";
 import { useSession } from "../../src/providers/SessionProvider";
 import { BANK_OPTIONS } from "../../src/lib/banks";
 import { formatBRLFromCents, formatBRLInputFromDigits, parseBRLToCents } from "../../src/lib/format";
@@ -503,6 +505,10 @@ export default function FinancialSituationScreen() {
         },
       });
     } catch (error: any) {
+      if (isMissingAuthUserError(error)) {
+        await discardInvalidAuthSession(supabase.auth);
+        return;
+      }
       Alert.alert(
         "Não foi possível concluir",
         error?.message ?? "Confira sua conexão e tente novamente."

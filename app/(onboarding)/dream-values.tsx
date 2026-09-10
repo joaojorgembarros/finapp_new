@@ -22,6 +22,8 @@ import { useKeyboardAwareScroll } from "../../src/hooks/useKeyboardAwareScroll";
 import { formatBRLInputFromDigits } from "../../src/lib/format";
 import { hasAllPositiveDreamValues } from "../../src/lib/onboardingDreamValues";
 import { markNewOnboardingDone, saveNewOnboardingDraft } from "../../src/lib/newOnboarding";
+import { discardInvalidAuthSession, isMissingAuthUserError } from "../../src/lib/sessionValidity";
+import { supabase } from "../../src/lib/supabase";
 import { useSession } from "../../src/providers/SessionProvider";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
 
@@ -235,6 +237,10 @@ export default function DreamValuesScreen() {
         });
       }
     } catch (error: any) {
+      if (isMissingAuthUserError(error)) {
+        await discardInvalidAuthSession(supabase.auth);
+        return;
+      }
       Alert.alert("Não foi possível concluir", error?.message ?? "Tente novamente em instantes.");
     } finally {
       setSaving(false);

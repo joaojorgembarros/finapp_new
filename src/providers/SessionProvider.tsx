@@ -1,7 +1,6 @@
 // src/providers/SessionProvider.tsx
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { Linking } from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Session } from "@supabase/supabase-js";
 import {
   completeGoogleOAuthCallback,
@@ -15,7 +14,13 @@ import {
   passwordRecoveryDedupe,
   shouldOpenPasswordRecoveryScreen,
 } from "../lib/passwordRecovery";
-import { SUPABASE_AUTH_STORAGE_KEY, supabase } from "../lib/supabase";
+import { supabase } from "../lib/supabase";
+import {
+  discardInvalidAuthSession,
+  isDefinitivelyInvalidAuthError,
+  restoreValidatedSession,
+  shouldApplyAuthStateSession,
+} from "../lib/sessionValidity";
 
 export type SignOutResult = {
   remoteSignOutCompleted: boolean;
@@ -36,25 +41,6 @@ type Ctx = {
 };
 
 const SessionContext = createContext<Ctx | null>(null);
-
-const clearStoredSession = async () => {
-  await AsyncStorage.multiRemove([
-    SUPABASE_AUTH_STORAGE_KEY,
-    `${SUPABASE_AUTH_STORAGE_KEY}-code-verifier`,
-    `${SUPABASE_AUTH_STORAGE_KEY}-user`,
-  ]);
-};
-
-const isInvalidRefreshTokenError = (error: unknown) => {
-  const message =
-    error instanceof Error
-      ? error.message
-      : typeof error === "object" && error && "message" in error
-        ? String((error as { message?: unknown }).message)
-        : String(error);
-
-  return /invalid refresh token|refresh token not found/i.test(message);
-};
 
 async function completeIncomingGoogleOAuth(url: string) {
   try {
@@ -78,19 +64,11 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
     const loadSession = async () => {
       try {
-        const { data, error } = await supabase.auth.getSession();
-
-        if (error) throw error;
+        const result = await restoreValidatedSession(supabase.auth);
         if (!mounted) return;
-
-        setSession(data.session ?? null);
+        setSession(result.status === "authenticated" ? result.session : null);
       } catch (error) {
-        if (isInvalidRefreshTokenError(error)) {
-          await clearStoredSession();
-        } else {
-          console.warn("Could not restore Supabase session", error);
-        }
-
+        console.warn("Could not restore Supabase session", error);
         if (!mounted) return;
         setSession(null);
       } finally {
@@ -101,6 +79,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     loadSession();
 
     const { data: sub } = supabase.auth.onAuthStateChange((event, sess) => {
+      if (!shouldApplyAuthStateSession(event)) return;
       if (event === "PASSWORD_RECOVERY") setPasswordRecoveryActive(true);
       if (event === "SIGNED_OUT") {
         setPasswordRecoveryActive(false);
@@ -190,8 +169,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       signOut: async () => {
         const { error } = await supabase.auth.signOut();
 
-        if (error && isInvalidRefreshTokenError(error)) {
-          await clearStoredSession();
+        if (error && isDefinitivelyInvalidAuthError(error)) {
+          await discardInvalidAuthSession(supabase.auth);
           setSession(null);
           endPasswordRecovery();
           return { remoteSignOutCompleted: false, activeAccountChanged: false };
