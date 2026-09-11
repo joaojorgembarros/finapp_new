@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import {
   Animated,
   Image,
@@ -7,9 +7,13 @@ import {
   Text,
   View,
 } from "react-native";
+import {
+  JOURNEY_HEADER_HEIGHT,
+  isJourneyAvatarTouchable,
+} from "./journeyChrome";
 import { OB } from "./OnboardingKit";
 
-export const JOURNEY_HEADER_HEIGHT = 56;
+export { JOURNEY_HEADER_HEIGHT } from "./journeyChrome";
 
 function initialsFrom(nameOrEmail: string) {
   const parts = nameOrEmail.trim().split(/\s+/).filter(Boolean);
@@ -45,6 +49,16 @@ export function JourneyScrollHeader({
     outputRange: [1, 0],
     extrapolate: "clamp",
   });
+  const [avatarTouchable, setAvatarTouchable] = useState(true);
+
+  useEffect(() => {
+    const listenerId = scrollY.addListener(({ value }) => {
+      setAvatarTouchable((current) => isJourneyAvatarTouchable(value, current));
+    });
+    return () => {
+      scrollY.removeListener(listenerId);
+    };
+  }, [scrollY]);
 
   return (
     <Animated.View
@@ -60,6 +74,7 @@ export function JourneyScrollHeader({
     >
       <Pressable
         onPress={onPress}
+        pointerEvents={avatarTouchable ? "auto" : "none"}
         accessibilityRole="button"
         accessibilityLabel="Abrir menu"
         accessibilityState={{ selected: active }}

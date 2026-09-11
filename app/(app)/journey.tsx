@@ -1,6 +1,7 @@
 import React, {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -34,8 +35,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FloatingTabBar, FloatingTabItem } from "../../src/ui/FloatingTabBar";
 import {
   JOURNEY_HEADER_HEIGHT,
-  JourneyScrollHeader,
-} from "../../src/ui/JourneyScrollHeader";
+  getJourneyBottomContentInset,
+} from "../../src/ui/journeyChrome";
+import { JourneyScrollHeader } from "../../src/ui/JourneyScrollHeader";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
 import {
   formatBRLFromCents,
@@ -1013,7 +1015,10 @@ function ControlPanel({
 
   return (
     <Animated.ScrollView
-      contentContainerStyle={styles.controlScroll}
+      contentContainerStyle={[
+        styles.controlScroll,
+        { paddingBottom: getJourneyBottomContentInset(insets.bottom) },
+      ]}
       showsVerticalScrollIndicator={false}
       scrollEventThrottle={16}
       onScroll={onScroll}
@@ -1852,6 +1857,7 @@ export default function JourneyScreen() {
   const { session, signOut } = useSession();
   const userId = session?.user?.id ?? null;
   const { householdId, loading: householdLoading } = useHouseholdId(userId);
+  const insets = useSafeAreaInsets();
   const requestedTab = Array.isArray(params.tab) ? params.tab[0] : params.tab;
   const requestedCycleDate = Array.isArray(params.cycleDate)
     ? params.cycleDate[0]
@@ -1894,14 +1900,18 @@ export default function JourneyScreen() {
     [scrollY],
   );
 
-  useEffect(() => {
+  const selectTab = useCallback(
+    (nextTab: Tab) => {
+      scrollY.setValue(0);
+      setTab(nextTab);
+      router.setParams({ tab: nextTab });
+    },
+    [scrollY],
+  );
+
+  useLayoutEffect(() => {
     scrollY.setValue(0);
   }, [tab, scrollY]);
-
-  const selectTab = useCallback((nextTab: Tab) => {
-    setTab(nextTab);
-    router.setParams({ tab: nextTab });
-  }, []);
 
   const userMeta = session?.user?.user_metadata as
     | Record<string, any>
@@ -1929,10 +1939,11 @@ export default function JourneyScreen() {
     [params.values, savedValues],
   );
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!requestedTab) return;
+    scrollY.setValue(0);
     setTab(parseRequestedTab(requestedTab));
-  }, [requestedTab]);
+  }, [requestedTab, scrollY]);
 
   useEffect(() => {
     if (requestedCycleDate) setControlCycleDate(requestedCycleDate);
@@ -2210,7 +2221,10 @@ export default function JourneyScreen() {
             />
           ) : (
             <Animated.ScrollView
-              contentContainerStyle={styles.challengesPage}
+              contentContainerStyle={[
+                styles.challengesPage,
+                { paddingBottom: getJourneyBottomContentInset(insets.bottom) },
+              ]}
               showsVerticalScrollIndicator={false}
               scrollEventThrottle={16}
               onScroll={onContentScroll}
@@ -2520,7 +2534,6 @@ const styles = StyleSheet.create({
   controlScroll: {
     padding: 16,
     paddingTop: JOURNEY_HEADER_HEIGHT + 12,
-    paddingBottom: 28,
     gap: 14,
   },
   controlHeader: {

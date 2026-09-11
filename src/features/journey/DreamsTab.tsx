@@ -12,8 +12,10 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { formatBRLFromCents } from "../../lib/format";
 import { GoalProgress } from "../../lib/goals";
+import { getJourneyBottomContentInset } from "../../ui/journeyChrome";
 import { OB } from "../../ui/OnboardingKit";
 import { MountainHero } from "./MountainHero";
 import { resolveDreamIconName } from "./dreamIconCatalog";
@@ -163,6 +165,7 @@ export function DreamsTab({
   onScroll?: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
 }) {
   const compact = useWindowDimensions().width < 360;
+  const insets = useSafeAreaInsets();
   const empty = !loading && goals.length === 0;
   const allCompleted = !loading && goals.length > 0 && activeGoals.length === 0;
 
@@ -170,7 +173,11 @@ export function DreamsTab({
     <View style={styles.root}>
       <MountainHero progress={journeyProgress} showProgress={goals.length > 0} />
       <Animated.ScrollView
-        contentContainerStyle={[styles.scroll, compact && styles.scrollCompact]}
+        contentContainerStyle={[
+          styles.scroll,
+          compact && styles.scrollCompact,
+          { paddingBottom: getJourneyBottomContentInset(insets.bottom) },
+        ]}
         showsVerticalScrollIndicator={false}
         scrollEventThrottle={16}
         onScroll={onScroll}
@@ -281,7 +288,6 @@ const styles = StyleSheet.create({
   scroll: {
     paddingHorizontal: 16,
     paddingTop: 4,
-    paddingBottom: 24,
     gap: 12,
   },
   scrollCompact: {

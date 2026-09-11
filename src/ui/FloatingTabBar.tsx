@@ -8,6 +8,12 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import {
+  FLOATING_TAB_BAR_HIGHLIGHT_SIZE,
+  FLOATING_TAB_BAR_ITEM_SIZE,
+  FLOATING_TAB_BAR_PILL_PADDING_VERTICAL,
+  getFloatingTabBarBottomOffset,
+} from "./journeyChrome";
 import { OB } from "./OnboardingKit";
 
 type MenuIcon = keyof typeof Ionicons.glyphMap;
@@ -25,8 +31,8 @@ type FloatingTabBarProps<T extends string> = {
   onSelect: (id: T) => void;
 };
 
-const ITEM_SIZE = 48;
-const HIGHLIGHT_SIZE = 44;
+const ITEM_SIZE = FLOATING_TAB_BAR_ITEM_SIZE;
+const HIGHLIGHT_SIZE = FLOATING_TAB_BAR_HIGHLIGHT_SIZE;
 
 function TabIcon({
   icon,
@@ -60,7 +66,10 @@ export function FloatingTabBar<T extends string>({
   return (
     <View
       pointerEvents="box-none"
-      style={[styles.host, { bottom: Math.max(insets.bottom, 10) }]}
+      style={[
+        styles.host,
+        { bottom: getFloatingTabBarBottomOffset(insets.bottom) },
+      ]}
     >
       <View style={styles.pill}>
         {items.map((item) => {
@@ -96,7 +105,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 4,
     paddingHorizontal: 6,
-    paddingVertical: 6,
+    paddingVertical: FLOATING_TAB_BAR_PILL_PADDING_VERTICAL,
     borderRadius: 999,
     backgroundColor: OB.white,
     shadowColor: OB.shadow,
