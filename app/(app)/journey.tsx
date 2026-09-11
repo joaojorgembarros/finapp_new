@@ -28,6 +28,7 @@ import {
 import { BlurView } from "expo-blur";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { FloatingTabBar, FloatingTabItem } from "../../src/ui/FloatingTabBar";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
 import {
   formatBRLFromCents,
@@ -98,6 +99,21 @@ const ALL_NAVIGATION_ITEMS: readonly NavigationItem[] = [
 const MAIN_NAVIGATION_ITEMS = ALL_NAVIGATION_ITEMS.filter(
   (item) => SHOW_CONTROLE_TAB || item.id !== "controle",
 );
+
+const FLOATING_NAVIGATION_ITEMS: readonly FloatingTabItem<Tab>[] =
+  MAIN_NAVIGATION_ITEMS.map((item) =>
+    item.id === "jornada"
+      ? {
+          id: item.id,
+          image: require("../../assets/splash-brand-symbol.png"),
+          accessibilityLabel: `Abrir ${item.label}`,
+        }
+      : {
+          id: item.id,
+          icon: item.icon,
+          accessibilityLabel: `Abrir ${item.label}`,
+        },
+  );
 
 const DEFAULT_TAB = MAIN_NAVIGATION_ITEMS[0].id;
 
@@ -2108,7 +2124,7 @@ export default function JourneyScreen() {
   );
 
   return (
-    <OnboardingShell light>
+    <OnboardingShell light edges={["top"]}>
       <View style={styles.root}>
         <View style={styles.content}>
           {tab === "controle" ? (
@@ -2172,57 +2188,13 @@ export default function JourneyScreen() {
             </ScrollView>
           )}
         </View>
-        <View style={styles.nav}>
-          <Pressable
-            onPress={() => setMenuOpen(true)}
-            style={[styles.navItem, styles.navMenuItem]}
-            accessibilityRole="button"
-            accessibilityLabel="Abrir menu"
-          >
-            <Ionicons
-              name="menu-outline"
-              size={21}
-              color={menuOpen ? OB.primary : OB.support}
-            />
-            <Text
-              style={[styles.navText, menuOpen && styles.navTextActive]}
-              numberOfLines={1}
-            >
-              Menu
-            </Text>
-            {menuOpen ? <View style={styles.navIndicator} /> : null}
-          </Pressable>
-          {MAIN_NAVIGATION_ITEMS.map(({ id, label, icon }) => {
-            const active = tab === id;
-            return (
-              <Pressable
-                key={id}
-                onPress={() => selectTab(id)}
-                style={[
-                  styles.navItem,
-                  id === "movimentacoes" && styles.navMovementsItem,
-                ]}
-                accessibilityRole="button"
-                accessibilityLabel={`Abrir ${label}`}
-              >
-                <Ionicons
-                  name={icon}
-                  size={21}
-                  color={active ? OB.primary : OB.support}
-                />
-                <Text
-                  style={[styles.navText, active && styles.navTextActive]}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.82}
-                >
-                  {label}
-                </Text>
-                {active ? <View style={styles.navIndicator} /> : null}
-              </Pressable>
-            );
-          })}
-        </View>
+        <FloatingTabBar
+          items={FLOATING_NAVIGATION_ITEMS}
+          activeId={tab}
+          menuOpen={menuOpen}
+          onSelect={selectTab}
+          onOpenMenu={() => setMenuOpen(true)}
+        />
         <JourneyDrawer
           open={menuOpen}
           activeTab={tab}
@@ -2240,6 +2212,7 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: OB.offWhite,
+    overflow: "visible",
   },
   content: {
     flex: 1,
@@ -4123,52 +4096,6 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     textAlign: "center",
     marginTop: 8,
-  },
-  nav: {
-    flexDirection: "row",
-    borderTopWidth: 1,
-    borderTopColor: OB.supportSoft,
-    backgroundColor: OB.offWhite,
-    paddingHorizontal: 2,
-    paddingBottom: 6,
-  },
-  navItem: {
-    flex: 1,
-    minWidth: 0,
-    alignItems: "center",
-    gap: 3,
-    paddingHorizontal: 1,
-    paddingTop: 11,
-    paddingBottom: 8,
-  },
-  navMenuItem: {
-    flex: 0,
-    width: 50,
-  },
-  navMovementsItem: {
-    flex: 1.3,
-  },
-  navText: {
-    width: "100%",
-    flexShrink: 1,
-    color: OB.support,
-    fontSize: 10,
-    lineHeight: 12,
-    fontWeight: "800",
-    textAlign: "center",
-  },
-  navTextActive: {
-    color: OB.primary,
-    fontWeight: "900",
-  },
-  navIndicator: {
-    position: "absolute",
-    bottom: 0,
-    width: 28,
-    height: 3,
-    borderTopLeftRadius: 3,
-    borderTopRightRadius: 3,
-    backgroundColor: OB.primary,
   },
   drawerLayer: {
     ...StyleSheet.absoluteFillObject,

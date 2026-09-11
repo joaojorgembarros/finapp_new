@@ -2,7 +2,7 @@ import React from "react";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { Platform, Pressable, StyleSheet, Text, View, ViewStyle } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { Edge, SafeAreaView } from "react-native-safe-area-context";
 import Svg, {
   Circle,
   Defs,
@@ -63,9 +63,17 @@ export function OnboardingBackground({ compact = false }: { compact?: boolean })
   );
 }
 
-export function OnboardingShell({ children, light = false }: { children: React.ReactNode; light?: boolean }) {
+export function OnboardingShell({
+  children,
+  light = false,
+  edges = ["top", "bottom"],
+}: {
+  children: React.ReactNode;
+  light?: boolean;
+  edges?: Edge[];
+}) {
   return (
-    <SafeAreaView edges={["top", "bottom"]} style={[styles.shell, light && styles.shellLight]}>
+    <SafeAreaView edges={edges} style={[styles.shell, light && styles.shellLight]}>
       {children}
     </SafeAreaView>
   );
