@@ -9,11 +9,14 @@ import { Ionicons } from "@expo/vector-icons";
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   BackHandler,
   Image,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   Platform,
   Pressable,
   ScrollView,
@@ -29,6 +32,10 @@ import { BlurView } from "expo-blur";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FloatingTabBar, FloatingTabItem } from "../../src/ui/FloatingTabBar";
+import {
+  JOURNEY_HEADER_HEIGHT,
+  JourneyScrollHeader,
+} from "../../src/ui/JourneyScrollHeader";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
 import {
   formatBRLFromCents,
@@ -591,6 +598,7 @@ function ControlPanel({
   reconciledCommitments = 0,
   onPostImportHandled,
   onViewTransactions,
+  onScroll,
 }: {
   householdId: string | null;
   userId: string | null;
@@ -601,6 +609,7 @@ function ControlPanel({
   reconciledCommitments?: number;
   onPostImportHandled: () => void;
   onViewTransactions: () => void;
+  onScroll?: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
 }) {
   const insets = useSafeAreaInsets();
   const { width: viewportWidth, height: viewportHeight } =
@@ -1003,9 +1012,11 @@ function ControlPanel({
   }
 
   return (
-    <ScrollView
+    <Animated.ScrollView
       contentContainerStyle={styles.controlScroll}
       showsVerticalScrollIndicator={false}
+      scrollEventThrottle={16}
+      onScroll={onScroll}
     >
       <View style={styles.controlHeader}>
         <Text style={styles.controlTitle} accessibilityRole="header">
@@ -1677,7 +1688,7 @@ function ControlPanel({
           />
         </View>
       </Modal>
-    </ScrollView>
+    </Animated.ScrollView>
   );
 }
 function DrawerButton({
@@ -1873,6 +1884,19 @@ export default function JourneyScreen() {
   const [achievementsOpen, setAchievementsOpen] = useState(true);
   const lastBackPressRef = useRef(0);
   const logoutPromptOpenRef = useRef(false);
+  const scrollY = useRef(new Animated.Value(0)).current;
+
+  const onContentScroll = useMemo(
+    () =>
+      Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
+        useNativeDriver: true,
+      }),
+    [scrollY],
+  );
+
+  useEffect(() => {
+    scrollY.setValue(0);
+  }, [tab, scrollY]);
 
   const selectTab = useCallback((nextTab: Tab) => {
     setTab(nextTab);
@@ -2127,6 +2151,13 @@ export default function JourneyScreen() {
     <OnboardingShell light edges={["top"]}>
       <View style={styles.root}>
         <View style={styles.content}>
+          <JourneyScrollHeader
+            avatarUrl={avatarUrl}
+            displayName={displayName}
+            active={menuOpen}
+            onPress={() => setMenuOpen(true)}
+            scrollY={scrollY}
+          />
           {tab === "controle" ? (
             <ControlPanel
               key={
@@ -2145,9 +2176,10 @@ export default function JourneyScreen() {
               }
               onPostImportHandled={finishPostImport}
               onViewTransactions={() => selectTab("movimentacoes")}
+              onScroll={onContentScroll}
             />
           ) : tab === "movimentacoes" ? (
-            <MovementsScreen embedded />
+            <MovementsScreen embedded onScroll={onContentScroll} />
           ) : tab === "jornada" ? (
             <DreamsTab
               goals={goals}
@@ -2174,9 +2206,15 @@ export default function JourneyScreen() {
               }
               canAddDream={activeGoals.length < 3}
               footer={challengeCard}
+              onScroll={onContentScroll}
             />
           ) : (
-            <ScrollView contentContainerStyle={styles.challengesPage}>
+            <Animated.ScrollView
+              contentContainerStyle={styles.challengesPage}
+              showsVerticalScrollIndicator={false}
+              scrollEventThrottle={16}
+              onScroll={onContentScroll}
+            >
               <Ionicons name="trophy-outline" size={42} color={OB.primary} />
               <Text style={styles.placeholderTitle} accessibilityRole="header">
                 Seus desafios
@@ -2185,15 +2223,13 @@ export default function JourneyScreen() {
                 As missões são concluídas automaticamente com seus dados reais.
               </Text>
               {challengeCard}
-            </ScrollView>
+            </Animated.ScrollView>
           )}
         </View>
         <FloatingTabBar
           items={FLOATING_NAVIGATION_ITEMS}
           activeId={tab}
-          menuOpen={menuOpen}
           onSelect={selectTab}
-          onOpenMenu={() => setMenuOpen(true)}
         />
         <JourneyDrawer
           open={menuOpen}
@@ -2216,6 +2252,7 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
+    position: "relative",
   },
   scroll: {
     padding: 16,
@@ -2482,7 +2519,7 @@ const styles = StyleSheet.create({
   },
   controlScroll: {
     padding: 16,
-    paddingTop: 12,
+    paddingTop: JOURNEY_HEADER_HEIGHT + 12,
     paddingBottom: 28,
     gap: 14,
   },
@@ -4074,6 +4111,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     padding: 28,
+    paddingTop: JOURNEY_HEADER_HEIGHT + 28,
     gap: 8,
   },
   placeholder: {

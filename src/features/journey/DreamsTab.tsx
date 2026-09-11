@@ -2,9 +2,11 @@ import React from "react";
 import { Ionicons } from "@expo/vector-icons";
 import {
   ActivityIndicator,
+  Animated,
   Image,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   useWindowDimensions,
@@ -143,6 +145,7 @@ export function DreamsTab({
   onAddDream,
   canAddDream,
   footer,
+  onScroll,
 }: {
   goals: GoalProgress[];
   activeGoals: GoalProgress[];
@@ -157,6 +160,7 @@ export function DreamsTab({
   onAddDream: () => void;
   canAddDream: boolean;
   footer?: React.ReactNode;
+  onScroll?: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
 }) {
   const compact = useWindowDimensions().width < 360;
   const empty = !loading && goals.length === 0;
@@ -165,7 +169,12 @@ export function DreamsTab({
   return (
     <View style={styles.root}>
       <MountainHero progress={journeyProgress} showProgress={goals.length > 0} />
-      <ScrollView contentContainerStyle={[styles.scroll, compact && styles.scrollCompact]} showsVerticalScrollIndicator={false}>
+      <Animated.ScrollView
+        contentContainerStyle={[styles.scroll, compact && styles.scrollCompact]}
+        showsVerticalScrollIndicator={false}
+        scrollEventThrottle={16}
+        onScroll={onScroll}
+      >
         {activeGoals.length || loading ? (
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>{DREAMS_COPY.inProgressTitle}</Text>
@@ -259,7 +268,7 @@ export function DreamsTab({
             ) : null}
           </View>
         ) : null}
-      </ScrollView>
+      </Animated.ScrollView>
     </View>
   );
 }

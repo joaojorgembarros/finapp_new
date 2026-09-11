@@ -22,9 +22,7 @@ export type FloatingTabItem<T extends string = string> = {
 type FloatingTabBarProps<T extends string> = {
   items: readonly FloatingTabItem<T>[];
   activeId: T;
-  menuOpen: boolean;
   onSelect: (id: T) => void;
-  onOpenMenu: () => void;
 };
 
 const ITEM_SIZE = 48;
@@ -55,9 +53,7 @@ function TabIcon({
 export function FloatingTabBar<T extends string>({
   items,
   activeId,
-  menuOpen,
   onSelect,
-  onOpenMenu,
 }: FloatingTabBarProps<T>) {
   const insets = useSafeAreaInsets();
 
@@ -67,19 +63,6 @@ export function FloatingTabBar<T extends string>({
       style={[styles.host, { bottom: Math.max(insets.bottom, 10) }]}
     >
       <View style={styles.pill}>
-        <Pressable
-          onPress={onOpenMenu}
-          style={[styles.itemButton, menuOpen && styles.itemButtonActive]}
-          accessibilityRole="button"
-          accessibilityLabel="Abrir menu"
-          accessibilityState={{ selected: menuOpen }}
-        >
-          <Ionicons
-            name="menu-outline"
-            size={24}
-            color={menuOpen ? OB.white : OB.support}
-          />
-        </Pressable>
         {items.map((item) => {
           const active = item.id === activeId;
           return (
