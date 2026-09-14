@@ -1,8 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
   Keyboard,
   KeyboardAvoidingView,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   Platform,
   Pressable,
   RefreshControl,
@@ -15,6 +18,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHouseholdId } from "../../src/hooks/useHousehold";
 import { useKeyboardAwareScroll } from "../../src/hooks/useKeyboardAwareScroll";
 import { findTransactionAccountById } from "../../src/lib/banks";
@@ -24,11 +28,19 @@ import { listTransactionHistory, TxRow } from "../../src/lib/transactions";
 import { useSession } from "../../src/providers/SessionProvider";
 import { BankLogo } from "../../src/ui/BankLogo";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
+import {
+  JOURNEY_HEADER_HEIGHT,
+  getJourneyBottomContentInset,
+  shouldShowStandaloneScreenHeader,
+} from "../../src/ui/journeyChrome";
 import { ScreenHeaderCard } from "../../src/ui/ScreenHeaderCard";
 import { TransactionEditorModal } from "../../src/ui/TransactionEditorModal";
 
 type FlowFilter = "all" | "income" | "expense";
-type TransactionHistoryScreenProps = { embedded?: boolean };
+type TransactionHistoryScreenProps = {
+  embedded?: boolean;
+  onScroll?: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
+};
 
 function monthLabel(monthKey: string) {
   const [year, month] = monthKey.split("-").map(Number);
@@ -84,10 +96,14 @@ function TransactionCard({ transaction, onPress }: { transaction: TxRow; onPress
   );
 }
 
-export function TransactionHistoryScreen({ embedded = false }: TransactionHistoryScreenProps = {}) {
+export function TransactionHistoryScreen({
+  embedded = false,
+  onScroll,
+}: TransactionHistoryScreenProps = {}) {
   const params = useLocalSearchParams<{ importId?: string | string[] }>();
   const requestedImportId = Array.isArray(params.importId) ? params.importId[0] : params.importId;
   const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const stackActions = width < 600;
   const { userId } = useSession();
   const { householdId, loading: householdLoading } = useHouseholdId(userId);
@@ -178,22 +194,35 @@ export function TransactionHistoryScreen({ embedded = false }: TransactionHistor
   const content = (
     <>
       <KeyboardAvoidingView enabled={Platform.OS === "ios"} behavior="padding" style={styles.keyboard}>
-        <ScrollView
+        <Animated.ScrollView
           ref={scrollRef}
-          contentContainerStyle={[styles.scroll, { paddingBottom: 34 + keyboardInset }]}
+          contentContainerStyle={[
+            styles.scroll,
+            embedded && styles.scrollEmbedded,
+            {
+              paddingBottom:
+                (embedded
+                  ? getJourneyBottomContentInset(insets.bottom)
+                  : 34) + keyboardInset,
+            },
+          ]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="none"
+          scrollEventThrottle={16}
+          onScroll={onScroll}
           onScrollBeginDrag={cancelPendingScroll}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} tintColor={OB.primary} />}
         >
+        {shouldShowStandaloneScreenHeader(embedded) ? (
         <ScreenHeaderCard
-          onBack={embedded ? undefined : () => router.back()}
+          onBack={() => router.back()}
           backAccessibilityLabel="Voltar"
           eyebrow="Entradas e saídas"
           title="Movimentações"
           subtitle="Consulte tudo o que entrou e saiu, manualmente ou por CSV."
         />
+        ) : null}
 
         <View style={styles.actionPanel}>
           <View style={styles.actionIntro}>
@@ -310,7 +339,7 @@ export function TransactionHistoryScreen({ embedded = false }: TransactionHistor
         ) : (
           <View style={styles.stateCard}><Ionicons name="receipt-outline" size={32} color={OB.support} /><Text style={styles.stateTitle}>Nenhuma movimentação encontrada</Text><Text style={styles.stateText}>Altere os filtros ou registre um novo lançamento.</Text></View>
         )}
-        </ScrollView>
+        </Animated.ScrollView>
       </KeyboardAvoidingView>
       {householdId && userId ? (
         <TransactionEditorModal
@@ -340,6 +369,7 @@ export default TransactionHistoryScreen;
 const styles = StyleSheet.create({
   keyboard: { flex: 1 },
   scroll: { padding: 18, gap: 14, paddingBottom: 34 },
+  scrollEmbedded: { paddingTop: JOURNEY_HEADER_HEIGHT + 18 },
   actionPanel: { borderRadius: 20, padding: 14, gap: 12, backgroundColor: "rgba(123,160,200,0.12)", borderWidth: 1, borderColor: OB.supportSoft },
   actionIntro: { gap: 3 },
   actionEyebrow: { color: OB.primary, fontSize: 12, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 },

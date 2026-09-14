@@ -15,39 +15,102 @@ import { OB } from "../../ui/OnboardingKit";
 import { DREAMS_COPY } from "./dreamsPresentation";
 
 type TrailPoint = { x: number; y: number };
-type TrailSegment = { start: TrailPoint; c1: TrailPoint; c2: TrailPoint; end: TrailPoint };
+type TrailSegment = {
+  start: TrailPoint;
+  c1: TrailPoint;
+  c2: TrailPoint;
+  end: TrailPoint;
+};
 
 const HERO_WIDTH = 390;
-const HERO_HEIGHT = 248;
+const SKY_EXTRA = 60;
+const HERO_HEIGHT = 248 + SKY_EXTRA;
 const PEAK = { x: 292, y: 64 };
+
+type StarSpec = { x: number; y: number; r: number; opacity: number };
+
+const STAR_FIELD: StarSpec[] = [
+  { x: 30, y: 22, r: 1.4, opacity: 0.9 },
+  { x: 64, y: 40, r: 0.9, opacity: 0.55 },
+  { x: 92, y: 16, r: 1.1, opacity: 0.75 },
+  { x: 120, y: 34, r: 1.6, opacity: 0.95 },
+  { x: 150, y: 12, r: 0.8, opacity: 0.5 },
+  { x: 176, y: 30, r: 1.2, opacity: 0.8 },
+  { x: 208, y: 18, r: 0.9, opacity: 0.6 },
+  { x: 236, y: 40, r: 1.4, opacity: 0.85 },
+  { x: 262, y: 14, r: 1, opacity: 0.7 },
+  { x: 300, y: 30, r: 0.8, opacity: 0.5 },
+  { x: 330, y: 20, r: 1.3, opacity: 0.85 },
+  { x: 358, y: 44, r: 1, opacity: 0.65 },
+  { x: 44, y: 66, r: 0.9, opacity: 0.55 },
+  { x: 104, y: 72, r: 1.1, opacity: 0.7 },
+  { x: 190, y: 60, r: 0.8, opacity: 0.5 },
+  { x: 274, y: 70, r: 1.2, opacity: 0.75 },
+  { x: 344, y: 78, r: 0.9, opacity: 0.55 },
+  { x: 20, y: 98, r: 1, opacity: 0.6 },
+  { x: 140, y: 96, r: 0.8, opacity: 0.45 },
+  { x: 368, y: 104, r: 1, opacity: 0.6 },
+];
 const PEAK_SYMBOL_WIDTH = 34;
 const PEAK_SYMBOL_HEIGHT = PEAK_SYMBOL_WIDTH * (824 / 784);
 const PEAK_SYMBOL_X = PEAK.x - PEAK_SYMBOL_WIDTH / 2;
 const PEAK_SYMBOL_Y = PEAK.y - 22 - PEAK_SYMBOL_HEIGHT / 2;
 
 const TRAIL_SEGMENTS: TrailSegment[] = [
-  { start: { x: 42, y: 228 }, c1: { x: 110, y: 224 }, c2: { x: 182, y: 214 }, end: { x: 238, y: 198 } },
-  { start: { x: 238, y: 198 }, c1: { x: 288, y: 184 }, c2: { x: 296, y: 168 }, end: { x: 266, y: 152 } },
-  { start: { x: 266, y: 152 }, c1: { x: 252, y: 138 }, c2: { x: 258, y: 124 }, end: { x: 268, y: 112 } },
-  { start: { x: 268, y: 112 }, c1: { x: 280, y: 96 }, c2: { x: 288, y: 78 }, end: { x: PEAK.x, y: PEAK.y } },
+  {
+    start: { x: 42, y: 228 },
+    c1: { x: 110, y: 224 },
+    c2: { x: 182, y: 214 },
+    end: { x: 238, y: 198 },
+  },
+  {
+    start: { x: 238, y: 198 },
+    c1: { x: 288, y: 184 },
+    c2: { x: 296, y: 168 },
+    end: { x: 266, y: 152 },
+  },
+  {
+    start: { x: 266, y: 152 },
+    c1: { x: 252, y: 138 },
+    c2: { x: 258, y: 124 },
+    end: { x: 268, y: 112 },
+  },
+  {
+    start: { x: 268, y: 112 },
+    c1: { x: 280, y: 96 },
+    c2: { x: 288, y: 78 },
+    end: { x: PEAK.x, y: PEAK.y },
+  },
 ];
 
 const TRAIL_PATH =
   `M${TRAIL_SEGMENTS[0].start.x} ${TRAIL_SEGMENTS[0].start.y} ` +
-  TRAIL_SEGMENTS.map((segment) => `C${segment.c1.x} ${segment.c1.y} ${segment.c2.x} ${segment.c2.y} ${segment.end.x} ${segment.end.y}`).join(" ");
+  TRAIL_SEGMENTS.map(
+    (segment) =>
+      `C${segment.c1.x} ${segment.c1.y} ${segment.c2.x} ${segment.c2.y} ${segment.end.x} ${segment.end.y}`,
+  ).join(" ");
 
 function cubicPoint(segment: TrailSegment, t: number) {
   const mt = 1 - t;
   return {
-    x: mt ** 3 * segment.start.x + 3 * mt * mt * t * segment.c1.x + 3 * mt * t * t * segment.c2.x + t ** 3 * segment.end.x,
-    y: mt ** 3 * segment.start.y + 3 * mt * mt * t * segment.c1.y + 3 * mt * t * t * segment.c2.y + t ** 3 * segment.end.y,
+    x:
+      mt ** 3 * segment.start.x +
+      3 * mt * mt * t * segment.c1.x +
+      3 * mt * t * t * segment.c2.x +
+      t ** 3 * segment.end.x,
+    y:
+      mt ** 3 * segment.start.y +
+      3 * mt * mt * t * segment.c1.y +
+      3 * mt * t * t * segment.c2.y +
+      t ** 3 * segment.end.y,
   };
 }
 
 function buildTrailPoints() {
   const points: TrailPoint[] = [TRAIL_SEGMENTS[0].start];
   for (const segment of TRAIL_SEGMENTS) {
-    for (let step = 1; step <= 18; step += 1) points.push(cubicPoint(segment, step / 18));
+    for (let step = 1; step <= 18; step += 1)
+      points.push(cubicPoint(segment, step / 18));
   }
   return points;
 }
@@ -78,7 +141,10 @@ function pointAtProgress(progress: number) {
     const segment = distance(start, end);
     if (walked + segment >= target) {
       const t = segment === 0 ? 0 : (target - walked) / segment;
-      return { x: start.x + (end.x - start.x) * t, y: start.y + (end.y - start.y) * t };
+      return {
+        x: start.x + (end.x - start.x) * t,
+        y: start.y + (end.y - start.y) * t,
+      };
     }
     walked += segment;
   }
@@ -104,80 +170,177 @@ export function MountainHero({
         style={StyleSheet.absoluteFill}
       >
         <Defs>
-          <SvgLinearGradient id="journeySky" x1="0" y1="0" x2="0" y2={HERO_HEIGHT} gradientUnits="userSpaceOnUse">
+          <SvgLinearGradient
+            id="journeySky"
+            x1="0"
+            y1="0"
+            x2="0"
+            y2={HERO_HEIGHT}
+            gradientUnits="userSpaceOnUse"
+          >
             <Stop offset="0%" stopColor="#061936" />
             <Stop offset="48%" stopColor="#0A3674" />
             <Stop offset="100%" stopColor="#06152E" />
           </SvgLinearGradient>
-          <SvgLinearGradient id="farMountain" x1="0" y1="88" x2="0" y2="248" gradientUnits="userSpaceOnUse">
+          <SvgLinearGradient
+            id="farMountain"
+            x1="0"
+            y1="88"
+            x2="0"
+            y2="248"
+            gradientUnits="userSpaceOnUse"
+          >
             <Stop offset="0%" stopColor="#2B83E8" />
             <Stop offset="100%" stopColor="#0B2A5E" />
           </SvgLinearGradient>
-          <SvgLinearGradient id="mainMountain" x1="250" y1="52" x2="250" y2="248" gradientUnits="userSpaceOnUse">
+          <SvgLinearGradient
+            id="mainMountain"
+            x1="250"
+            y1="52"
+            x2="250"
+            y2="248"
+            gradientUnits="userSpaceOnUse"
+          >
             <Stop offset="0%" stopColor="#4EA0FF" />
             <Stop offset="52%" stopColor="#1D68C7" />
             <Stop offset="100%" stopColor="#0A2B63" />
           </SvgLinearGradient>
-          <SvgLinearGradient id="frontRidge" x1="0" y1="176" x2="0" y2="248" gradientUnits="userSpaceOnUse">
+          <SvgLinearGradient
+            id="frontRidge"
+            x1="0"
+            y1="176"
+            x2="0"
+            y2="248"
+            gradientUnits="userSpaceOnUse"
+          >
             <Stop offset="0%" stopColor="#164D95" />
             <Stop offset="100%" stopColor="#061833" />
           </SvgLinearGradient>
-          <SvgLinearGradient id="pathGlow" x1="42" y1="228" x2={PEAK.x} y2={PEAK.y} gradientUnits="userSpaceOnUse">
+          <SvgLinearGradient
+            id="pathGlow"
+            x1="42"
+            y1="228"
+            x2={PEAK.x}
+            y2={PEAK.y}
+            gradientUnits="userSpaceOnUse"
+          >
             <Stop offset="0%" stopColor="#BBDDFF" />
             <Stop offset="100%" stopColor="#FFFFFF" />
           </SvgLinearGradient>
         </Defs>
 
         <Rect width={HERO_WIDTH} height={HERO_HEIGHT} fill="url(#journeySky)" />
-        <Circle cx="300" cy="70" r="108" fill="#2D8BFF" opacity="0.16" />
-        <Circle cx="78" cy="210" r="128" fill="#1E72D7" opacity="0.14" />
-        {[38, 118, 248, 338].map((x, index) => (
-          <Circle key={x} cx={x} cy={[42, 58, 34, 92][index]} r={index === 1 ? 1.5 : 1.1} fill="#7BA0C8" opacity={0.85} />
-        ))}
-        {[70, 170, 235, 352].map((x, index) => (
-          <Circle key={`small-${x}`} cx={x} cy={[20, 86, 48, 36][index]} r={0.8} fill="#BBDDFF" opacity={0.42} />
+        {STAR_FIELD.map((star, index) => (
+          <Circle
+            key={`star-${index}`}
+            cx={star.x}
+            cy={star.y}
+            r={star.r}
+            fill="#DCEBFF"
+            opacity={star.opacity}
+          />
         ))}
 
-        <Path d="M-20 176 L68 132 L118 154 L176 108 L228 136 L302 58 L410 148 L410 248 L-20 248Z" fill="url(#farMountain)" opacity="0.72" />
-        <Path d="M132 168 L184 118 L228 142 L292 64 L372 154 L410 176 L410 248 L132 248Z" fill="url(#mainMountain)" />
-        <Path d={`M${PEAK.x} ${PEAK.y} L312 128 L266 108Z`} fill="#7DBBFF" opacity="0.38" />
-        <Path d={`M${PEAK.x} ${PEAK.y} L256 138 L228 142Z`} fill="#72B7FF" opacity="0.30" />
-        <Path d="M176 108 L196 146 L142 140Z" fill="#7DBBFF" opacity="0.22" />
-        <Ellipse cx="248" cy="102" rx="28" ry="4.5" fill="#69A9ED" opacity="0.24" />
-        <Path d="M48 148 C74 134 86 134 112 149 C132 161 168 154 198 168 C116 168 52 166 -10 178Z" fill="#0C2E64" opacity="0.70" />
-        <Path d="M-20 196 C54 168 120 204 190 180 C252 156 305 184 410 160 L410 248 L-20 248Z" fill="url(#frontRidge)" opacity="0.92" />
-        <Path d="M-20 218 C52 194 112 226 178 206 C242 184 296 210 410 186 L410 248 L-20 248Z" fill="#061D40" opacity="0.84" />
+        <G transform={`translate(0 ${SKY_EXTRA})`}>
+          <Circle cx="300" cy="70" r="108" fill="#2D8BFF" opacity="0.16" />
+          <Circle cx="78" cy="210" r="128" fill="#1E72D7" opacity="0.14" />
 
-        <G opacity="0.82">
-          {[16, 38, 66, 348, 366, 382].map((x, index) => (
-            <Path
-              key={`tree-${x}`}
-              d={`M${x} ${index < 3 ? 198 + index * 8 : 154 + (index - 3) * 12} l9 26 h-18 z M${x} ${index < 3 ? 184 + index * 8 : 140 + (index - 3) * 12} l7 20 h-14 z M${x} ${index < 3 ? 172 + index * 8 : 128 + (index - 3) * 12} l6 16 h-12 z`}
-              fill="#03152E"
-            />
-          ))}
+          <Path
+            d="M-20 176 L68 132 L118 154 L176 108 L228 136 L302 58 L410 148 L410 248 L-20 248Z"
+            fill="url(#farMountain)"
+            opacity="0.72"
+          />
+          <Path
+            d="M132 168 L184 118 L228 142 L292 64 L372 154 L410 176 L410 248 L132 248Z"
+            fill="url(#mainMountain)"
+          />
+          <Path
+            d={`M${PEAK.x} ${PEAK.y} L312 128 L266 108Z`}
+            fill="#7DBBFF"
+            opacity="0.38"
+          />
+          <Path
+            d={`M${PEAK.x} ${PEAK.y} L256 138 L228 142Z`}
+            fill="#72B7FF"
+            opacity="0.30"
+          />
+          <Path d="M176 108 L196 146 L142 140Z" fill="#7DBBFF" opacity="0.22" />
+          <Ellipse
+            cx="248"
+            cy="102"
+            rx="28"
+            ry="4.5"
+            fill="#69A9ED"
+            opacity="0.24"
+          />
+          <Path
+            d="M48 148 C74 134 86 134 112 149 C132 161 168 154 198 168 C116 168 52 166 -10 178Z"
+            fill="#0C2E64"
+            opacity="0.70"
+          />
+          <Path
+            d="M-20 196 C54 168 120 204 190 180 C252 156 305 184 410 160 L410 248 L-20 248Z"
+            fill="url(#frontRidge)"
+            opacity="0.92"
+          />
+          <Path
+            d="M-20 218 C52 194 112 226 178 206 C242 184 296 210 410 186 L410 248 L-20 248Z"
+            fill="#061D40"
+            opacity="0.84"
+          />
+
+          <G opacity="0.82">
+            {[16, 38, 66, 348, 366, 382].map((x, index) => (
+              <Path
+                key={`tree-${x}`}
+                d={`M${x} ${index < 3 ? 198 + index * 8 : 154 + (index - 3) * 12} l9 26 h-18 z M${x} ${index < 3 ? 184 + index * 8 : 140 + (index - 3) * 12} l7 20 h-14 z M${x} ${index < 3 ? 172 + index * 8 : 128 + (index - 3) * 12} l6 16 h-12 z`}
+                fill="#03152E"
+              />
+            ))}
+          </G>
+
+          <Path
+            d={TRAIL_PATH}
+            stroke="rgba(255,255,255,0.22)"
+            strokeWidth="8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            fill="none"
+          />
+          <Path
+            d={TRAIL_PATH}
+            stroke="url(#pathGlow)"
+            strokeWidth="3.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            fill="none"
+          />
+          <Circle cx={marker.x} cy={marker.y} r="10" fill="#FFFFFF" />
+          <Circle cx={marker.x} cy={marker.y} r="5.5" fill="#2F73E0" />
+
+          <SvgImage
+            href={require("../../../assets/splash-brand-symbol.png")}
+            x={PEAK_SYMBOL_X}
+            y={PEAK_SYMBOL_Y}
+            width={PEAK_SYMBOL_WIDTH}
+            height={PEAK_SYMBOL_HEIGHT}
+            preserveAspectRatio="xMidYMid meet"
+          />
         </G>
-
-        <Path d={TRAIL_PATH} stroke="rgba(255,255,255,0.22)" strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-        <Path d={TRAIL_PATH} stroke="url(#pathGlow)" strokeWidth="3.6" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-        <Circle cx={marker.x} cy={marker.y} r="10" fill="#FFFFFF" />
-        <Circle cx={marker.x} cy={marker.y} r="5.5" fill="#2F73E0" />
-
-        <SvgImage
-          href={require("../../../assets/splash-brand-symbol.png")}
-          x={PEAK_SYMBOL_X}
-          y={PEAK_SYMBOL_Y}
-          width={PEAK_SYMBOL_WIDTH}
-          height={PEAK_SYMBOL_HEIGHT}
-          preserveAspectRatio="xMidYMid meet"
-        />
       </Svg>
 
-      <View style={[styles.heroTextBlock, compact && styles.heroTextBlockCompact]}>
-        <Text style={[styles.heroTitle, compact && styles.heroTitleCompact]} accessibilityRole="header">
+      <View
+        style={[styles.heroTextBlock, compact && styles.heroTextBlockCompact]}
+      >
+        <Text
+          style={[styles.heroTitle, compact && styles.heroTitleCompact]}
+          accessibilityRole="header"
+        >
           {DREAMS_COPY.heroTitle}
         </Text>
-        <Text style={[styles.heroSubtitle, compact && styles.heroSubtitleCompact]}>
+        <Text
+          style={[styles.heroSubtitle, compact && styles.heroSubtitleCompact]}
+        >
           {DREAMS_COPY.heroSubtitle}
         </Text>
       </View>
@@ -195,7 +358,7 @@ const styles = StyleSheet.create({
   heroTextBlock: {
     position: "absolute",
     left: 16,
-    top: 18,
+    top: 18 + SKY_EXTRA,
     width: 200,
     maxWidth: "58%",
     alignItems: "flex-start",
@@ -203,7 +366,7 @@ const styles = StyleSheet.create({
   },
   heroTextBlockCompact: {
     left: 14,
-    top: 14,
+    top: 14 + SKY_EXTRA,
     width: 188,
     maxWidth: "64%",
   },

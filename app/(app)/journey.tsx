@@ -1,6 +1,7 @@
 import React, {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -9,11 +10,14 @@ import { Ionicons } from "@expo/vector-icons";
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   BackHandler,
   Image,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   Platform,
   Pressable,
   ScrollView,
@@ -28,6 +32,12 @@ import {
 import { BlurView } from "expo-blur";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { FloatingTabBar, FloatingTabItem } from "../../src/ui/FloatingTabBar";
+import {
+  JOURNEY_HEADER_HEIGHT,
+  getJourneyBottomContentInset,
+} from "../../src/ui/journeyChrome";
+import { JourneyScrollHeader } from "../../src/ui/JourneyScrollHeader";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
 import {
   formatBRLFromCents,
@@ -98,6 +108,21 @@ const ALL_NAVIGATION_ITEMS: readonly NavigationItem[] = [
 const MAIN_NAVIGATION_ITEMS = ALL_NAVIGATION_ITEMS.filter(
   (item) => SHOW_CONTROLE_TAB || item.id !== "controle",
 );
+
+const FLOATING_NAVIGATION_ITEMS: readonly FloatingTabItem<Tab>[] =
+  MAIN_NAVIGATION_ITEMS.map((item) =>
+    item.id === "jornada"
+      ? {
+          id: item.id,
+          image: require("../../assets/splash-brand-symbol.png"),
+          accessibilityLabel: `Abrir ${item.label}`,
+        }
+      : {
+          id: item.id,
+          icon: item.icon,
+          accessibilityLabel: `Abrir ${item.label}`,
+        },
+  );
 
 const DEFAULT_TAB = MAIN_NAVIGATION_ITEMS[0].id;
 
@@ -575,6 +600,7 @@ function ControlPanel({
   reconciledCommitments = 0,
   onPostImportHandled,
   onViewTransactions,
+  onScroll,
 }: {
   householdId: string | null;
   userId: string | null;
@@ -585,6 +611,7 @@ function ControlPanel({
   reconciledCommitments?: number;
   onPostImportHandled: () => void;
   onViewTransactions: () => void;
+  onScroll?: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
 }) {
   const insets = useSafeAreaInsets();
   const { width: viewportWidth, height: viewportHeight } =
@@ -987,9 +1014,14 @@ function ControlPanel({
   }
 
   return (
-    <ScrollView
-      contentContainerStyle={styles.controlScroll}
+    <Animated.ScrollView
+      contentContainerStyle={[
+        styles.controlScroll,
+        { paddingBottom: getJourneyBottomContentInset(insets.bottom) },
+      ]}
       showsVerticalScrollIndicator={false}
+      scrollEventThrottle={16}
+      onScroll={onScroll}
     >
       <View style={styles.controlHeader}>
         <Text style={styles.controlTitle} accessibilityRole="header">
@@ -1661,7 +1693,7 @@ function ControlPanel({
           />
         </View>
       </Modal>
-    </ScrollView>
+    </Animated.ScrollView>
   );
 }
 function DrawerButton({
@@ -1825,6 +1857,7 @@ export default function JourneyScreen() {
   const { session, signOut } = useSession();
   const userId = session?.user?.id ?? null;
   const { householdId, loading: householdLoading } = useHouseholdId(userId);
+  const insets = useSafeAreaInsets();
   const requestedTab = Array.isArray(params.tab) ? params.tab[0] : params.tab;
   const requestedCycleDate = Array.isArray(params.cycleDate)
     ? params.cycleDate[0]
@@ -1857,11 +1890,28 @@ export default function JourneyScreen() {
   const [achievementsOpen, setAchievementsOpen] = useState(true);
   const lastBackPressRef = useRef(0);
   const logoutPromptOpenRef = useRef(false);
+  const scrollY = useRef(new Animated.Value(0)).current;
 
-  const selectTab = useCallback((nextTab: Tab) => {
-    setTab(nextTab);
-    router.setParams({ tab: nextTab });
-  }, []);
+  const onContentScroll = useMemo(
+    () =>
+      Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
+        useNativeDriver: true,
+      }),
+    [scrollY],
+  );
+
+  const selectTab = useCallback(
+    (nextTab: Tab) => {
+      scrollY.setValue(0);
+      setTab(nextTab);
+      router.setParams({ tab: nextTab });
+    },
+    [scrollY],
+  );
+
+  useLayoutEffect(() => {
+    scrollY.setValue(0);
+  }, [tab, scrollY]);
 
   const userMeta = session?.user?.user_metadata as
     | Record<string, any>
@@ -1889,10 +1939,11 @@ export default function JourneyScreen() {
     [params.values, savedValues],
   );
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!requestedTab) return;
+    scrollY.setValue(0);
     setTab(parseRequestedTab(requestedTab));
-  }, [requestedTab]);
+  }, [requestedTab, scrollY]);
 
   useEffect(() => {
     if (requestedCycleDate) setControlCycleDate(requestedCycleDate);
@@ -2108,9 +2159,16 @@ export default function JourneyScreen() {
   );
 
   return (
-    <OnboardingShell light>
+    <OnboardingShell light edges={["top"]}>
       <View style={styles.root}>
         <View style={styles.content}>
+          <JourneyScrollHeader
+            avatarUrl={avatarUrl}
+            displayName={displayName}
+            active={menuOpen}
+            onPress={() => setMenuOpen(true)}
+            scrollY={scrollY}
+          />
           {tab === "controle" ? (
             <ControlPanel
               key={
@@ -2129,9 +2187,10 @@ export default function JourneyScreen() {
               }
               onPostImportHandled={finishPostImport}
               onViewTransactions={() => selectTab("movimentacoes")}
+              onScroll={onContentScroll}
             />
           ) : tab === "movimentacoes" ? (
-            <MovementsScreen embedded />
+            <MovementsScreen embedded onScroll={onContentScroll} />
           ) : tab === "jornada" ? (
             <DreamsTab
               goals={goals}
@@ -2158,9 +2217,18 @@ export default function JourneyScreen() {
               }
               canAddDream={activeGoals.length < 3}
               footer={challengeCard}
+              onScroll={onContentScroll}
             />
           ) : (
-            <ScrollView contentContainerStyle={styles.challengesPage}>
+            <Animated.ScrollView
+              contentContainerStyle={[
+                styles.challengesPage,
+                { paddingBottom: getJourneyBottomContentInset(insets.bottom) },
+              ]}
+              showsVerticalScrollIndicator={false}
+              scrollEventThrottle={16}
+              onScroll={onContentScroll}
+            >
               <Ionicons name="trophy-outline" size={42} color={OB.primary} />
               <Text style={styles.placeholderTitle} accessibilityRole="header">
                 Seus desafios
@@ -2169,60 +2237,14 @@ export default function JourneyScreen() {
                 As missões são concluídas automaticamente com seus dados reais.
               </Text>
               {challengeCard}
-            </ScrollView>
+            </Animated.ScrollView>
           )}
         </View>
-        <View style={styles.nav}>
-          <Pressable
-            onPress={() => setMenuOpen(true)}
-            style={[styles.navItem, styles.navMenuItem]}
-            accessibilityRole="button"
-            accessibilityLabel="Abrir menu"
-          >
-            <Ionicons
-              name="menu-outline"
-              size={21}
-              color={menuOpen ? OB.primary : OB.support}
-            />
-            <Text
-              style={[styles.navText, menuOpen && styles.navTextActive]}
-              numberOfLines={1}
-            >
-              Menu
-            </Text>
-            {menuOpen ? <View style={styles.navIndicator} /> : null}
-          </Pressable>
-          {MAIN_NAVIGATION_ITEMS.map(({ id, label, icon }) => {
-            const active = tab === id;
-            return (
-              <Pressable
-                key={id}
-                onPress={() => selectTab(id)}
-                style={[
-                  styles.navItem,
-                  id === "movimentacoes" && styles.navMovementsItem,
-                ]}
-                accessibilityRole="button"
-                accessibilityLabel={`Abrir ${label}`}
-              >
-                <Ionicons
-                  name={icon}
-                  size={21}
-                  color={active ? OB.primary : OB.support}
-                />
-                <Text
-                  style={[styles.navText, active && styles.navTextActive]}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.82}
-                >
-                  {label}
-                </Text>
-                {active ? <View style={styles.navIndicator} /> : null}
-              </Pressable>
-            );
-          })}
-        </View>
+        <FloatingTabBar
+          items={FLOATING_NAVIGATION_ITEMS}
+          activeId={tab}
+          onSelect={selectTab}
+        />
         <JourneyDrawer
           open={menuOpen}
           activeTab={tab}
@@ -2240,9 +2262,11 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: OB.offWhite,
+    overflow: "visible",
   },
   content: {
     flex: 1,
+    position: "relative",
   },
   scroll: {
     padding: 16,
@@ -2509,8 +2533,7 @@ const styles = StyleSheet.create({
   },
   controlScroll: {
     padding: 16,
-    paddingTop: 12,
-    paddingBottom: 28,
+    paddingTop: JOURNEY_HEADER_HEIGHT + 12,
     gap: 14,
   },
   controlHeader: {
@@ -4101,6 +4124,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     padding: 28,
+    paddingTop: JOURNEY_HEADER_HEIGHT + 28,
     gap: 8,
   },
   placeholder: {
@@ -4123,52 +4147,6 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     textAlign: "center",
     marginTop: 8,
-  },
-  nav: {
-    flexDirection: "row",
-    borderTopWidth: 1,
-    borderTopColor: OB.supportSoft,
-    backgroundColor: OB.offWhite,
-    paddingHorizontal: 2,
-    paddingBottom: 6,
-  },
-  navItem: {
-    flex: 1,
-    minWidth: 0,
-    alignItems: "center",
-    gap: 3,
-    paddingHorizontal: 1,
-    paddingTop: 11,
-    paddingBottom: 8,
-  },
-  navMenuItem: {
-    flex: 0,
-    width: 50,
-  },
-  navMovementsItem: {
-    flex: 1.3,
-  },
-  navText: {
-    width: "100%",
-    flexShrink: 1,
-    color: OB.support,
-    fontSize: 10,
-    lineHeight: 12,
-    fontWeight: "800",
-    textAlign: "center",
-  },
-  navTextActive: {
-    color: OB.primary,
-    fontWeight: "900",
-  },
-  navIndicator: {
-    position: "absolute",
-    bottom: 0,
-    width: 28,
-    height: 3,
-    borderTopLeftRadius: 3,
-    borderTopRightRadius: 3,
-    backgroundColor: OB.primary,
   },
   drawerLayer: {
     ...StyleSheet.absoluteFillObject,
