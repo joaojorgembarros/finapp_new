@@ -25,6 +25,7 @@ export const OB = {
   textOnDark: "rgba(255,255,255,0.93)",
   textOnDarkMid: "rgba(160,200,235,0.72)",
   shadow: "rgba(12,35,72,0.34)",
+  modalScrim: "rgba(6, 21, 46, 0.84)",
 } as const;
 
 export function OnboardingBackground({ compact = false }: { compact?: boolean }) {

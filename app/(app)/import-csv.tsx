@@ -1547,7 +1547,7 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 20,
     justifyContent: "center",
-    backgroundColor: "rgba(7, 18, 38, 0.62)",
+    backgroundColor: OB.modalScrim,
   },
   categoryPickerCard: {
     width: "100%",

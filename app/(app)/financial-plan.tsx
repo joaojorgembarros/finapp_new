@@ -1220,7 +1220,7 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     lineHeight: 16,
   },
-  modalBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(6,21,46,0.54)" },
+  modalBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: OB.modalScrim },
   modalKeyboard: { flex: 1, justifyContent: "flex-end" },
   modalSheet: {
     maxHeight: "91%",

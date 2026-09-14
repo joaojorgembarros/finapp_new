@@ -3183,7 +3183,7 @@ const styles = StyleSheet.create({
   paymentsModalBackdrop: {
     flex: 1,
     justifyContent: "flex-end",
-    backgroundColor: "rgba(6,25,54,0.42)",
+    backgroundColor: OB.modalScrim,
   },
   paymentsModalSheet: {
     width: "100%",
