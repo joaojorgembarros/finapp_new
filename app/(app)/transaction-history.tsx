@@ -18,6 +18,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHouseholdId } from "../../src/hooks/useHousehold";
 import { useKeyboardAwareScroll } from "../../src/hooks/useKeyboardAwareScroll";
 import { findTransactionAccountById } from "../../src/lib/banks";
@@ -27,7 +28,11 @@ import { listTransactionHistory, TxRow } from "../../src/lib/transactions";
 import { useSession } from "../../src/providers/SessionProvider";
 import { BankLogo } from "../../src/ui/BankLogo";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
-import { JOURNEY_HEADER_HEIGHT } from "../../src/ui/JourneyScrollHeader";
+import {
+  JOURNEY_HEADER_HEIGHT,
+  getJourneyBottomContentInset,
+  shouldShowStandaloneScreenHeader,
+} from "../../src/ui/journeyChrome";
 import { ScreenHeaderCard } from "../../src/ui/ScreenHeaderCard";
 import { TransactionEditorModal } from "../../src/ui/TransactionEditorModal";
 
@@ -98,6 +103,7 @@ export function TransactionHistoryScreen({
   const params = useLocalSearchParams<{ importId?: string | string[] }>();
   const requestedImportId = Array.isArray(params.importId) ? params.importId[0] : params.importId;
   const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const stackActions = width < 600;
   const { userId } = useSession();
   const { householdId, loading: householdLoading } = useHouseholdId(userId);
@@ -193,7 +199,12 @@ export function TransactionHistoryScreen({
           contentContainerStyle={[
             styles.scroll,
             embedded && styles.scrollEmbedded,
-            { paddingBottom: 34 + keyboardInset },
+            {
+              paddingBottom:
+                (embedded
+                  ? getJourneyBottomContentInset(insets.bottom)
+                  : 34) + keyboardInset,
+            },
           ]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
@@ -203,13 +214,15 @@ export function TransactionHistoryScreen({
           onScrollBeginDrag={cancelPendingScroll}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void load(true)} tintColor={OB.primary} />}
         >
+        {shouldShowStandaloneScreenHeader(embedded) ? (
         <ScreenHeaderCard
-          onBack={embedded ? undefined : () => router.back()}
+          onBack={() => router.back()}
           backAccessibilityLabel="Voltar"
           eyebrow="Entradas e saídas"
           title="Movimentações"
           subtitle="Consulte tudo o que entrou e saiu, manualmente ou por CSV."
         />
+        ) : null}
 
         <View style={styles.actionPanel}>
           <View style={styles.actionIntro}>

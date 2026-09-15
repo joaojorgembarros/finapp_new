@@ -83,6 +83,8 @@ const TRAIL_SEGMENTS: TrailSegment[] = [
   },
 ];
 
+const TRAIL_START = TRAIL_SEGMENTS[0].start;
+
 const TRAIL_PATH =
   `M${TRAIL_SEGMENTS[0].start.x} ${TRAIL_SEGMENTS[0].start.y} ` +
   TRAIL_SEGMENTS.map(
@@ -150,6 +152,18 @@ function pointAtProgress(progress: number) {
   }
 
   return TRAIL_POINTS[TRAIL_POINTS.length - 1];
+}
+
+function BrandSpark({ cx, cy, size }: { cx: number; cy: number; size: number }) {
+  const inner = size * 0.28;
+  const spark = (r: number) =>
+    `M 0 ${-r} C ${r * 0.16} ${-r * 0.16} ${r * 0.16} ${-r * 0.16} ${r} 0 C ${r * 0.16} ${r * 0.16} ${r * 0.16} ${r * 0.16} 0 ${r} C ${-r * 0.16} ${r * 0.16} ${-r * 0.16} ${r * 0.16} ${-r} 0 C ${-r * 0.16} ${-r * 0.16} ${-r * 0.16} ${-r * 0.16} 0 ${-r} Z`;
+
+  return (
+    <G transform={`translate(${cx} ${cy})`}>
+      <Path d={`${spark(size)} ${spark(inner)}`} fill="#F7FBFF" fillRule="evenodd" />
+    </G>
+  );
 }
 
 export function MountainHero({
@@ -224,7 +238,8 @@ export function MountainHero({
             y2={PEAK.y}
             gradientUnits="userSpaceOnUse"
           >
-            <Stop offset="0%" stopColor="#BBDDFF" />
+            <Stop offset="0%" stopColor="#C9E4FF" />
+            <Stop offset="55%" stopColor="#FFF4CC" />
             <Stop offset="100%" stopColor="#FFFFFF" />
           </SvgLinearGradient>
         </Defs>
@@ -256,13 +271,13 @@ export function MountainHero({
           />
           <Path
             d={`M${PEAK.x} ${PEAK.y} L312 128 L266 108Z`}
-            fill="#7DBBFF"
-            opacity="0.38"
+            fill="#EAF3FF"
+            opacity="0.42"
           />
           <Path
             d={`M${PEAK.x} ${PEAK.y} L256 138 L228 142Z`}
-            fill="#72B7FF"
-            opacity="0.30"
+            fill="#D7E8FF"
+            opacity="0.28"
           />
           <Path d="M176 108 L196 146 L142 140Z" fill="#7DBBFF" opacity="0.22" />
           <Ellipse
@@ -301,6 +316,14 @@ export function MountainHero({
 
           <Path
             d={TRAIL_PATH}
+            stroke="rgba(255,226,150,0.18)"
+            strokeWidth="12"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            fill="none"
+          />
+          <Path
+            d={TRAIL_PATH}
             stroke="rgba(255,255,255,0.22)"
             strokeWidth="8"
             strokeLinecap="round"
@@ -315,9 +338,25 @@ export function MountainHero({
             strokeLinejoin="round"
             fill="none"
           />
+          <Circle
+            cx={TRAIL_START.x}
+            cy={TRAIL_START.y}
+            r="11"
+            fill="rgba(255,244,204,0.22)"
+          />
+          <Circle
+            cx={TRAIL_START.x}
+            cy={TRAIL_START.y}
+            r="6.5"
+            stroke="#FFF6D8"
+            strokeWidth="2"
+            fill="none"
+          />
+          <Circle cx={TRAIL_START.x} cy={TRAIL_START.y} r="2.4" fill="#FFFFFF" />
           <Circle cx={marker.x} cy={marker.y} r="10" fill="#FFFFFF" />
           <Circle cx={marker.x} cy={marker.y} r="5.5" fill="#2F73E0" />
 
+          <BrandSpark cx={PEAK.x} cy={PEAK.y - 22} size={13} />
           <SvgImage
             href={require("../../../assets/splash-brand-symbol.png")}
             x={PEAK_SYMBOL_X}

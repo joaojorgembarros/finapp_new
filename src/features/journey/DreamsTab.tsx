@@ -3,7 +3,6 @@ import { Ionicons } from "@expo/vector-icons";
 import {
   ActivityIndicator,
   Animated,
-  Image,
   NativeScrollEvent,
   NativeSyntheticEvent,
   Pressable,
@@ -12,11 +11,13 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { formatBRLFromCents } from "../../lib/format";
 import { GoalProgress } from "../../lib/goals";
+import { getJourneyBottomContentInset } from "../../ui/journeyChrome";
 import { OB } from "../../ui/OnboardingKit";
+import { DreamIcon } from "./DreamIcon";
 import { MountainHero } from "./MountainHero";
-import { resolveDreamIconName } from "./dreamIconCatalog";
 import {
   DREAMS_COPY,
   dreamAchievementsCountCopy,
@@ -27,12 +28,6 @@ import {
   dreamTargetCopy,
   isDreamCompleted,
 } from "./dreamsPresentation";
-
-type MenuIcon = keyof typeof Ionicons.glyphMap;
-
-function dreamIcon(title: string): MenuIcon {
-  return resolveDreamIconName(title) as MenuIcon;
-}
 
 function DreamCard({
   goal,
@@ -45,7 +40,6 @@ function DreamCard({
 }) {
   const progress = dreamProgressPercent(goal.contributed_cents, goal.target_cents);
   const completed = isDreamCompleted(goal.contributed_cents, goal.target_cents);
-  const icon = completed ? "checkmark" : dreamIcon(goal.title);
   const percent = dreamProgressLabel(progress);
 
   return (
@@ -56,15 +50,12 @@ function DreamCard({
       style={({ pressed }) => [styles.card, completed && styles.cardCompleted, pressed && styles.cardPressed]}
     >
       <View style={styles.cardTop}>
-        {goal.cover_photo_url ? (
-          <View style={[styles.photoWrap, completed && styles.photoWrapCompleted]}>
-            <Image source={{ uri: goal.cover_photo_url }} style={styles.photo} resizeMode="cover" />
-          </View>
-        ) : (
-          <View style={[styles.iconWrap, completed && styles.iconWrapCompleted]}>
-            <Ionicons name={icon} size={20} color={completed ? "#169B62" : OB.primary} />
-          </View>
-        )}
+        <DreamIcon
+          title={goal.title}
+          size={compact ? 48 : 52}
+          completed={completed}
+          imageUri={goal.cover_photo_url}
+        />
         <View style={styles.cardCopy}>
           <Text style={[styles.goalTitle, compact && styles.goalTitleCompact]} numberOfLines={2}>
             {goal.title}
@@ -163,6 +154,7 @@ export function DreamsTab({
   onScroll?: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
 }) {
   const compact = useWindowDimensions().width < 360;
+  const insets = useSafeAreaInsets();
   const empty = !loading && goals.length === 0;
   const allCompleted = !loading && goals.length > 0 && activeGoals.length === 0;
 
@@ -170,7 +162,11 @@ export function DreamsTab({
     <View style={styles.root}>
       <MountainHero progress={journeyProgress} showProgress={goals.length > 0} />
       <Animated.ScrollView
-        contentContainerStyle={[styles.scroll, compact && styles.scrollCompact]}
+        contentContainerStyle={[
+          styles.scroll,
+          compact && styles.scrollCompact,
+          { paddingBottom: getJourneyBottomContentInset(insets.bottom) },
+        ]}
         showsVerticalScrollIndicator={false}
         scrollEventThrottle={16}
         onScroll={onScroll}
@@ -281,7 +277,6 @@ const styles = StyleSheet.create({
   scroll: {
     paddingHorizontal: 16,
     paddingTop: 4,
-    paddingBottom: 24,
     gap: 12,
   },
   scrollCompact: {
@@ -318,37 +313,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 12,
-  },
-  iconWrap: {
-    width: 52,
-    height: 52,
-    aspectRatio: 1,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: OB.offWhite,
-    overflow: "hidden",
-    flexShrink: 0,
-  },
-  iconWrapCompleted: {
-    backgroundColor: "#E5F7EE",
-  },
-  photoWrap: {
-    width: 52,
-    height: 52,
-    aspectRatio: 1,
-    borderRadius: 16,
-    overflow: "hidden",
-    backgroundColor: OB.offWhite,
-    flexShrink: 0,
-  },
-  photoWrapCompleted: {
-    borderWidth: 1,
-    borderColor: "rgba(22,155,98,0.34)",
-  },
-  photo: {
-    width: "100%",
-    height: "100%",
   },
   cardCopy: {
     flex: 1,
