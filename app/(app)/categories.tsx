@@ -363,7 +363,7 @@ export default function OnboardingCategories() {
                 </View>
               </View>
               <Text style={styles.confirmBody}>
-                Deseja remover "{pendingDelete.name}"? Os lançamentos antigos continuam salvos, mas ficam sem essa categoria.
+                {`Deseja remover "${pendingDelete.name}"? Os lançamentos antigos continuam salvos, mas ficam sem essa categoria.`}
               </Text>
 
               <View style={styles.confirmActions}>
