@@ -13,9 +13,9 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHouseholdId } from "../../src/hooks/useHousehold";
 import { useKeyboardAwareScroll } from "../../src/hooks/useKeyboardAwareScroll";
 import {
@@ -113,7 +113,7 @@ export default function FinancialPlanScreen() {
   const params = useLocalSearchParams<{ guided?: string }>();
   const requestedGuided = Array.isArray(params.guided) ? params.guided[0] : params.guided;
   const guided = requestedGuided === "1";
-  const insets = useSafeAreaInsets();
+  const { height: viewportHeight } = useWindowDimensions();
   const { session, userId } = useSession();
   const { householdId, loading: householdLoading } = useHouseholdId(userId);
   const settingsKeyboard = useKeyboardAwareScroll<SettingsField>(18);
@@ -728,28 +728,40 @@ export default function FinancialPlanScreen() {
 
       <Modal
         visible={modalVisible}
-        animationType="slide"
+        animationType="fade"
         transparent
         statusBarTranslucent
+        navigationBarTranslucent={Platform.OS === "android"}
+        presentationStyle="overFullScreen"
         onRequestClose={closeModal}
       >
-        <View style={styles.modalBackdrop}>
+        <View style={styles.scrimRoot}>
+          <Pressable
+            style={styles.scrim}
+            onPress={closeModal}
+            accessibilityRole="button"
+            accessibilityLabel="Fechar"
+          />
           <KeyboardAvoidingView
             enabled={Platform.OS === "ios"}
             behavior="padding"
-            style={styles.modalKeyboard}
+            style={styles.scrimStage}
+            pointerEvents="box-none"
           >
-            <View style={[styles.modalSheet, { paddingBottom: Math.max(insets.bottom, 14) }]}>
-              <View style={styles.modalHandle} />
+            <View style={[styles.overlayCard, { maxHeight: Math.min(viewportHeight * 0.88, 720) }]}>
               <View style={styles.modalHeader}>
                 <View style={styles.flex}>
-                  <Text style={styles.modalEyebrow}>Planejamento</Text>
                   <Text style={styles.modalTitle}>
                     {draft.onboardingType
                       ? "Editar dívida"
                       : editing
-                        ? "Editar compromisso"
-                        : "Novo compromisso"}
+                        ? "Editar conta"
+                        : "Nova conta"}
+                  </Text>
+                  <Text style={styles.modalSubtitle}>
+                    {draft.onboardingType
+                      ? "Ajuste o valor e o vencimento desta dívida."
+                      : "Algo que se repete todo mês no seu ciclo."}
                   </Text>
                 </View>
                 <Pressable
@@ -758,7 +770,7 @@ export default function FinancialPlanScreen() {
                   accessibilityRole="button"
                   accessibilityLabel="Fechar"
                 >
-                  <Ionicons name="close" size={21} color={OB.primary} />
+                  <Ionicons name="close" size={20} color={OB.support} />
                 </Pressable>
               </View>
 
@@ -767,7 +779,7 @@ export default function FinancialPlanScreen() {
                 style={styles.modalScroll}
                 contentContainerStyle={[
                   styles.modalContent,
-                  { paddingBottom: 22 + modalKeyboard.keyboardInset },
+                  { paddingBottom: 8 + modalKeyboard.keyboardInset },
                 ]}
                 keyboardDismissMode="none"
                 keyboardShouldPersistTaps="always"
@@ -782,14 +794,15 @@ export default function FinancialPlanScreen() {
                   ref={modalKeyboard.registerFieldNode("name")}
                   onLayout={modalKeyboard.registerField("name")}
                   collapsable={false}
+                  style={styles.fieldBlock}
                 >
-                  <Text style={styles.label}>Nome</Text>
+                  <Text style={styles.fieldLabel}>Como se chama?</Text>
                   <TextInput
                     value={draft.name}
                     onChangeText={(name) => setDraft((current) => ({ ...current, name }))}
                     onFocus={() => modalKeyboard.focusField("name")}
                     onPressIn={() => modalKeyboard.focusField("name")}
-                    placeholder="Ex: Aluguel"
+                    placeholder="Ex.: Aluguel, luz, faculdade"
                     placeholderTextColor={OB.support}
                     returnKeyType="next"
                     editable={!draft.onboardingType}
@@ -798,32 +811,37 @@ export default function FinancialPlanScreen() {
                   />
                 </View>
 
-                <Text style={styles.label}>Tipo</Text>
-                <View style={styles.kindOptions} accessibilityRole="radiogroup">
-                  {KIND_OPTIONS.map((option) => {
-                    const active = draft.kind === option.value;
-                    return (
-                      <Pressable
-                        key={option.value}
-                        onPress={() => setDraft((current) => ({ ...current, kind: option.value }))}
-                        style={[styles.kindOption, active && styles.kindOptionActive]}
-                        accessibilityRole="radio"
-                        accessibilityState={{ checked: active }}
-                      >
-                        <Ionicons name={option.icon} size={17} color={active ? "#fff" : OB.primary} />
-                        <Text style={[styles.kindText, active && styles.optionTextActive]}>{option.label}</Text>
-                      </Pressable>
-                    );
-                  })}
+                <View style={styles.fieldBlock}>
+                  <Text style={styles.fieldLabel}>Que tipo é?</Text>
+                  <View style={styles.kindOptions} accessibilityRole="radiogroup">
+                    {KIND_OPTIONS.map((option) => {
+                      const active = draft.kind === option.value;
+                      return (
+                        <Pressable
+                          key={option.value}
+                          onPress={() => setDraft((current) => ({ ...current, kind: option.value }))}
+                          style={[styles.kindOption, active && styles.kindOptionActive]}
+                          accessibilityRole="radio"
+                          accessibilityState={{ checked: active }}
+                        >
+                          <View style={[styles.kindIcon, active && styles.kindIconActive]}>
+                            <Ionicons name={option.icon} size={18} color={active ? "#fff" : OB.primary} />
+                          </View>
+                          <Text style={[styles.kindText, active && styles.kindTextActive]}>{option.label}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
                 </View>
 
                 <View
                   ref={modalKeyboard.registerFieldNode("amount")}
                   onLayout={modalKeyboard.registerField("amount")}
                   collapsable={false}
+                  style={styles.amountCard}
                 >
-                  <Text style={styles.label}>
-                    {draft.onboardingType ? "Parcela mensal (opcional)" : "Valor pago por mês"}
+                  <Text style={styles.fieldLabel}>
+                    {draft.onboardingType ? "Parcela do mês" : "Quanto sai por mês?"}
                   </Text>
                   <TextInput
                     value={draft.amount}
@@ -838,15 +856,15 @@ export default function FinancialPlanScreen() {
                     placeholderTextColor={OB.support}
                     returnKeyType="done"
                     onSubmitEditing={Keyboard.dismiss}
-                    style={styles.input}
+                    style={styles.amountInput}
                     accessibilityLabel={draft.onboardingType
                       ? "Parcela mensal desta dívida"
                       : "Valor pago por mês deste compromisso"}
                   />
                   <Text style={styles.helper}>
                     {draft.onboardingType
-                      ? "Deixe vazio se não houver parcela mensal. Informe o valor que vence em cada mês, não o saldo total."
-                      : "Informe o valor que vence em cada mês, não o saldo total da dívida."}
+                      ? "Pode deixar vazio se não houver parcela mensal. Use o valor que vence no mês, não o saldo total."
+                      : "Use o valor que vence no mês — não o saldo total."}
                   </Text>
                 </View>
 
@@ -856,8 +874,9 @@ export default function FinancialPlanScreen() {
                       ref={modalKeyboard.registerFieldNode("balance")}
                       onLayout={modalKeyboard.registerField("balance")}
                       collapsable={false}
+                      style={styles.fieldBlock}
                     >
-                      <Text style={styles.label}>Saldo da dívida</Text>
+                      <Text style={styles.fieldLabel}>Saldo da dívida</Text>
                       <TextInput
                         value={draft.balance}
                         onChangeText={(value) => setDraft((current) => ({
@@ -879,8 +898,9 @@ export default function FinancialPlanScreen() {
                       ref={modalKeyboard.registerFieldNode("note")}
                       onLayout={modalKeyboard.registerField("note")}
                       collapsable={false}
+                      style={styles.fieldBlock}
                     >
-                      <Text style={styles.label}>Observação</Text>
+                      <Text style={styles.fieldLabel}>Observação</Text>
                       <TextInput
                         value={draft.note}
                         onChangeText={(note) => setDraft((current) => ({
@@ -900,14 +920,14 @@ export default function FinancialPlanScreen() {
                   </>
                 ) : null}
 
-                <View style={styles.twoColumns}>
+                <View style={styles.metaCard}>
                   <View
                     ref={modalKeyboard.registerFieldNode("due")}
                     style={styles.column}
                     onLayout={modalKeyboard.registerField("due")}
                     collapsable={false}
                   >
-                    <Text style={styles.label}>Vencimento</Text>
+                    <Text style={styles.fieldLabel}>Vence todo dia</Text>
                     <TextInput
                       value={draft.dueDay}
                       onChangeText={(dueDay) => setDraft((current) => ({
@@ -917,7 +937,7 @@ export default function FinancialPlanScreen() {
                       onFocus={() => modalKeyboard.focusField("due")}
                       onPressIn={() => modalKeyboard.focusField("due")}
                       keyboardType="number-pad"
-                      placeholder="Dia 1–28"
+                      placeholder="1–28"
                       placeholderTextColor={OB.support}
                       returnKeyType="done"
                       onSubmitEditing={Keyboard.dismiss}
@@ -925,13 +945,14 @@ export default function FinancialPlanScreen() {
                       accessibilityLabel="Dia do vencimento, entre 1 e 28"
                     />
                   </View>
+                  <View style={styles.metaDivider} />
                   <View
                     ref={modalKeyboard.registerFieldNode("start")}
                     style={styles.column}
                     onLayout={modalKeyboard.registerField("start")}
                     collapsable={false}
                   >
-                    <Text style={styles.label}>Início</Text>
+                    <Text style={styles.fieldLabel}>Começa em</Text>
                     <TextInput
                       value={draft.startMonth}
                       onChangeText={(startMonth) => setDraft((current) => ({
@@ -956,8 +977,9 @@ export default function FinancialPlanScreen() {
                   ref={modalKeyboard.registerFieldNode("installments")}
                   onLayout={modalKeyboard.registerField("installments")}
                   collapsable={false}
+                  style={styles.fieldBlock}
                 >
-                  <Text style={styles.label}>Parcelas no planejamento</Text>
+                  <Text style={styles.fieldLabel}>Quantas parcelas?</Text>
                   <TextInput
                     value={draft.installmentCount}
                     onChangeText={(installmentCount) => setDraft((current) => ({
@@ -967,14 +989,14 @@ export default function FinancialPlanScreen() {
                     onFocus={() => modalKeyboard.focusField("installments")}
                     onPressIn={() => modalKeyboard.focusField("installments")}
                     keyboardType="number-pad"
-                    placeholder="Ex: 12"
+                    placeholder="Ex.: 12"
                     placeholderTextColor={OB.support}
                     returnKeyType="done"
                     onSubmitEditing={Keyboard.dismiss}
                     style={styles.input}
                     accessibilityLabel="Quantidade de parcelas no planejamento"
                   />
-                  <Text style={styles.helper}>Conte quantas parcelas devem aparecer a partir do mês inicial informado, entre 1 e 600.</Text>
+                  <Text style={styles.helper}>A partir do mês de início, entre 1 e 600.</Text>
                 </View>
                 ) : null}
 
@@ -988,13 +1010,13 @@ export default function FinancialPlanScreen() {
                 <Pressable
                   onPress={() => void saveCommitment()}
                   disabled={!commitmentValid || savingCommitment}
-                  style={[styles.primaryButton, (!commitmentValid || savingCommitment) && styles.disabled]}
+                  style={[styles.modalPrimaryButton, (!commitmentValid || savingCommitment) && styles.disabled]}
                   accessibilityRole="button"
                   accessibilityState={{ disabled: !commitmentValid || savingCommitment }}
                 >
                   {savingCommitment ? <ActivityIndicator color="#fff" /> : (
                     <Text style={styles.primaryButtonText}>
-                      {editing || draft.onboardingType ? "Salvar alterações" : "Adicionar compromisso"}
+                      {editing || draft.onboardingType ? "Salvar alterações" : "Adicionar"}
                     </Text>
                   )}
                 </Pressable>
@@ -1054,11 +1076,11 @@ const styles = StyleSheet.create({
     marginBottom: 7,
   },
   input: {
-    minHeight: 50,
-    borderRadius: 15,
-    borderWidth: 1.5,
+    minHeight: 52,
+    borderRadius: 16,
+    borderWidth: 1,
     borderColor: OB.supportSoft,
-    backgroundColor: OB.offWhite,
+    backgroundColor: "#fff",
     paddingHorizontal: 14,
     color: OB.primary,
     fontSize: 15,
@@ -1066,9 +1088,10 @@ const styles = StyleSheet.create({
   },
   inputReadonly: {
     opacity: 0.72,
+    backgroundColor: OB.offWhite,
   },
   inputError: { borderColor: "#D46A6A" },
-  helper: { color: OB.support, fontSize: 10, fontWeight: "700", lineHeight: 15, marginTop: 6 },
+  helper: { color: OB.support, fontSize: 12, fontWeight: "700", lineHeight: 17 },
   primaryButton: {
     minHeight: 54,
     borderRadius: 16,
@@ -1220,59 +1243,147 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     lineHeight: 16,
   },
-  modalBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: OB.modalScrim },
-  modalKeyboard: { flex: 1, justifyContent: "flex-end" },
-  modalSheet: {
-    maxHeight: "91%",
-    minHeight: "72%",
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
+  scrimRoot: {
+    flex: 1,
+  },
+  scrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: OB.modalScrim,
+  },
+  scrimStage: {
+    flex: 1,
+    padding: 20,
+    justifyContent: "center",
+  },
+  overlayCard: {
+    width: "100%",
+    maxWidth: 440,
+    alignSelf: "center",
+    borderRadius: 22,
+    paddingTop: 18,
+    paddingHorizontal: 4,
+    paddingBottom: 14,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+    shadowColor: OB.primary,
+    shadowOpacity: 0.18,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 12,
     overflow: "hidden",
+  },
+  modalHeader: {
+    paddingHorizontal: 14,
+    paddingBottom: 10,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  modalScroll: {
+    flexGrow: 0,
+    flexShrink: 1,
+  },
+  modalTitle: { color: OB.primary, fontSize: 20, fontWeight: "900" },
+  modalSubtitle: {
+    color: OB.support,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 18,
+    marginTop: 4,
+    paddingRight: 4,
+  },
+  modalClose: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
     backgroundColor: OB.offWhite,
   },
-  modalHandle: {
-    width: 42,
-    height: 4,
-    borderRadius: 2,
-    alignSelf: "center",
-    backgroundColor: OB.supportSoft,
-    marginTop: 10,
+  modalContent: { paddingHorizontal: 14, paddingBottom: 8, gap: 14 },
+  fieldBlock: { gap: 8 },
+  fieldLabel: {
+    color: OB.primary,
+    fontSize: 14,
+    fontWeight: "800",
   },
-  modalHeader: { padding: 18, paddingTop: 12, flexDirection: "row", alignItems: "center", gap: 12 },
-  modalScroll: { flex: 1 },
-  modalEyebrow: {
-    color: OB.support,
-    fontSize: 9,
+  amountCard: {
+    borderRadius: 18,
+    padding: 14,
+    gap: 8,
+    backgroundColor: OB.offWhite,
+  },
+  amountInput: {
+    minHeight: 56,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+    backgroundColor: "#fff",
+    paddingHorizontal: 14,
+    color: OB.primary,
+    fontSize: 26,
     fontWeight: "900",
-    letterSpacing: 1.6,
-    textTransform: "uppercase",
   },
-  modalTitle: { color: OB.primary, fontSize: 21, fontWeight: "900", marginTop: 4 },
-  modalClose: {
-    width: 44,
-    height: 44,
-    borderRadius: 13,
+  metaCard: {
+    borderRadius: 18,
+    padding: 12,
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: 12,
+    backgroundColor: OB.offWhite,
+  },
+  metaDivider: {
+    width: StyleSheet.hairlineWidth,
+    backgroundColor: OB.supportSoft,
+    marginVertical: 4,
+  },
+  kindOptions: { flexDirection: "row", gap: 8 },
+  kindOption: {
+    flex: 1,
+    minHeight: 78,
+    borderRadius: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 6,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    backgroundColor: OB.offWhite,
+    borderWidth: 1.5,
+    borderColor: "transparent",
+  },
+  kindOptionActive: {
+    backgroundColor: "rgba(12,35,72,0.06)",
+    borderColor: OB.primary,
+  },
+  kindIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: OB.supportSoft,
   },
-  modalContent: { paddingHorizontal: 18, paddingBottom: 22, gap: 14 },
-  kindOptions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  kindOption: {
-    minHeight: 42,
-    borderRadius: 13,
-    paddingHorizontal: 12,
-    flexDirection: "row",
+  kindIconActive: {
+    backgroundColor: OB.primary,
+  },
+  kindText: {
+    color: OB.primary,
+    fontSize: 11,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  kindTextActive: {
+    color: OB.primary,
+    fontWeight: "900",
+  },
+  modalPrimaryButton: {
+    minHeight: 52,
+    borderRadius: 16,
     alignItems: "center",
-    gap: 7,
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: OB.supportSoft,
+    justifyContent: "center",
+    backgroundColor: OB.primary,
+    marginTop: 2,
   },
-  kindOptionActive: { backgroundColor: OB.primary, borderColor: OB.primary },
-  kindText: { color: OB.primary, fontSize: 11, fontWeight: "900" },
-  twoColumns: { flexDirection: "row", gap: 10 },
   column: { flex: 1 },
 });

@@ -132,6 +132,8 @@ export type FinancialSummary = {
 export type FinancialOverview = FinancialSummary & {
   cycle: FinancialCycle;
   settings: FinancialSettings;
+  expectedIncomeFixedCents: number;
+  expectedIncomeVariableCents: number;
   transactions: FinancialOverviewTransaction[];
   commitments: FinancialOverviewCommitment[];
   goals: FinancialOverviewGoal[];
@@ -623,16 +625,28 @@ async function listCycleTransactions(householdId: string, cycle: FinancialCycle)
   })) as FinancialOverviewTransaction[];
 }
 
-async function getExpectedIncome(userId: string) {
+async function getExpectedIncomeBreakdown(userId: string) {
   const { data, error } = await sb
     .from("profiles")
     .select("income_fixed_cents,income_variable_avg_cents,income_cents")
     .eq("user_id", userId)
     .maybeSingle();
   if (error) throw error;
-  const fixed = integerCents(data?.income_fixed_cents);
-  const variable = integerCents(data?.income_variable_avg_cents);
-  return Math.max(0, fixed + variable || integerCents(data?.income_cents));
+  const fixed = Math.max(0, integerCents(data?.income_fixed_cents));
+  const variable = Math.max(0, integerCents(data?.income_variable_avg_cents));
+  const legacy = Math.max(0, integerCents(data?.income_cents));
+  if (fixed + variable > 0) {
+    return {
+      fixedCents: fixed,
+      variableCents: variable,
+      totalCents: fixed + variable,
+    };
+  }
+  return {
+    fixedCents: legacy,
+    variableCents: 0,
+    totalCents: legacy,
+  };
 }
 
 type ContributionRow = {
@@ -708,7 +722,7 @@ export async function getFinancialOverview(params: {
   userId: string;
   cycle: FinancialCycle;
 }): Promise<FinancialOverview> {
-  const [settings, transactions, commitments, payments, contributionRows, goalRows, snapshots, expectedIncomeCents] = await Promise.all([
+  const [settings, transactions, commitments, payments, contributionRows, goalRows, snapshots, expectedIncome] = await Promise.all([
     getFinancialSettings(params.householdId),
     listCycleTransactions(params.householdId, params.cycle),
     listCommitments(params.householdId, { includeArchived: true }),
@@ -716,8 +730,9 @@ export async function getFinancialOverview(params: {
     listContributionRows(params.householdId),
     listOverviewGoals(params.householdId),
     listBalanceSnapshots(params.householdId, params.cycle),
-    getExpectedIncome(params.userId),
+    getExpectedIncomeBreakdown(params.userId),
   ]);
+  const expectedIncomeCents = expectedIncome.totalCents;
 
   const transactionsById = new Map(transactions.map((transaction) => [transaction.id, transaction]));
   const paymentsByCommitment = new Map(payments.map((payment) => [payment.commitment_id, payment]));
@@ -808,6 +823,8 @@ export async function getFinancialOverview(params: {
     ...summary,
     cycle: params.cycle,
     settings,
+    expectedIncomeFixedCents: expectedIncome.fixedCents,
+    expectedIncomeVariableCents: expectedIncome.variableCents,
     transactions,
     commitments: overviewCommitments,
     goals,

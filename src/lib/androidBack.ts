@@ -7,6 +7,6 @@ export function getAndroidBackAction(opts: {
   isSecondPress: boolean;
 }): AndroidBackAction {
   if (opts.menuOpen) return "close-menu";
-  if (opts.tab !== "jornada") return "go-home";
+  if (opts.tab !== "controle") return "go-home";
   return opts.isSecondPress ? "confirm-exit" : "warn-exit";
 }
