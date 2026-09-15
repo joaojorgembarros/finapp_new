@@ -1,0 +1,3 @@
+-- Reserved for local development seeds.
+-- Keep this file present so `npm run db:reset` can run with seeding enabled.
+-- Do not add fictional product data here until the team explicitly wants it.
