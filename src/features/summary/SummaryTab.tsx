@@ -11,7 +11,6 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  StatusBar,
   StyleSheet,
   Text,
   useWindowDimensions,
@@ -102,16 +101,7 @@ export function SummaryTab({
   onScroll?: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
 }) {
   const insets = useSafeAreaInsets();
-  const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
-  const paymentsSheetTopInset = Math.max(
-    insets.top,
-    Platform.OS === "android" ? (StatusBar.currentHeight ?? 0) : 0
-  );
-  const compactPaymentsSheet = viewportWidth < 360;
-  const paymentsSheetHeight = Math.max(
-    0,
-    Math.min(viewportHeight * 0.9, viewportHeight - paymentsSheetTopInset - 12)
-  );
+  const { height: viewportHeight } = useWindowDimensions();
 
   const [overview, setOverview] = useState<FinancialOverview | null>(null);
   const [allCommitments, setAllCommitments] = useState<FinancialCommitment[]>([]);
@@ -607,39 +597,66 @@ export function SummaryTab({
 
       <Modal
         visible={paymentsModalOpen}
-        animationType="slide"
+        animationType="fade"
         transparent
         presentationStyle="overFullScreen"
         statusBarTranslucent={Platform.OS === "android"}
         navigationBarTranslucent={Platform.OS === "android"}
         onRequestClose={() => setPaymentsModalOpen(false)}
       >
-        <View style={styles.modalBackdrop}>
-          <Pressable onPress={() => setPaymentsModalOpen(false)} style={StyleSheet.absoluteFill} accessible={false} />
-          <View style={[styles.modalSheet, { height: paymentsSheetHeight, marginTop: paymentsSheetTopInset + 12 }]}>
-            <View style={[styles.modalHeader, compactPaymentsSheet && styles.modalHeaderCompact]}>
-              <Text style={styles.modalTitle}>Revisar pagamentos</Text>
-              <Pressable onPress={() => setPaymentsModalOpen(false)} style={styles.modalClose}>
-                <Ionicons name="close" size={20} color={OB.primary} />
-              </Pressable>
+        <View style={styles.scrimRoot}>
+          <Pressable
+            style={styles.scrim}
+            onPress={() => setPaymentsModalOpen(false)}
+            accessibilityRole="button"
+            accessibilityLabel="Fechar"
+          />
+          <View style={styles.scrimStage} pointerEvents="box-none">
+            <View style={[styles.overlayCard, { maxHeight: Math.min(viewportHeight * 0.88, 720) }]}>
+              <View style={styles.modalHeader}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.modalTitle}>Revisar pagamentos</Text>
+                  <Text style={styles.modalSubtitle}>Contas e parcelas deste ciclo.</Text>
+                </View>
+                <Pressable
+                  onPress={() => setPaymentsModalOpen(false)}
+                  style={styles.modalClose}
+                  accessibilityRole="button"
+                  accessibilityLabel="Fechar"
+                >
+                  <Ionicons name="close" size={20} color={OB.support} />
+                </Pressable>
+              </View>
+              <ScrollView
+                style={styles.modalScroll}
+                contentContainerStyle={styles.modalContent}
+                showsVerticalScrollIndicator={false}
+              >
+                {pendingCommitments.length ? (
+                  <View style={styles.modalSection}>
+                    <Text style={styles.modalSectionTitle}>Pendentes</Text>
+                    {pendingCommitments.map(renderPaymentRow)}
+                  </View>
+                ) : null}
+                {confirmedCommitments.length ? (
+                  <View style={styles.modalSection}>
+                    <Text style={styles.modalSectionTitle}>Já pagos</Text>
+                    {confirmedCommitments.map(renderPaymentRow)}
+                  </View>
+                ) : null}
+                {!pendingCommitments.length && !confirmedCommitments.length ? (
+                  <View style={styles.modalEmpty}>
+                    <View style={styles.modalEmptyIcon}>
+                      <Ionicons name="checkmark-circle-outline" size={28} color={OB.primary} />
+                    </View>
+                    <Text style={styles.modalEmptyTitle}>Nada pendente</Text>
+                    <Text style={styles.modalEmptyText}>
+                      Não há pagamentos para revisar neste período.
+                    </Text>
+                  </View>
+                ) : null}
+              </ScrollView>
             </View>
-            <ScrollView contentContainerStyle={styles.modalContent} showsVerticalScrollIndicator={false}>
-              {pendingCommitments.length ? (
-                <View style={styles.modalSection}>
-                  <Text style={styles.modalSectionTitle}>Pendentes</Text>
-                  {pendingCommitments.map(renderPaymentRow)}
-                </View>
-              ) : null}
-              {confirmedCommitments.length ? (
-                <View style={styles.modalSection}>
-                  <Text style={styles.modalSectionTitle}>Já pagos</Text>
-                  {confirmedCommitments.map(renderPaymentRow)}
-                </View>
-              ) : null}
-              {!pendingCommitments.length && !confirmedCommitments.length ? (
-                <Text style={styles.emptyText}>Não há pagamentos para revisar neste período.</Text>
-              ) : null}
-            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -857,40 +874,92 @@ const styles = StyleSheet.create({
     textAlign: "center",
     paddingVertical: 24,
   },
-  modalBackdrop: {
+  scrimRoot: {
     flex: 1,
-    justifyContent: "flex-end",
+  },
+  scrim: {
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: OB.modalScrim,
   },
-  modalSheet: {
+  scrimStage: {
+    flex: 1,
+    padding: 20,
+    justifyContent: "center",
+  },
+  overlayCard: {
     width: "100%",
-    maxWidth: 680,
+    maxWidth: 440,
     alignSelf: "center",
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    borderRadius: 22,
+    paddingTop: 18,
+    paddingHorizontal: 4,
+    paddingBottom: 14,
     backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+    shadowColor: OB.primary,
+    shadowOpacity: 0.18,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 12,
     overflow: "hidden",
   },
   modalHeader: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
+    paddingHorizontal: 14,
     paddingBottom: 10,
     flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    alignItems: "flex-start",
     gap: 12,
   },
-  modalHeaderCompact: { paddingHorizontal: 12 },
-  modalTitle: { flex: 1, color: OB.primary, fontSize: 20, fontWeight: "900" },
+  modalScroll: {
+    flexGrow: 0,
+    flexShrink: 1,
+  },
+  modalTitle: { color: OB.primary, fontSize: 20, fontWeight: "900" },
+  modalSubtitle: {
+    color: OB.support,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 18,
+    marginTop: 4,
+    paddingRight: 4,
+  },
   modalClose: {
-    width: 36,
-    height: 36,
+    width: 34,
+    height: 34,
     borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: OB.offWhite,
   },
-  modalContent: { padding: 16, gap: 16, paddingBottom: 28 },
+  modalContent: { paddingHorizontal: 14, paddingBottom: 8, gap: 14 },
+  modalEmpty: {
+    alignItems: "center",
+    paddingVertical: 28,
+    paddingHorizontal: 12,
+    gap: 6,
+  },
+  modalEmptyIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(123,160,200,0.16)",
+    marginBottom: 6,
+  },
+  modalEmptyTitle: {
+    color: OB.primary,
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  modalEmptyText: {
+    color: OB.support,
+    fontSize: 13,
+    fontWeight: "700",
+    textAlign: "center",
+    lineHeight: 19,
+  },
   modalSection: { gap: 10 },
   modalSectionTitle: { color: OB.primary, fontSize: 14, fontWeight: "900" },
   paymentRow: {

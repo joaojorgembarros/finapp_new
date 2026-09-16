@@ -79,13 +79,13 @@ type NavigationItem = {
 };
 
 const ALL_NAVIGATION_ITEMS: readonly NavigationItem[] = [
-  { id: "controle", label: "Resumo", icon: "bar-chart-outline" },
+  { id: "jornada", label: "Sonhos", icon: "compass-outline" },
   {
     id: "movimentacoes",
     label: "Movimentações",
     icon: "swap-vertical-outline",
   },
-  { id: "jornada", label: "Sonhos", icon: "compass-outline" },
+  { id: "controle", label: "Resumo", icon: "bar-chart-outline" },
   { id: "desafios", label: "Desafios", icon: "trophy-outline" },
 ];
 
