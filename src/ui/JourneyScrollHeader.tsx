@@ -7,6 +7,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   JOURNEY_HEADER_HEIGHT,
   isJourneyAvatarTouchable,
@@ -38,6 +39,7 @@ export function JourneyScrollHeader({
   onPress,
   scrollY,
 }: JourneyScrollHeaderProps) {
+  const insets = useSafeAreaInsets();
   const translateY = scrollY.interpolate({
     inputRange: [0, JOURNEY_HEADER_HEIGHT],
     outputRange: [0, -JOURNEY_HEADER_HEIGHT],
@@ -66,6 +68,7 @@ export function JourneyScrollHeader({
       style={[
         styles.host,
         {
+          top: insets.top,
           height: JOURNEY_HEADER_HEIGHT,
           transform: [{ translateY }],
           opacity,
@@ -104,12 +107,12 @@ export function JourneyScrollHeader({
 const styles = StyleSheet.create({
   host: {
     position: "absolute",
-    top: 0,
     left: 0,
     right: 0,
     justifyContent: "center",
     paddingHorizontal: 16,
     zIndex: 20,
+    overflow: "hidden",
   },
   avatar: {
     width: 46,

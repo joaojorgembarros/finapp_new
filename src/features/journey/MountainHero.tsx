@@ -23,8 +23,11 @@ type TrailSegment = {
 };
 
 const HERO_WIDTH = 390;
-const SKY_EXTRA = 60;
-const HERO_HEIGHT = 248 + SKY_EXTRA;
+const SKY_EXTRA = 22;
+const ART_SCALE = 0.86;
+const ART_HEIGHT = 248;
+const HERO_HEIGHT = Math.round(ART_HEIGHT * ART_SCALE) + SKY_EXTRA;
+const ART_OFFSET_X = HERO_WIDTH * (1 - ART_SCALE);
 const PEAK = { x: 292, y: 64 };
 
 type StarSpec = { x: number; y: number; r: number; opacity: number };
@@ -256,7 +259,9 @@ export function MountainHero({
           />
         ))}
 
-        <G transform={`translate(0 ${SKY_EXTRA})`}>
+        <G
+          transform={`translate(${ART_OFFSET_X} ${SKY_EXTRA}) scale(${ART_SCALE})`}
+        >
           <Circle cx="300" cy="70" r="108" fill="#2D8BFF" opacity="0.16" />
           <Circle cx="78" cy="210" r="128" fill="#1E72D7" opacity="0.14" />
 
@@ -397,7 +402,7 @@ const styles = StyleSheet.create({
   heroTextBlock: {
     position: "absolute",
     left: 16,
-    top: 18 + SKY_EXTRA,
+    top: 14 + SKY_EXTRA,
     width: 200,
     maxWidth: "58%",
     alignItems: "flex-start",
@@ -405,32 +410,32 @@ const styles = StyleSheet.create({
   },
   heroTextBlockCompact: {
     left: 14,
-    top: 14 + SKY_EXTRA,
+    top: 10 + SKY_EXTRA,
     width: 188,
     maxWidth: "64%",
   },
   heroTitle: {
     color: OB.offWhite,
-    fontSize: 26,
-    lineHeight: 32,
+    fontSize: 24,
+    lineHeight: 30,
     fontWeight: "900",
     textAlign: "left",
   },
   heroTitleCompact: {
-    fontSize: 22,
-    lineHeight: 28,
+    fontSize: 21,
+    lineHeight: 26,
   },
   heroSubtitle: {
     color: "rgba(220,235,255,0.86)",
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "700",
-    lineHeight: 18,
-    marginTop: 6,
+    lineHeight: 17,
+    marginTop: 4,
     textAlign: "left",
   },
   heroSubtitleCompact: {
-    fontSize: 12,
-    lineHeight: 17,
-    marginTop: 4,
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 3,
   },
 });

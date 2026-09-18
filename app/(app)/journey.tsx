@@ -952,7 +952,7 @@ export default function JourneyScreen() {
   );
 
   return (
-    <OnboardingShell light edges={["top"]}>
+    <OnboardingShell light edges={[]}>
       <View style={styles.root}>
         <View style={styles.content}>
           <JourneyScrollHeader
@@ -962,75 +962,77 @@ export default function JourneyScreen() {
             onPress={() => setMenuOpen(true)}
             scrollY={scrollY}
           />
-          {tab === "controle" ? (
-            <SummaryTab
-              key={
-                activePostImportId
-                  ? `post-import:${activePostImportId}`
-                  : "control"
-              }
-              householdId={householdId}
-              userId={userId}
-              householdLoading={householdLoading}
-              cycleDate={controlCycleDate}
-              onCycleDateChange={rememberControlCycle}
-              postImportId={activePostImportId}
-              reconciledCommitments={
-                activePostImportId ? reconciledCommitments : 0
-              }
-              onPostImportHandled={finishPostImport}
-              onScroll={onContentScroll}
-            />
-          ) : tab === "movimentacoes" ? (
-            <MovementsScreen embedded onScroll={onContentScroll} />
-          ) : tab === "jornada" ? (
-            <DreamsTab
-              goals={goals}
-              activeGoals={activeGoals}
-              completedGoals={completedGoals}
-              monthTotal={monthTotal}
-              journeyProgress={journeyProgress}
-              loading={journeyLoading || householdLoading}
-              achievementsOpen={achievementsOpen}
-              onToggleAchievements={() => setAchievementsOpen((open) => !open)}
-              onOpenGoal={openGoal}
-              onCreateFirstDream={() => router.push("/(onboarding)/dreams")}
-              onAddDream={() =>
-                router.push({
-                  pathname: "/(onboarding)/dreams",
-                  params: {
-                    maxDreams: String(3 - activeGoals.length),
-                    returnToJourney: "1",
-                    excludedDreams: JSON.stringify(
-                      goals.map((goal) => goal.title),
-                    ),
-                  },
-                })
-              }
-              canAddDream={activeGoals.length < 3}
-              footer={challengeCard}
-              onScroll={onContentScroll}
-            />
-          ) : (
-            <Animated.ScrollView
-              contentContainerStyle={[
-                styles.challengesPage,
-                { paddingBottom: getJourneyBottomContentInset(insets.bottom) },
-              ]}
-              showsVerticalScrollIndicator={false}
-              scrollEventThrottle={16}
-              onScroll={onContentScroll}
-            >
-              <Ionicons name="trophy-outline" size={42} color={OB.primary} />
-              <Text style={styles.placeholderTitle} accessibilityRole="header">
-                Seus desafios
-              </Text>
-              <Text style={styles.placeholderText}>
-                As missões são concluídas automaticamente com seus dados reais.
-              </Text>
-              {challengeCard}
-            </Animated.ScrollView>
-          )}
+          <View style={[styles.tabBody, { paddingTop: insets.top }]}>
+            {tab === "controle" ? (
+              <SummaryTab
+                key={
+                  activePostImportId
+                    ? `post-import:${activePostImportId}`
+                    : "control"
+                }
+                householdId={householdId}
+                userId={userId}
+                householdLoading={householdLoading}
+                cycleDate={controlCycleDate}
+                onCycleDateChange={rememberControlCycle}
+                postImportId={activePostImportId}
+                reconciledCommitments={
+                  activePostImportId ? reconciledCommitments : 0
+                }
+                onPostImportHandled={finishPostImport}
+                onScroll={onContentScroll}
+              />
+            ) : tab === "movimentacoes" ? (
+              <MovementsScreen embedded onScroll={onContentScroll} />
+            ) : tab === "jornada" ? (
+              <DreamsTab
+                goals={goals}
+                activeGoals={activeGoals}
+                completedGoals={completedGoals}
+                monthTotal={monthTotal}
+                journeyProgress={journeyProgress}
+                loading={journeyLoading || householdLoading}
+                achievementsOpen={achievementsOpen}
+                onToggleAchievements={() => setAchievementsOpen((open) => !open)}
+                onOpenGoal={openGoal}
+                onCreateFirstDream={() => router.push("/(onboarding)/dreams")}
+                onAddDream={() =>
+                  router.push({
+                    pathname: "/(onboarding)/dreams",
+                    params: {
+                      maxDreams: String(3 - activeGoals.length),
+                      returnToJourney: "1",
+                      excludedDreams: JSON.stringify(
+                        goals.map((goal) => goal.title),
+                      ),
+                    },
+                  })
+                }
+                canAddDream={activeGoals.length < 3}
+                footer={challengeCard}
+                onScroll={onContentScroll}
+              />
+            ) : (
+              <Animated.ScrollView
+                contentContainerStyle={[
+                  styles.challengesPage,
+                  { paddingBottom: getJourneyBottomContentInset(insets.bottom) },
+                ]}
+                showsVerticalScrollIndicator={false}
+                scrollEventThrottle={16}
+                onScroll={onContentScroll}
+              >
+                <Ionicons name="trophy-outline" size={42} color={OB.primary} />
+                <Text style={styles.placeholderTitle} accessibilityRole="header">
+                  Seus desafios
+                </Text>
+                <Text style={styles.placeholderText}>
+                  As missões são concluídas automaticamente com seus dados reais.
+                </Text>
+                {challengeCard}
+              </Animated.ScrollView>
+            )}
+          </View>
         </View>
         <FloatingTabBar
           items={FLOATING_NAVIGATION_ITEMS}
@@ -1059,6 +1061,9 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     position: "relative",
+  },
+  tabBody: {
+    flex: 1,
   },
   scroll: {
     padding: 16,

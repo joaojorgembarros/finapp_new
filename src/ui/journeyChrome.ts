@@ -6,7 +6,8 @@ export const FLOATING_TAB_BAR_PILL_PADDING_VERTICAL = 6;
 export const FLOATING_TAB_BAR_HEIGHT =
   FLOATING_TAB_BAR_ITEM_SIZE + FLOATING_TAB_BAR_PILL_PADDING_VERTICAL * 2;
 export const FLOATING_TAB_BAR_CONTENT_GAP = 12;
-export const FLOATING_TAB_BAR_MIN_BOTTOM_OFFSET = 10;
+export const FLOATING_TAB_BAR_MIN_BOTTOM_OFFSET = 16;
+export const FLOATING_TAB_BAR_SYSTEM_GAP = 8;
 
 const AVATAR_HIDE_OFFSET = JOURNEY_HEADER_HEIGHT * 0.65;
 const AVATAR_SHOW_OFFSET = JOURNEY_HEADER_HEIGHT * 0.35;
@@ -16,9 +17,11 @@ function finiteNonNegative(value: number) {
 }
 
 export function getFloatingTabBarBottomOffset(safeBottom: number) {
-  return Math.max(
-    finiteNonNegative(safeBottom),
-    FLOATING_TAB_BAR_MIN_BOTTOM_OFFSET,
+  return (
+    Math.max(
+      finiteNonNegative(safeBottom),
+      FLOATING_TAB_BAR_MIN_BOTTOM_OFFSET,
+    ) + FLOATING_TAB_BAR_SYSTEM_GAP
   );
 }
 
