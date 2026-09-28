@@ -11,6 +11,7 @@ import Svg, {
   Rect,
   Stop,
 } from "react-native-svg";
+import { JOURNEY_HEADER_HEIGHT } from "../../ui/journeyChrome";
 import { OB } from "../../ui/OnboardingKit";
 import { DREAMS_COPY } from "./dreamsPresentation";
 
@@ -402,7 +403,7 @@ const styles = StyleSheet.create({
   heroTextBlock: {
     position: "absolute",
     left: 16,
-    top: 14 + SKY_EXTRA,
+    top: JOURNEY_HEADER_HEIGHT + 12,
     width: 200,
     maxWidth: "58%",
     alignItems: "flex-start",
@@ -410,7 +411,7 @@ const styles = StyleSheet.create({
   },
   heroTextBlockCompact: {
     left: 14,
-    top: 10 + SKY_EXTRA,
+    top: JOURNEY_HEADER_HEIGHT + 8,
     width: 188,
     maxWidth: "64%",
   },

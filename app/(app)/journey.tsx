@@ -30,8 +30,11 @@ import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FloatingTabBar, FloatingTabItem } from "../../src/ui/FloatingTabBar";
 import {
+  FLOATING_TAB_BAR_VISUAL_GAP,
   JOURNEY_HEADER_HEIGHT,
   getJourneyBottomContentInset,
+  resolveSafeBottomInset,
+  resolveSafeTopInset,
 } from "../../src/ui/journeyChrome";
 import { JourneyScrollHeader } from "../../src/ui/JourneyScrollHeader";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
@@ -55,7 +58,7 @@ import {
 } from "../../src/lib/goals";
 import { DreamsTab } from "../../src/features/journey/DreamsTab";
 import { SummaryTab } from "../../src/features/summary/SummaryTab";
-import { getAndroidBackAction } from "../../src/lib/androidBack";
+import { getAndroidBackAction, HOME_TAB } from "../../src/lib/androidBack";
 import { BankLogo } from "../../src/ui/BankLogo";
 import MovementsScreen from "./transaction-history";
 
@@ -108,7 +111,7 @@ const FLOATING_NAVIGATION_ITEMS: readonly FloatingTabItem<Tab>[] =
         },
   );
 
-const DEFAULT_TAB: Tab = SHOW_CONTROLE_TAB ? "controle" : "jornada";
+const DEFAULT_TAB: Tab = "jornada";
 
 function parseRequestedTab(raw: string | undefined): Tab {
   if (raw === "controle") return SHOW_CONTROLE_TAB ? "controle" : DEFAULT_TAB;
@@ -537,6 +540,12 @@ function JourneyDrawer({
   onTab: (tab: Tab) => void;
   onLogout: () => void;
 }) {
+  const insets = useSafeAreaInsets();
+  const statusBarHeight =
+    Platform.OS === "android" ? (StatusBar.currentHeight ?? 0) : 0;
+  const safeTop = resolveSafeTopInset(insets.top, statusBarHeight);
+  const safeBottom = resolveSafeBottomInset(insets.bottom);
+
   if (!open) return null;
 
   function goTab(tab: Tab) {
@@ -571,10 +580,16 @@ function JourneyDrawer({
         <View style={styles.drawerScrimTint} />
       </Pressable>
       <View style={styles.drawerPanel}>
-        <View style={styles.drawerHero}>
+        {safeBottom > 0 ? (
+          <View
+            pointerEvents="none"
+            style={[styles.drawerSystemSafeFill, { height: safeBottom }]}
+          />
+        ) : null}
+        <View style={[styles.drawerHero, { paddingTop: safeTop + 14 }]}>
           <Pressable
             onPress={onClose}
-            style={styles.drawerClose}
+            style={[styles.drawerClose, { top: safeTop + 6 }]}
             accessibilityRole="button"
             accessibilityLabel="Fechar menu"
           >
@@ -626,7 +641,14 @@ function JourneyDrawer({
           />
         </View>
 
-        <View style={styles.drawerFooter}>
+        <View
+          style={[
+            styles.drawerFooter,
+            {
+              paddingBottom: 10 + FLOATING_TAB_BAR_VISUAL_GAP + safeBottom,
+            },
+          ]}
+        >
           <Pressable onPress={onLogout} style={styles.logoutButton}>
             <Ionicons name="log-out-outline" size={20} color="#B94A4A" />
             <Text style={styles.logoutText}>Sair da conta</Text>
@@ -651,6 +673,9 @@ export default function JourneyScreen() {
   const userId = session?.user?.id ?? null;
   const { householdId, loading: householdLoading } = useHouseholdId(userId);
   const insets = useSafeAreaInsets();
+  const statusBarHeight =
+    Platform.OS === "android" ? (StatusBar.currentHeight ?? 0) : 0;
+  const safeTop = resolveSafeTopInset(insets.top, statusBarHeight);
   const requestedTab = Array.isArray(params.tab) ? params.tab[0] : params.tab;
   const requestedCycleDate = Array.isArray(params.cycleDate)
     ? params.cycleDate[0]
@@ -871,7 +896,7 @@ export default function JourneyScreen() {
           }
 
           if (action === "go-home") {
-            selectTab("controle");
+            selectTab(HOME_TAB);
             lastBackPressRef.current = 0;
             return true;
           }
@@ -962,7 +987,7 @@ export default function JourneyScreen() {
             onPress={() => setMenuOpen(true)}
             scrollY={scrollY}
           />
-          <View style={[styles.tabBody, { paddingTop: insets.top }]}>
+          <View style={[styles.tabBody, { paddingTop: safeTop }]}>
             {tab === "controle" ? (
               <SummaryTab
                 key={
@@ -2972,17 +2997,23 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 8, height: 0 },
     elevation: 35,
   },
+  drawerSystemSafeFill: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: OB.offWhite,
+    zIndex: 1,
+  },
   drawerHero: {
     minHeight: 154,
     paddingHorizontal: 16,
-    paddingTop: 22,
     paddingBottom: 16,
     backgroundColor: OB.primary,
     justifyContent: "flex-end",
   },
   drawerClose: {
     position: "absolute",
-    top: 14,
     right: 12,
     width: 44,
     height: 44,

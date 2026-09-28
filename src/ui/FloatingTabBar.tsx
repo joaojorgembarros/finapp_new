@@ -13,6 +13,7 @@ import {
   FLOATING_TAB_BAR_ITEM_SIZE,
   FLOATING_TAB_BAR_PILL_PADDING_VERTICAL,
   getFloatingTabBarBottomOffset,
+  resolveSafeBottomInset,
 } from "./journeyChrome";
 import { OB } from "./OnboardingKit";
 
@@ -62,37 +63,54 @@ export function FloatingTabBar<T extends string>({
   onSelect,
 }: FloatingTabBarProps<T>) {
   const insets = useSafeAreaInsets();
+  const systemBottom = resolveSafeBottomInset(insets.bottom);
+  const pillBottom = getFloatingTabBarBottomOffset(insets.bottom);
 
   return (
-    <View
-      pointerEvents="box-none"
-      style={[
-        styles.host,
-        { bottom: getFloatingTabBarBottomOffset(insets.bottom) },
-      ]}
-    >
-      <View style={styles.pill}>
-        {items.map((item) => {
-          const active = item.id === activeId;
-          return (
-            <Pressable
-              key={item.id}
-              onPress={() => onSelect(item.id)}
-              style={[styles.itemButton, active && styles.itemButtonActive]}
-              accessibilityRole="button"
-              accessibilityLabel={item.accessibilityLabel}
-              accessibilityState={{ selected: active }}
-            >
-              <TabIcon icon={item.icon} image={item.image} active={active} />
-            </Pressable>
-          );
-        })}
+    <>
+      {systemBottom > 0 ? (
+        <View
+          pointerEvents="none"
+          style={[styles.systemSafeFill, { height: systemBottom }]}
+        />
+      ) : null}
+      <View
+        pointerEvents="box-none"
+        style={[styles.host, { bottom: pillBottom }]}
+      >
+        <View style={styles.pill}>
+          {items.map((item) => {
+            const active = item.id === activeId;
+            return (
+              <Pressable
+                key={item.id}
+                onPress={() => onSelect(item.id)}
+                style={[styles.itemButton, active && styles.itemButtonActive]}
+                accessibilityRole="button"
+                accessibilityLabel={item.accessibilityLabel}
+                accessibilityState={{ selected: active }}
+              >
+                <TabIcon icon={item.icon} image={item.image} active={active} />
+              </Pressable>
+            );
+          })}
+        </View>
       </View>
-    </View>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
+  systemSafeFill: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: OB.offWhite,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "rgba(15, 23, 42, 0.08)",
+    zIndex: 19,
+  },
   host: {
     position: "absolute",
     left: 0,

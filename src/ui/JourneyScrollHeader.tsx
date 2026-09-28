@@ -2,7 +2,9 @@ import React, { useEffect, useState } from "react";
 import {
   Animated,
   Image,
+  Platform,
   Pressable,
+  StatusBar,
   StyleSheet,
   Text,
   View,
@@ -11,6 +13,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   JOURNEY_HEADER_HEIGHT,
   isJourneyAvatarTouchable,
+  resolveSafeTopInset,
 } from "./journeyChrome";
 import { OB } from "./OnboardingKit";
 
@@ -40,15 +43,19 @@ export function JourneyScrollHeader({
   scrollY,
 }: JourneyScrollHeaderProps) {
   const insets = useSafeAreaInsets();
-  const translateY = scrollY.interpolate({
-    inputRange: [0, JOURNEY_HEADER_HEIGHT],
-    outputRange: [0, -JOURNEY_HEADER_HEIGHT],
-    extrapolate: "clamp",
-  });
+  const statusBarHeight =
+    Platform.OS === "android" ? (StatusBar.currentHeight ?? 0) : 0;
+  const safeTop = resolveSafeTopInset(insets.top, statusBarHeight);
 
+  // Fade / soft scale only — never translate upward into the status bar.
   const opacity = scrollY.interpolate({
     inputRange: [0, JOURNEY_HEADER_HEIGHT * 0.65],
     outputRange: [1, 0],
+    extrapolate: "clamp",
+  });
+  const scale = scrollY.interpolate({
+    inputRange: [0, JOURNEY_HEADER_HEIGHT],
+    outputRange: [1, 0.92],
     extrapolate: "clamp",
   });
   const [avatarTouchable, setAvatarTouchable] = useState(true);
@@ -68,10 +75,10 @@ export function JourneyScrollHeader({
       style={[
         styles.host,
         {
-          top: insets.top,
+          top: safeTop,
           height: JOURNEY_HEADER_HEIGHT,
-          transform: [{ translateY }],
           opacity,
+          transform: [{ scale }],
         },
       ]}
     >
@@ -112,7 +119,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 16,
     zIndex: 20,
-    overflow: "hidden",
   },
   avatar: {
     width: 46,

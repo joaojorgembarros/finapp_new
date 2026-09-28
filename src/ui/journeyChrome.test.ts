@@ -2,51 +2,66 @@ import { describe, expect, it } from "vitest";
 import {
   FLOATING_TAB_BAR_CONTENT_GAP,
   FLOATING_TAB_BAR_HEIGHT,
-  FLOATING_TAB_BAR_MIN_BOTTOM_OFFSET,
-  FLOATING_TAB_BAR_SYSTEM_GAP,
+  FLOATING_TAB_BAR_VISUAL_GAP,
   JOURNEY_HEADER_HEIGHT,
   getFloatingTabBarBottomOffset,
   getJourneyBottomContentInset,
   isJourneyAvatarTouchable,
+  resolveSafeBottomInset,
+  resolveSafeTopInset,
   shouldShowStandaloneScreenHeader,
 } from "./journeyChrome";
 
 describe("floating tab bar insets", () => {
-  it("keeps the pill above the home indicator with a minimum offset and system gap", () => {
-    expect(getFloatingTabBarBottomOffset(0)).toBe(
-      FLOATING_TAB_BAR_MIN_BOTTOM_OFFSET + FLOATING_TAB_BAR_SYSTEM_GAP,
-    );
+  it("places the pill at insets.bottom plus a small visual gap", () => {
+    expect(getFloatingTabBarBottomOffset(0)).toBe(FLOATING_TAB_BAR_VISUAL_GAP);
     expect(getFloatingTabBarBottomOffset(8)).toBe(
-      FLOATING_TAB_BAR_MIN_BOTTOM_OFFSET + FLOATING_TAB_BAR_SYSTEM_GAP,
+      8 + FLOATING_TAB_BAR_VISUAL_GAP,
     );
-    expect(getFloatingTabBarBottomOffset(34)).toBe(
-      34 + FLOATING_TAB_BAR_SYSTEM_GAP,
+    expect(getFloatingTabBarBottomOffset(48)).toBe(
+      48 + FLOATING_TAB_BAR_VISUAL_GAP,
     );
   });
 
   it("treats invalid inset values as zero", () => {
     expect(getFloatingTabBarBottomOffset(Number.NaN)).toBe(
-      FLOATING_TAB_BAR_MIN_BOTTOM_OFFSET + FLOATING_TAB_BAR_SYSTEM_GAP,
+      FLOATING_TAB_BAR_VISUAL_GAP,
     );
     expect(getFloatingTabBarBottomOffset(-12)).toBe(
-      FLOATING_TAB_BAR_MIN_BOTTOM_OFFSET + FLOATING_TAB_BAR_SYSTEM_GAP,
+      FLOATING_TAB_BAR_VISUAL_GAP,
     );
   });
 
-  it("clears the pill height, gap, and safe bottom without stacking extra padding", () => {
+  it("reserves tab height, content gap, system inset, and visual gap", () => {
     expect(FLOATING_TAB_BAR_HEIGHT).toBe(60);
     expect(getJourneyBottomContentInset(0)).toBe(
       FLOATING_TAB_BAR_HEIGHT +
         FLOATING_TAB_BAR_CONTENT_GAP +
-        FLOATING_TAB_BAR_MIN_BOTTOM_OFFSET +
-        FLOATING_TAB_BAR_SYSTEM_GAP,
+        FLOATING_TAB_BAR_VISUAL_GAP,
     );
-    expect(getJourneyBottomContentInset(34)).toBe(
+    expect(getJourneyBottomContentInset(48)).toBe(
       FLOATING_TAB_BAR_HEIGHT +
         FLOATING_TAB_BAR_CONTENT_GAP +
-        34 +
-        FLOATING_TAB_BAR_SYSTEM_GAP,
+        48 +
+        FLOATING_TAB_BAR_VISUAL_GAP,
     );
+  });
+});
+
+describe("safe inset resolvers", () => {
+  it("uses the live top inset when present", () => {
+    expect(resolveSafeTopInset(44, 24)).toBe(44);
+  });
+
+  it("falls back to StatusBar height when edge-to-edge reports top 0", () => {
+    expect(resolveSafeTopInset(0, 24)).toBe(24);
+    expect(resolveSafeTopInset(Number.NaN, 24)).toBe(24);
+  });
+
+  it("keeps bottom inset as the real system value", () => {
+    expect(resolveSafeBottomInset(48)).toBe(48);
+    expect(resolveSafeBottomInset(0)).toBe(0);
+    expect(resolveSafeBottomInset(-4)).toBe(0);
   });
 });
 

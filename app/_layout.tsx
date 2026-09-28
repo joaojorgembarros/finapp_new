@@ -4,10 +4,9 @@ import { Platform, StatusBar as NativeStatusBar, StyleSheet, View } from "react-
 import { Stack } from "expo-router";
 import * as NavigationBar from "expo-navigation-bar";
 import { StatusBar } from "expo-status-bar";
-import { SafeAreaProvider } from "react-native-safe-area-context";
+import { SafeAreaProvider, initialWindowMetrics } from "react-native-safe-area-context";
 import { SessionProvider, useSession } from "../src/providers/SessionProvider";
 import { SplashHandoff } from "../src/ui/SplashHandoff";
-import { theme } from "../src/ui/theme";
 import * as SplashScreen from "expo-splash-screen";
 
 const MINIMUM_BRAND_TIME_MS = 800;
@@ -73,17 +72,22 @@ function RootNavigator() {
 export default function RootLayout() {
   React.useEffect(() => {
     if (Platform.OS !== "android") return;
-    NativeStatusBar.setTranslucent(false);
-    NativeStatusBar.setBackgroundColor(theme.colors.bg0);
+    // Edge-to-edge is enabled (app.json). Do not force opaque / non-translucent
+    // system bars here — that under-reports safe-area insets while content still
+    // draws behind status/navigation bars. Style-only controls are supported.
     NativeStatusBar.setBarStyle("dark-content");
-    NavigationBar.setBackgroundColorAsync(theme.colors.bg0).catch(() => {});
     NavigationBar.setButtonStyleAsync("dark").catch(() => {});
+    try {
+      NavigationBar.setStyle("light");
+    } catch {
+      // setStyle is edge-to-edge only; ignore on unsupported runtimes.
+    }
   }, []);
 
   return (
-    <SafeAreaProvider>
+    <SafeAreaProvider initialMetrics={initialWindowMetrics}>
       <SessionProvider>
-        <StatusBar style="dark" backgroundColor={theme.colors.bg0} translucent={false} />
+        <StatusBar style="dark" />
         <RootNavigator />
       </SessionProvider>
     </SafeAreaProvider>
