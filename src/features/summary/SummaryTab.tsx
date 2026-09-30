@@ -36,6 +36,7 @@ import {
   buildFutureMonthCards,
   buildIncomeBreakdown,
   buildObligationSurplus,
+  buildSummaryHeroPresentation,
   detectSummarySetupGaps,
   groupCommittedMoney,
   shortCycleMonthLabel,
@@ -203,6 +204,17 @@ export function SummaryTab({
     [committed, overview]
   );
 
+  const hero = useMemo(
+    () =>
+      buildSummaryHeroPresentation({
+        plannedFreeCents: surplus.plannedFreeCents,
+        availableNowCents: overview?.availableCents ?? 0,
+        remainingExpectedIncomeCents: overview?.remainingExpectedIncomeCents ?? 0,
+        expectedVariableCents: income.variableCents,
+      }),
+    [income.variableCents, overview, surplus.plannedFreeCents]
+  );
+
   const futureMonths = useMemo(() => {
     if (!overview) return [];
     return buildFutureMonthCards({
@@ -248,7 +260,7 @@ export function SummaryTab({
       { key: "fixed", label: "Contas", cents: committed.fixedBillsCents, color: BAR_COLORS.fixed },
       { key: "debts", label: "Dívidas", cents: committed.debtsAndInstallmentsCents, color: BAR_COLORS.debts },
       { key: "reserve", label: "Reserva", cents: committed.reserveCents, color: BAR_COLORS.reserve },
-      { key: "free", label: "Livre", cents: surplus.plannedFreeCents, color: BAR_COLORS.free },
+      { key: "free", label: hero.copy.barProjection, cents: surplus.plannedFreeCents, color: BAR_COLORS.free },
     ];
     const total = segments.reduce((sum, item) => sum + item.cents, 0);
     return {
@@ -260,7 +272,7 @@ export function SummaryTab({
           flex: total > 0 ? Math.max(item.cents / total, item.cents > 0 ? 0.08 : 0) : 1,
         })),
     };
-  }, [committed, surplus.plannedFreeCents]);
+  }, [committed, hero.copy.barProjection, surplus.plannedFreeCents]);
 
   const postImportMatchesCycle = Boolean(
     overview
@@ -344,7 +356,7 @@ export function SummaryTab({
         cycleKey: overview.cycle.key,
         cycleStart: overview.cycle.start,
         cycleEnd: overview.cycle.end,
-        availableCents: String(Math.max(overview.availableCents, surplus.dayToDayCents)),
+        availableCents: String(overview.availableCents),
         cycleDate: overview.cycle.start,
       },
     });
@@ -475,15 +487,21 @@ export function SummaryTab({
         ) : (
           <>
             <View style={styles.heroCard}>
-              <Text style={styles.heroEyebrow}>Livre para você</Text>
+              <Text style={styles.heroEyebrow}>{hero.copy.projectionEyebrow}</Text>
               <Text style={styles.heroValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.55}>
-                {formatBRLFromCents(surplus.plannedFreeCents)}
+                {formatBRLFromCents(hero.projectedCycleCents)}
               </Text>
+              {hero.showProjectionHint ? (
+                <Text style={styles.heroHint}>{hero.copy.projectionHint}</Text>
+              ) : null}
               <View style={styles.heroMeta}>
-                <Text style={styles.heroMetaText}>Entra: {formatBRLFromCents(income.totalCents)}</Text>
+                <Text style={styles.heroMetaText}>{hero.copy.expectedIncome}: {formatBRLFromCents(income.totalCents)}</Text>
                 <Text style={styles.heroMetaDot}>·</Text>
-                <Text style={styles.heroMetaText}>Comprometido: {formatBRLFromCents(committed.destinedTotalCents)}</Text>
+                <Text style={styles.heroMetaText}>{hero.copy.committed}: {formatBRLFromCents(committed.destinedTotalCents)}</Text>
               </View>
+              <Text style={styles.heroAvailableNow}>
+                {hero.copy.availableNow}: {formatBRLFromCents(hero.availableNowCents)}
+              </Text>
             </View>
 
             <View style={styles.card}>
@@ -509,7 +527,7 @@ export function SummaryTab({
             </View>
 
             <View style={styles.card}>
-              <Text style={styles.cardTitle}>Da sua parte livre</Text>
+              <Text style={styles.cardTitle}>{hero.copy.splitTitle}</Text>
               <View style={styles.splitRow}>
                 <View style={styles.splitCard}>
                   <Text style={styles.splitLabel}>Sonhos</Text>
@@ -752,6 +770,8 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   heroValue: { color: "#fff", fontSize: 44, fontWeight: "900" },
+  heroHint: { color: OB.textOnDarkMid, fontSize: 13, fontWeight: "700" },
+  heroAvailableNow: { color: "#fff", fontSize: 14, fontWeight: "800", marginTop: 2 },
   heroMeta: {
     flexDirection: "row",
     flexWrap: "wrap",

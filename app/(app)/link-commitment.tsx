@@ -39,11 +39,15 @@ type CandidateTransaction = FinancialOverviewTransaction & {
   currentlyLinked: boolean;
 };
 
+type RecordedCommitmentPayment = {
+  payment: FinancialCommitmentPayment;
+  transaction: FinancialOverviewTransaction | null;
+};
+
 type ScreenData = {
   overview: FinancialOverview;
   commitment: FinancialOverviewCommitment;
-  currentPayment: FinancialCommitmentPayment | null;
-  currentPaymentTransaction: FinancialOverviewTransaction | null;
+  recordedPayments: RecordedCommitmentPayment[];
   candidates: CandidateTransaction[];
   excludedCount: number;
 };
@@ -167,22 +171,31 @@ export default function LinkCommitmentScreen() {
         return;
       }
 
-      const currentPayment = payments.find((payment) => payment.commitment_id === commitmentId);
+      const visibleExpenses = overview.transactions.filter((transaction) => transaction.type === "expense");
       const linkedByAnotherCommitment = new Set(
         payments
           .filter((payment) => payment.commitment_id !== commitmentId && payment.transaction_id)
           .map((payment) => payment.transaction_id as string)
       );
-      const visibleExpenses = overview.transactions.filter((transaction) => transaction.type === "expense");
-      const currentPaymentTransaction = currentPayment?.transaction_id
-        ? visibleExpenses.find((transaction) => transaction.id === currentPayment.transaction_id) ?? null
-        : null;
+      const recordedPayments = payments
+        .filter((payment) => payment.commitment_id === commitmentId)
+        .map((payment): RecordedCommitmentPayment => ({
+          payment,
+          transaction: payment.transaction_id
+            ? visibleExpenses.find((transaction) => transaction.id === payment.transaction_id) ?? null
+            : null,
+        }));
+      const linkedToThisCommitment = new Set(
+        recordedPayments
+          .map((item) => item.payment.transaction_id)
+          .filter((transactionId): transactionId is string => Boolean(transactionId))
+      );
       const candidates = visibleExpenses
-        .filter((transaction) => !linkedByAnotherCommitment.has(transaction.id))
+        .filter((transaction) => !linkedByAnotherCommitment.has(transaction.id) && !linkedToThisCommitment.has(transaction.id))
         .map((transaction): CandidateTransaction => ({
           ...transaction,
           exactAmount: transaction.amount_cents === commitment.pending_cents,
-          currentlyLinked: currentPayment?.transaction_id === transaction.id,
+          currentlyLinked: linkedToThisCommitment.has(transaction.id),
         }))
         .sort((left, right) => {
           if (left.exactAmount !== right.exactAmount) return left.exactAmount ? -1 : 1;
@@ -195,8 +208,7 @@ export default function LinkCommitmentScreen() {
       setData({
         overview,
         commitment,
-        currentPayment: currentPayment ?? null,
-        currentPaymentTransaction,
+        recordedPayments,
         candidates,
         excludedCount: visibleExpenses.length - candidates.length,
       });
@@ -230,18 +242,18 @@ export default function LinkCommitmentScreen() {
   const selectedPaymentIssue = selectedTransaction
     ? getPaymentAmountIssue(paymentProgress.remainingCents, selectedTransaction.amount_cents)
     : null;
-  const hasRecordedPayment = Boolean(data?.currentPayment);
-  const recordedPaymentIsUsable = Boolean(
-    data?.currentPayment &&
-      data.currentPaymentTransaction &&
-      data.commitment.payment_id === data.currentPayment.id &&
-      isCommitmentPaymentAmountValid(
-        data.currentPayment.paid_cents,
-        data.currentPaymentTransaction.amount_cents,
+  const isFullyPaid = paymentProgress.status === "Pago";
+  const hasUnusablePayment = Boolean(
+    data?.recordedPayments.some((item) =>
+      !item.transaction ||
+      !isCommitmentPaymentAmountValid(
+        item.payment.paid_cents,
+        item.transaction.amount_cents,
         data.commitment.amount_cents
       )
+    )
   );
-  const canConfirmLink = Boolean(selectedTransaction && !selectedPaymentIssue && !hasRecordedPayment && !saving);
+  const canConfirmLink = Boolean(selectedTransaction && !selectedPaymentIssue && !isFullyPaid && !saving);
   const suggestedCandidates = data?.candidates.filter(
     (transaction) => transaction.exactAmount || transaction.currentlyLinked
   ) ?? [];
@@ -253,7 +265,7 @@ export default function LinkCommitmentScreen() {
     : suggestedCandidates;
 
   const registerManually = useCallback(() => {
-    if (!data || data.currentPayment) return;
+    if (!data || data.commitment.pending_cents <= 0) return;
     const today = localYmd();
     const occurredOn = today >= cycle.start && today < cycle.end
       ? today
@@ -274,8 +286,8 @@ export default function LinkCommitmentScreen() {
 
   const confirmLink = useCallback(async () => {
     if (!data || !selectedTransaction || !householdId || !userId || saving) return;
-    if (data.currentPayment) {
-      setActionError("Este compromisso já possui um pagamento registrado. Remova o vínculo atual antes de escolher outro gasto.");
+    if (data.commitment.pending_cents <= 0) {
+      setActionError("Este compromisso já está pago neste ciclo.");
       return;
     }
     const amountIssue = getPaymentAmountIssue(data.commitment.pending_cents, selectedTransaction.amount_cents);
@@ -301,15 +313,24 @@ export default function LinkCommitmentScreen() {
         else Alert.alert("Despesa já vinculada", message);
         return;
       }
-      const commitmentAlreadyPaid = latestPayments.some(
+      const existingForCommitment = latestPayments.filter(
         (payment) => payment.commitment_id === data.commitment.id
       );
-      if (commitmentAlreadyPaid) {
-        const message = "Este compromisso recebeu outro pagamento enquanto a tela estava aberta. Atualizamos os dados sem substituir o vínculo.";
+      if (existingForCommitment.some((payment) => payment.transaction_id === selectedTransaction.id)) {
+        const message = "Esta despesa já está vinculada a este compromisso. Atualizamos a lista.";
         setSelectedTransactionId(null);
         await load();
         if (Platform.OS === "web") setActionError(message);
-        else Alert.alert("Pagamento já registrado", message);
+        else Alert.alert("Despesa já vinculada", message);
+        return;
+      }
+      const paidSoFar = existingForCommitment.reduce((sum, payment) => sum + payment.paid_cents, 0);
+      if (paidSoFar + selectedTransaction.amount_cents > data.commitment.amount_cents) {
+        const message = "O restante deste compromisso mudou. Atualizamos os valores para você escolher outro gasto.";
+        setSelectedTransactionId(null);
+        await load();
+        if (Platform.OS === "web") setActionError(message);
+        else Alert.alert("Restante atualizado", message);
         return;
       }
 
@@ -333,9 +354,8 @@ export default function LinkCommitmentScreen() {
     }
   }, [cycle.key, data, goBack, householdId, load, saving, selectedTransaction, userId]);
 
-  const removeCurrentPayment = useCallback(() => {
-    if (!data?.currentPayment || !householdId || !userId || saving) return;
-    const currentPayment = data.currentPayment;
+  const removePayment = useCallback((currentPayment: FinancialCommitmentPayment) => {
+    if (!data || !householdId || !userId || saving) return;
 
     const persist = async () => {
       try {
@@ -391,10 +411,10 @@ export default function LinkCommitmentScreen() {
             <ScreenHeaderCard
               onBack={goBack}
               eyebrow="Pagamento do mês"
-              title={hasRecordedPayment ? "Pagamento registrado" : "Registrar pagamento"}
-              subtitle={hasRecordedPayment
-                ? "Veja o pagamento usado neste compromisso e corrija o vínculo se necessário."
-                : "Confira os valores e escolha uma movimentação."}
+              title={isFullyPaid ? "Pagamento registrado" : "Registrar pagamento"}
+              subtitle={isFullyPaid
+                ? "Este compromisso já está pago neste ciclo. Você pode revisar os vínculos se precisar corrigir."
+                : "Confira os valores e escolha uma movimentação. Pagamentos parciais podem ser somados neste ciclo."}
             />
 
             {!validParams ? (
@@ -469,7 +489,7 @@ export default function LinkCommitmentScreen() {
                   </View>
                 </View>
 
-                {!hasRecordedPayment ? <View style={styles.noticeCard} accessibilityRole="summary">
+                {!isFullyPaid ? <View style={styles.noticeCard} accessibilityRole="summary">
                   <View style={styles.noticeIcon}>
                     <Ionicons name="information-circle-outline" size={20} color={OB.primary} />
                   </View>
@@ -481,66 +501,76 @@ export default function LinkCommitmentScreen() {
                   </View>
                 </View> : null}
 
-                {data.currentPayment ? (
+                {data.recordedPayments.length ? (
                   <View style={styles.registeredPaymentsCard}>
                     <Text style={styles.registeredPaymentsTitle} accessibilityRole="header">Pagamentos registrados</Text>
-                    <View style={[styles.registeredPaymentRow, compact && styles.registeredPaymentRowCompact]}>
-                      <View style={styles.registeredPaymentDate}>
-                        <Text style={styles.registeredPaymentDateText}>{formatShortDateFromYmd(data.currentPayment.paid_on)}</Text>
-                      </View>
-                      <View style={styles.flex}>
-                        <Text style={styles.registeredPaymentName} numberOfLines={2}>
-                          {data.currentPaymentTransaction ? transactionTitle(data.currentPaymentTransaction) : "Movimentação vinculada indisponível"}
-                        </Text>
-                        <Text style={styles.registeredPaymentMeta}>
-                          {data.currentPaymentTransaction
-                            ? data.currentPaymentTransaction.statement_import_id ? "Extrato importado" : "Lançamento manual"
-                            : "Vínculo indisponível"}
-                        </Text>
-                      </View>
-                      <Text style={[styles.registeredPaymentAmount, compact && styles.registeredPaymentAmountCompact]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
-                        {formatBRLFromCents(data.currentPayment.paid_cents)}
-                      </Text>
-                    </View>
-                    {!recordedPaymentIsUsable ? (
-                      <Text style={styles.registeredPaymentWarning}>
-                        Esta movimentação foi alterada ou não está mais disponível. Remova o vínculo para corrigir o compromisso; a movimentação continuará em Saiu.
-                      </Text>
-                    ) : null}
-                    <Pressable
-                      onPress={removeCurrentPayment}
-                      disabled={saving}
-                      accessibilityRole="button"
-                      accessibilityState={{ disabled: saving }}
-                      style={({ pressed }) => [styles.removePaymentButton, pressed && !saving && styles.transactionCardPressed, saving && styles.disabled]}
-                    >
-                      <Ionicons name="unlink-outline" size={17} color="#A33F3F" />
-                      <Text style={styles.removePaymentButtonText}>Remover vínculo</Text>
-                    </Pressable>
+                    {data.recordedPayments.map((item) => {
+                      const usable = Boolean(
+                        item.transaction &&
+                        isCommitmentPaymentAmountValid(
+                          item.payment.paid_cents,
+                          item.transaction.amount_cents,
+                          data.commitment.amount_cents
+                        )
+                      );
+                      return (
+                        <View key={item.payment.id}>
+                          <View style={[styles.registeredPaymentRow, compact && styles.registeredPaymentRowCompact]}>
+                            <View style={styles.registeredPaymentDate}>
+                              <Text style={styles.registeredPaymentDateText}>{formatShortDateFromYmd(item.payment.paid_on)}</Text>
+                            </View>
+                            <View style={styles.flex}>
+                              <Text style={styles.registeredPaymentName} numberOfLines={2}>
+                                {item.transaction ? transactionTitle(item.transaction) : "Movimentação vinculada indisponível"}
+                              </Text>
+                              <Text style={styles.registeredPaymentMeta}>
+                                {item.transaction
+                                  ? item.transaction.statement_import_id ? "Extrato importado" : "Lançamento manual"
+                                  : "Vínculo indisponível"}
+                              </Text>
+                            </View>
+                            <Text style={[styles.registeredPaymentAmount, compact && styles.registeredPaymentAmountCompact]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+                              {formatBRLFromCents(item.payment.paid_cents)}
+                            </Text>
+                          </View>
+                          {!usable ? (
+                            <Text style={styles.registeredPaymentWarning}>
+                              Esta movimentação foi alterada ou não está mais disponível. Remova o vínculo para corrigir o compromisso; a movimentação continuará em Saiu.
+                            </Text>
+                          ) : null}
+                          <Pressable
+                            onPress={() => removePayment(item.payment)}
+                            disabled={saving}
+                            accessibilityRole="button"
+                            accessibilityState={{ disabled: saving }}
+                            style={({ pressed }) => [styles.removePaymentButton, pressed && !saving && styles.transactionCardPressed, saving && styles.disabled]}
+                          >
+                            <Ionicons name="unlink-outline" size={17} color="#A33F3F" />
+                            <Text style={styles.removePaymentButtonText}>Remover vínculo</Text>
+                          </Pressable>
+                        </View>
+                      );
+                    })}
                   </View>
                 ) : null}
 
-                {hasRecordedPayment ? (
+                {isFullyPaid ? (
                   <View style={styles.paymentLimitCard} accessibilityRole="alert">
                     <Ionicons name="information-circle-outline" size={20} color="#8A5A12" />
                     <View style={styles.flex}>
                       <Text style={styles.paymentLimitTitle}>
-                        {!recordedPaymentIsUsable
-                          ? "Este vínculo precisa de revisão"
-                          : paymentProgress.remainingCents > 0 ? "Outro pagamento ainda não pode ser somado" : "Compromisso pago"}
+                        {hasUnusablePayment ? "Este vínculo precisa de revisão" : "Compromisso pago"}
                       </Text>
                       <Text style={styles.paymentLimitText}>
-                        {!recordedPaymentIsUsable
+                        {hasUnusablePayment
                           ? "Use Remover vínculo apenas para corrigir este registro. O pagamento atual deixará de contar no valor pago."
-                          : paymentProgress.remainingCents > 0
-                          ? "O modelo atual aceita um único pagamento por compromisso neste período. Não é possível somar outro sem atualizar o modelo de dados. Remover o vínculo serve apenas para correção e fará o pagamento atual deixar de contar."
                           : "O valor restante chegou a zero. A movimentação continua normalmente em Saiu."}
                       </Text>
                     </View>
                   </View>
                 ) : null}
 
-                {!hasRecordedPayment ? <>
+                {!isFullyPaid ? <>
 
                 <View style={styles.sectionHeader}>
                   <View style={styles.flex}>

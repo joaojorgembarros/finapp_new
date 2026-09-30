@@ -6,10 +6,14 @@ import { useHouseholdId } from "../../src/hooks/useHousehold";
 import { useKeyboardAwareScroll } from "../../src/hooks/useKeyboardAwareScroll";
 import { BANK_OPTIONS, CASH_ACCOUNT, OTHER_BANK, TransactionAccountId, TransactionAccountOption } from "../../src/lib/banks";
 import { Category, listCategories } from "../../src/lib/categories";
-import { listCommitmentPayments, setCommitmentPaid } from "../../src/lib/financialPlanning";
+import { setCommitmentPaid } from "../../src/lib/financialPlanning";
 import { getPaymentAmountIssue } from "../../src/lib/financialOverviewPresentation";
 import { formatBRLFromCents, formatBRLInputFromDigits, formatDateBRFromYMD, parseBRLToCents } from "../../src/lib/format";
-import { addTransaction } from "../../src/lib/transactions";
+import { addTransaction, deleteManualTransaction } from "../../src/lib/transactions";
+import {
+  linkExpenseToCommitmentWithRetry,
+  rollbackUnlinkedManualPayment,
+} from "../../src/lib/commitmentPaymentLink";
 import { useSession } from "../../src/providers/SessionProvider";
 import { BankLogo } from "../../src/ui/BankLogo";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
@@ -159,11 +163,8 @@ export default function NewTransactionScreen() {
       saveInFlightRef.current = true;
       setSaving(true);
       let paymentTransaction = paymentFlow ? createdPaymentTransactionRef.current : null;
-      if (paymentFlow && !paymentTransaction) {
-        const existingPayments = await listCommitmentPayments(householdId, paymentCycleKey);
-        if (existingPayments.some((payment) => payment.commitment_id === paymentCommitmentId)) {
-          throw new Error("Este compromisso já possui um pagamento registrado. Volte para revisar o vínculo atual antes de criar outro gasto.");
-        }
+      if (paymentFlow && !paymentTransaction && paymentAmountCents <= 0) {
+        throw new Error("Este compromisso já está pago neste ciclo. Volte para revisar os pagamentos.");
       }
       if (!paymentTransaction) {
         const transaction = await addTransaction({
@@ -187,32 +188,48 @@ export default function NewTransactionScreen() {
         return;
       }
 
-      try {
-        await setCommitmentPaid({
-          householdId,
-          userId,
-          commitmentId: paymentCommitmentId,
-          cycleKey: paymentCycleKey,
-          paid: true,
-          paidCents: paymentTransaction.amountCents,
-          paidOn: paymentOccurredOn,
-          transactionId: paymentTransaction.id,
-        });
+      const linkResult = await linkExpenseToCommitmentWithRetry(() => setCommitmentPaid({
+        householdId,
+        userId,
+        commitmentId: paymentCommitmentId,
+        cycleKey: paymentCycleKey,
+        paid: true,
+        paidCents: paymentTransaction.amountCents,
+        paidOn: paymentOccurredOn,
+        transactionId: paymentTransaction.id,
+      }));
+      if (linkResult.kind === "linked") {
+        createdPaymentTransactionRef.current = null;
         returnToControl();
-      } catch {
-        const message = "O gasto foi salvo, mas não foi vinculado. Volte ao Resumo e revise o pagamento atual antes de fazer qualquer correção.";
-        if (Platform.OS === "web") {
-          Alert.alert("Gasto salvo sem vínculo", message);
-          returnToControl();
-        } else {
+        return;
+      }
+
+      const undoExpense = async () => {
+        try {
+          await rollbackUnlinkedManualPayment({
+            householdId,
+            transactionId: paymentTransaction.id,
+            deleteManualTransaction,
+          });
+          createdPaymentTransactionRef.current = null;
+          Alert.alert("Gasto desfeito", "O lançamento foi removido. O compromisso continua pendente.");
+        } catch (undoError: any) {
           Alert.alert(
-            "Gasto salvo sem vínculo",
-            message,
-            [{ text: "Voltar ao Resumo", onPress: returnToControl }],
-            { cancelable: false }
+            "Não foi possível desfazer",
+            undoError?.message ?? "O gasto continua na lista. Revise o vínculo antes de registrar outro pagamento.",
           );
         }
-      }
+      };
+
+        Alert.alert(
+          "Pagamento não registrado",
+          linkResult.message,
+          [
+            { text: "Tentar de novo", onPress: () => { void save(); } },
+            { text: "Desfazer este gasto", style: "destructive", onPress: () => { void undoExpense(); } },
+          ],
+          { cancelable: false },
+        );
     } catch (error: any) {
       Alert.alert(
         paymentFlow ? "Registrar pagamento" : "Novo lançamento",

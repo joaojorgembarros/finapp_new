@@ -3,6 +3,7 @@ import {
   buildFutureMonthCards,
   buildIncomeBreakdown,
   buildObligationSurplus,
+  buildSummaryHeroPresentation,
   commitmentAppliesToCycle,
   detectSummarySetupGaps,
   groupCommittedMoney,
@@ -199,5 +200,35 @@ describe("summaryPresentation", () => {
   it("formats compact month labels", () => {
     expect(shortCycleMonthLabel("2026-09-01")).toBe("SET");
     expect(shortCycleMonthLabel("2026-11-05")).toBe("NOV");
+  });
+
+  it("does not treat unrealized variable income as money available now", () => {
+    const hero = buildSummaryHeroPresentation({
+      plannedFreeCents: 185_000,
+      availableNowCents: 0,
+      remainingExpectedIncomeCents: 100_000,
+      expectedVariableCents: 100_000,
+    });
+
+    expect(hero.availableNowCents).toBe(0);
+    expect(hero.projectedCycleCents).toBe(185_000);
+    expect(hero.showProjectionHint).toBe(true);
+    expect(hero.copy.availableNow).toBe("Disponível agora");
+    expect(hero.copy.projectionEyebrow).toBe("Pode sobrar neste ciclo");
+    expect(hero.copy.availableNow).not.toBe(hero.copy.projectionEyebrow);
+  });
+
+  it("keeps the cycle projection able to include expected income", () => {
+    const hero = buildSummaryHeroPresentation({
+      plannedFreeCents: 185_000,
+      availableNowCents: 40_000,
+      remainingExpectedIncomeCents: 80_000,
+      expectedVariableCents: 80_000,
+    });
+
+    expect(hero.projectedCycleCents).toBeGreaterThan(hero.availableNowCents);
+    expect(hero.projectionIncludesUnreceivedIncome).toBe(true);
+    expect(hero.copy.expectedIncome).toBe("Renda esperada");
+    expect(hero.copy.barProjection).toBe("Pode sobrar");
   });
 });

@@ -187,6 +187,31 @@ describe("conservative financial calculation", () => {
     expect(summary.periodEndForecastCents).toBe(100_000);
   });
 
+  it("does not double-count a realized bill payment that already reduced the pending balance", () => {
+    const consistent = calculateFinancialSummary({
+      expectedIncomeCents: 200_000,
+      realizedIncomeCents: 200_000,
+      realizedExpenseCents: 40_000,
+      totalCommitmentsCents: 100_000,
+      pendingCommitmentsCents: 60_000,
+      reserveCents: 0,
+      allocatedCents: 0,
+    });
+    const doubleCounted = calculateFinancialSummary({
+      expectedIncomeCents: 200_000,
+      realizedIncomeCents: 200_000,
+      realizedExpenseCents: 40_000,
+      totalCommitmentsCents: 100_000,
+      pendingCommitmentsCents: 100_000,
+      reserveCents: 0,
+      allocatedCents: 0,
+    });
+
+    expect(consistent.availableCents).toBe(100_000);
+    expect(doubleCounted.availableCents).toBe(60_000);
+    expect(consistent.availableCents - doubleCounted.availableCents).toBe(40_000);
+  });
+
   it("floors remaining expected income at zero without truncating a negative forecast", () => {
     const incomeAbovePlan = calculateFinancialSummary({
       expectedIncomeCents: 300_000,

@@ -25,6 +25,21 @@ function insertOne(result: { data: unknown; error: unknown }) {
   return query;
 }
 
+function paymentsTable(existing: unknown[], insertResult: { data: unknown; error: unknown }) {
+  const listQuery: any = {};
+  listQuery.select = vi.fn(() => listQuery);
+  listQuery.eq = vi.fn(() => listQuery);
+  listQuery.then = (resolve: (value: unknown) => unknown, reject?: (error: unknown) => unknown) =>
+    Promise.resolve({ data: existing, error: null }).then(resolve, reject);
+
+  const insertQuery = insertOne(insertResult);
+  return {
+    select: vi.fn(() => listQuery),
+    insert: insertQuery.insert,
+    insertQuery,
+  };
+}
+
 function deleteOne(result: { data: unknown[]; error: unknown }) {
   const filters: [string, unknown][] = [];
   const query: any = {};
@@ -44,20 +59,35 @@ const baseParams = {
   cycleKey: "calendar:2026-09",
 };
 
+function mockPaidTables(
+  transactionAmount: number,
+  existing: unknown[],
+  insertResult: { data: unknown; error: unknown },
+  commitmentAmount = 100_000,
+) {
+  const commitmentQuery = selectOne({ amount_cents: commitmentAmount });
+  const transactionQuery = selectOne({
+    amount_cents: transactionAmount,
+    type: "expense",
+    occurred_on: "2026-09-05",
+    ignored_at: null,
+  });
+  const paymentTable = paymentsTable(existing, insertResult);
+  supabaseMocks.from.mockImplementation((table: string) => {
+    if (table === "financial_commitments") return commitmentQuery;
+    if (table === "transactions") return transactionQuery;
+    return paymentTable;
+  });
+  return paymentTable;
+}
+
 describe("commitment payment persistence", () => {
   beforeEach(() => {
     supabaseMocks.from.mockReset();
   });
 
   it("inserts a new link instead of replacing an existing cycle payment", async () => {
-    const commitmentQuery = selectOne({ amount_cents: 100_000 });
-    const transactionQuery = selectOne({
-      amount_cents: 40_000,
-      type: "expense",
-      occurred_on: "2026-09-05",
-      ignored_at: null,
-    });
-    const paymentQuery = insertOne({
+    const paymentTable = mockPaidTables(40_000, [], {
       data: {
         id: "payment-1",
         ...baseParams,
@@ -71,11 +101,6 @@ describe("commitment payment persistence", () => {
       },
       error: null,
     });
-    supabaseMocks.from.mockImplementation((table: string) => {
-      if (table === "financial_commitments") return commitmentQuery;
-      if (table === "transactions") return transactionQuery;
-      return paymentQuery;
-    });
 
     await setCommitmentPaid({
       ...baseParams,
@@ -84,50 +109,64 @@ describe("commitment payment persistence", () => {
       transactionId: "transaction-1",
     });
 
-    expect(paymentQuery.insert).toHaveBeenCalledWith(expect.objectContaining({
+    expect(paymentTable.insertQuery.insert).toHaveBeenCalledWith(expect.objectContaining({
       paid_cents: 40_000,
       transaction_id: "transaction-1",
     }));
-    expect(paymentQuery.upsert).toBeUndefined();
+    expect((paymentTable as { upsert?: unknown }).upsert).toBeUndefined();
   });
 
-  it("turns a uniqueness race into an explicit conflict", async () => {
-    const commitmentQuery = selectOne({ amount_cents: 100_000 });
-    const transactionQuery = selectOne({
-      amount_cents: 40_000,
-      type: "expense",
-      occurred_on: "2026-09-05",
-      ignored_at: null,
+  it("inserts a complementary payment in the same cycle", async () => {
+    const paymentTable = mockPaidTables(60_000, [{ paid_cents: 40_000 }], {
+      data: {
+        id: "payment-2",
+        paid_cents: 60_000,
+        transaction_id: "transaction-2",
+      },
+      error: null,
     });
-    const paymentQuery = insertOne({ data: null, error: { code: "23505" } });
-    supabaseMocks.from.mockImplementation((table: string) => {
-      if (table === "financial_commitments") return commitmentQuery;
-      if (table === "transactions") return transactionQuery;
-      return paymentQuery;
+
+    await setCommitmentPaid({
+      ...baseParams,
+      paid: true,
+      paidCents: 60_000,
+      transactionId: "transaction-2",
     });
+
+    expect(paymentTable.insertQuery.insert).toHaveBeenCalledWith(expect.objectContaining({
+      paid_cents: 60_000,
+      transaction_id: "transaction-2",
+    }));
+  });
+
+  it("rejects a complementary payment that would exceed the commitment", async () => {
+    const paymentTable = mockPaidTables(70_000, [{ paid_cents: 40_000 }], {
+      data: null,
+      error: null,
+    });
+
+    await expect(setCommitmentPaid({
+      ...baseParams,
+      paid: true,
+      paidCents: 70_000,
+      transactionId: "transaction-2",
+    })).rejects.toThrow("ultrapassa o restante");
+    expect(paymentTable.insertQuery.insert).not.toHaveBeenCalled();
+  });
+
+  it("turns a duplicate transaction into an explicit conflict", async () => {
+    mockPaidTables(40_000, [], { data: null, error: { code: "23505" } });
 
     await expect(setCommitmentPaid({
       ...baseParams,
       paid: true,
       paidCents: 40_000,
       transactionId: "transaction-1",
-    })).rejects.toThrow("já possui um vínculo");
+    })).rejects.toThrow("já está vinculada");
   });
 
   it("rejects a changed or oversized transaction instead of silently capping it", async () => {
-    const commitmentQuery = selectOne({ amount_cents: 60_000 });
-    const transactionQuery = selectOne({
-      amount_cents: 80_000,
-      type: "expense",
-      occurred_on: "2026-09-05",
-      ignored_at: null,
-    });
-    const paymentQuery = insertOne({ data: null, error: null });
-    supabaseMocks.from.mockImplementation((table: string) => {
-      if (table === "financial_commitments") return commitmentQuery;
-      if (table === "transactions") return transactionQuery;
-      return paymentQuery;
-    });
+    const paymentTable = mockPaidTables(80_000, [], { data: null, error: null }, 60_000);
 
     await expect(setCommitmentPaid({
       ...baseParams,
@@ -135,7 +174,7 @@ describe("commitment payment persistence", () => {
       paidCents: 40_000,
       transactionId: "transaction-1",
     })).rejects.toThrow("valor do pagamento mudou");
-    expect(paymentQuery.insert).not.toHaveBeenCalled();
+    expect(paymentTable.insertQuery.insert).not.toHaveBeenCalled();
 
     await expect(setCommitmentPaid({
       ...baseParams,
@@ -143,7 +182,7 @@ describe("commitment payment persistence", () => {
       paidCents: 80_000,
       transactionId: "transaction-1",
     })).rejects.toThrow("maior que o valor do compromisso");
-    expect(paymentQuery.insert).not.toHaveBeenCalled();
+    expect(paymentTable.insertQuery.insert).not.toHaveBeenCalled();
   });
 
   it("removes only the exact payment version the user reviewed", async () => {

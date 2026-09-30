@@ -1,3 +1,8 @@
+import { groupPaymentsByCommitment, resolveCommitmentCyclePayment } from "./commitmentPaymentState";
+import {
+  assertCyclePaymentFits,
+  cyclePaymentAlreadyPaidCents,
+} from "./commitmentPaymentPersistence";
 import { supabase } from "./supabase";
 
 const sb: any = supabase;
@@ -560,6 +565,22 @@ export async function setCommitmentPaid(params: SetCommitmentPaidParams) {
     throw new Error("A despesa é maior que o valor do compromisso. O app não faz rateio automático.");
   }
 
+  const existingPayments = await sb
+    .from("financial_commitment_payments")
+    .select("paid_cents")
+    .eq("household_id", params.householdId)
+    .eq("commitment_id", params.commitmentId)
+    .eq("cycle_key", params.cycleKey);
+  if (existingPayments.error) {
+    if (isPlanningSchemaMissing(existingPayments.error)) throw planningSchemaError();
+    throw existingPayments.error;
+  }
+  assertCyclePaymentFits({
+    commitmentAmountCents: commitmentAmount,
+    alreadyPaidCents: cyclePaymentAlreadyPaidCents(existingPayments.data ?? []),
+    nextPaidCents: paidCents,
+  });
+
   const { data, error } = await sb
     .from("financial_commitment_payments")
     .insert({
@@ -577,7 +598,10 @@ export async function setCommitmentPaid(params: SetCommitmentPaidParams) {
   if (error) {
     if (isPlanningSchemaMissing(error)) throw planningSchemaError();
     if (error?.code === "23505") {
-      throw new Error("Este compromisso ou esta despesa já possui um vínculo. Atualize e revise os pagamentos.");
+      throw new Error("Esta despesa já está vinculada a um compromisso. Atualize e escolha outra.");
+    }
+    if (error?.code === "23514" && /ultrapassa o valor do compromisso/i.test(String(error.message ?? ""))) {
+      throw new Error("Este pagamento ultrapassa o restante do compromisso neste ciclo.");
     }
     throw error;
   }
@@ -735,7 +759,8 @@ export async function getFinancialOverview(params: {
   const expectedIncomeCents = expectedIncome.totalCents;
 
   const transactionsById = new Map(transactions.map((transaction) => [transaction.id, transaction]));
-  const paymentsByCommitment = new Map(payments.map((payment) => [payment.commitment_id, payment]));
+  const paymentsByCommitment = groupPaymentsByCommitment(payments);
+  let invalidPaymentLinks = 0;
   const overviewCommitments = commitments.flatMap((commitment): FinancialOverviewCommitment[] => {
     const dueOn = dueOnForCycle(commitment.due_day, params.cycle);
     if (dueOn < commitment.starts_on || dueOn >= params.cycle.end) return [];
@@ -747,24 +772,20 @@ export async function getFinancialOverview(params: {
       ? (dueDate.getFullYear() - startsOn.getFullYear()) * 12 + dueDate.getMonth() - startsOn.getMonth() + 1
       : null;
     if (installmentNumber !== null && commitment.installments_total !== null && installmentNumber > commitment.installments_total) return [];
-    const candidatePayment = paymentsByCommitment.get(commitment.id);
-    const paymentTransaction = candidatePayment?.transaction_id
-      ? transactionsById.get(candidatePayment.transaction_id)
-      : null;
-    const payment = paymentTransaction?.type === "expense" && candidatePayment && isCommitmentPaymentAmountValid(
-      candidatePayment.paid_cents,
-      paymentTransaction.amount_cents,
-      commitment.amount_cents
-    ) ? candidatePayment : undefined;
-    const paidCents = Math.max(0, integerCents(payment?.paid_cents));
+    const resolvedPayment = resolveCommitmentCyclePayment({
+      commitmentAmountCents: commitment.amount_cents,
+      payments: paymentsByCommitment.get(commitment.id) ?? [],
+      transactionsById,
+    });
+    invalidPaymentLinks += resolvedPayment.invalidUncounted;
     return [{
       ...commitment,
       due_on: dueOn,
       installment_number: installmentNumber,
-      payment_id: payment?.id ?? null,
-      paid_cents: paidCents,
-      pending_cents: Math.max(0, commitment.amount_cents - paidCents),
-      paid_on: payment?.paid_on ?? null,
+      payment_id: resolvedPayment.paymentId,
+      paid_cents: resolvedPayment.paidCents,
+      pending_cents: resolvedPayment.pendingCents,
+      paid_on: resolvedPayment.paidOn,
     }];
   });
 
@@ -818,6 +839,9 @@ export async function getFinancialOverview(params: {
   if (hasDerived) reasons.push("Parte do saldo foi derivada das movimentações do extrato.");
   if (hasStale) reasons.push("O saldo bancário mais recente é anterior ao início do ciclo.");
   if (settings.updated_by === null) reasons.push("O planejamento usa as configurações padrão.");
+  if (invalidPaymentLinks > 0) {
+    reasons.push("Há um pagamento com vínculo incompleto neste ciclo. Revise para não contar o mesmo gasto duas vezes.");
+  }
 
   return {
     ...summary,

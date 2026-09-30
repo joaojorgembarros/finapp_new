@@ -250,3 +250,35 @@ export function shortCycleMonthLabel(cycleStart: string) {
   const months = ["JAN", "FEV", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OUT", "NOV", "DEZ"];
   return months[Number(match[2]) - 1] ?? cycleStart;
 }
+
+export const SUMMARY_MONEY_COPY = {
+  projectionEyebrow: "Pode sobrar neste ciclo",
+  projectionHint: "Inclui o que ainda deve entrar",
+  expectedIncome: "Renda esperada",
+  committed: "Comprometido",
+  availableNow: "Disponível agora",
+  barProjection: "Pode sobrar",
+  splitTitle: "Do que pode sobrar",
+} as const;
+
+export function buildSummaryHeroPresentation(input: {
+  plannedFreeCents: number;
+  availableNowCents: number;
+  remainingExpectedIncomeCents: number;
+  expectedVariableCents: number;
+}) {
+  const projectedCycleCents = Math.max(0, integerCents(input.plannedFreeCents));
+  const availableNowCents = Math.max(0, integerCents(input.availableNowCents));
+  const remainingExpectedIncomeCents = Math.max(0, integerCents(input.remainingExpectedIncomeCents));
+  const expectedVariableCents = Math.max(0, integerCents(input.expectedVariableCents));
+  const projectionIncludesUnreceivedIncome = remainingExpectedIncomeCents > 0 || expectedVariableCents > 0;
+
+  return {
+    projectedCycleCents,
+    availableNowCents,
+    remainingExpectedIncomeCents,
+    projectionIncludesUnreceivedIncome,
+    showProjectionHint: projectionIncludesUnreceivedIncome && projectedCycleCents > availableNowCents,
+    copy: SUMMARY_MONEY_COPY,
+  };
+}
