@@ -18,9 +18,12 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { getPostAuthHref } from "../../src/lib/postAuthHref";
 import {
   getGoogleAuthErrorMessage,
+  getGoogleAuthFailureAlert,
+  isGoogleAuthAlreadyHandled,
   isGoogleAuthCancelled,
   signInWithGoogle,
 } from "../../src/lib/googleAuth";
+import { useSession } from "../../src/providers/SessionProvider";
 
 const NAVY = "#06152E";
 const WHITE = "#FFFFFF";
@@ -30,7 +33,15 @@ const SYMBOL = require("../../assets/splash-brand-symbol.png");
 const GOOGLE_G_LOGO = require("../../assets/google-g-logo.png");
 
 export default function LoginMethodScreen() {
+  const { googleAuthError, clearGoogleAuthError } = useSession();
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const alert = getGoogleAuthFailureAlert(googleAuthError);
+    if (!alert) return;
+    Alert.alert(alert.title, alert.message);
+    clearGoogleAuthError();
+  }, [googleAuthError, clearGoogleAuthError]);
 
   useEffect(() => {
     if (Platform.OS !== "android") return;
@@ -44,13 +55,16 @@ export default function LoginMethodScreen() {
 
   async function handleGooglePress() {
     if (loading) return;
+    clearGoogleAuthError();
     try {
       setLoading(true);
       const session = await signInWithGoogle();
       router.replace(getPostAuthHref(session));
     } catch (error: unknown) {
-      if (isGoogleAuthCancelled(error)) return;
-      Alert.alert("Não foi possível entrar com Google", getGoogleAuthErrorMessage(error) ?? "Não foi possível entrar com Google agora. Tente novamente em instantes.");
+      if (isGoogleAuthCancelled(error) || isGoogleAuthAlreadyHandled(error)) return;
+      const alert = getGoogleAuthFailureAlert(getGoogleAuthErrorMessage(error));
+      if (!alert) return;
+      Alert.alert(alert.title, alert.message);
     } finally {
       setLoading(false);
     }

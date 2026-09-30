@@ -12,6 +12,7 @@ import { expectedMonthlyIncomeCents, EmploymentType, getProfile, upsertProfile }
 import { formatBRLFromCents, formatBRLInputFromDigits, parseBRLToCents } from "../../src/lib/format";
 import { supabase } from "../../src/lib/supabase";
 import { deleteOwnAccount, requestPasswordReset } from "../../src/lib/auth";
+import { runAccountLogout } from "../../src/lib/accountLogout";
 import { LEGAL_URLS, openLegalUrl } from "../../src/lib/legal";
 
 const TYPES: EmploymentType[] = ["CLT", "PJ", "Autônomo", "Estudante", "Outro"];
@@ -62,6 +63,7 @@ export default function OnboardingProfileScreen() {
   const email = session?.user?.email || "";
 
   const [busy, setBusy] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [name, setName] = useState(
     userMeta?.full_name ||
@@ -217,8 +219,13 @@ export default function OnboardingProfileScreen() {
   }
 
   async function logout() {
-    await signOut();
-    router.replace("/(auth)/login");
+    await runAccountLogout({
+      busy: loggingOut,
+      signOut,
+      replaceLogin: () => router.replace("/(auth)/login"),
+      showFeedback: (title, message) => Alert.alert(title, message),
+      setBusy: setLoggingOut,
+    });
   }
 
   function openLegalDocument(url: string) {
@@ -408,9 +415,14 @@ export default function OnboardingProfileScreen() {
           <Pressable onPress={saveProfile} disabled={busy} style={[styles.primaryButton, busy && styles.buttonDisabled]}>
             <Text style={styles.primaryText}>{busy ? "Salvando..." : "Salvar alterações"}</Text>
           </Pressable>
-          <Pressable onPress={logout} style={styles.dangerButton}>
+          <Pressable
+            onPress={() => void logout()}
+            disabled={loggingOut}
+            accessibilityState={{ busy: loggingOut, disabled: loggingOut }}
+            style={[styles.dangerButton, loggingOut && styles.buttonDisabled]}
+          >
             <Ionicons name="log-out-outline" size={20} color="#B94A4A" />
-            <Text style={styles.dangerText}>Sair da conta</Text>
+            <Text style={styles.dangerText}>{loggingOut ? "Saindo..." : "Sair da conta"}</Text>
           </Pressable>
           <Pressable onPress={confirmAccountDeletion} style={styles.deleteButton}>
             <Ionicons name="trash-outline" size={20} color="#B94A4A" />

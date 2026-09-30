@@ -2,18 +2,13 @@ import React, { useEffect, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
-import { Redirect } from "expo-router";
-import {
-  completeGoogleOAuthCallback,
-  googleOAuthDedupe,
-  isGoogleAuthCancelled,
-} from "../../src/lib/googleAuth";
+import { Href, Redirect } from "expo-router";
+import { getGoogleCallbackRedirect } from "../../src/lib/googleAuth";
 import { getPostAuthHref } from "../../src/lib/postAuthHref";
-import { supabase } from "../../src/lib/supabase";
 import { useSession } from "../../src/providers/SessionProvider";
 
 export default function GoogleAuthCallbackScreen() {
-  const { session, loading } = useSession();
+  const { session, loading, consumeGoogleOAuthUrl } = useSession();
   const [callbackReady, setCallbackReady] = useState(false);
 
   useEffect(() => {
@@ -22,13 +17,7 @@ export default function GoogleAuthCallbackScreen() {
 
     const completeFromUrl = async (url: string | null) => {
       if (!url || cancelled) return;
-      try {
-        await completeGoogleOAuthCallback(url, supabase.auth, googleOAuthDedupe);
-      } catch (error) {
-        if (!isGoogleAuthCancelled(error) && typeof __DEV__ !== "undefined" && __DEV__) {
-          console.warn("Could not complete Google sign-in callback.");
-        }
-      }
+      await consumeGoogleOAuthUrl(url);
     };
 
     void (async () => {
@@ -44,10 +33,16 @@ export default function GoogleAuthCallbackScreen() {
       cancelled = true;
       subscription.remove();
     };
-  }, []);
+  }, [consumeGoogleOAuthUrl]);
 
-  if (session) return <Redirect href={getPostAuthHref(session)} />;
-  if (loading || !callbackReady) {
+  const destination = getGoogleCallbackRedirect({
+    session,
+    loading,
+    callbackReady,
+    authenticatedHref: session ? (getPostAuthHref(session) as string) : "/(app)/journey",
+  });
+
+  if (destination.pending) {
     return (
       <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#06152E" }}>
         <ActivityIndicator color="#FDECD6" />
@@ -55,6 +50,5 @@ export default function GoogleAuthCallbackScreen() {
     );
   }
 
-  return <Redirect href="/(auth)/login" />;
+  return <Redirect href={destination.href as Href} />;
 }
-

@@ -59,6 +59,7 @@ import {
 import { DreamsTab } from "../../src/features/journey/DreamsTab";
 import { SummaryTab } from "../../src/features/summary/SummaryTab";
 import { getAndroidBackAction, HOME_TAB } from "../../src/lib/androidBack";
+import { runAccountLogout } from "../../src/lib/accountLogout";
 import { BankLogo } from "../../src/ui/BankLogo";
 import MovementsScreen from "./transaction-history";
 
@@ -528,6 +529,7 @@ function JourneyDrawer({
   activeTab,
   displayName,
   avatarUrl,
+  loggingOut,
   onClose,
   onTab,
   onLogout,
@@ -536,6 +538,7 @@ function JourneyDrawer({
   activeTab: Tab;
   displayName: string;
   avatarUrl?: string | null;
+  loggingOut: boolean;
   onClose: () => void;
   onTab: (tab: Tab) => void;
   onLogout: () => void;
@@ -649,9 +652,14 @@ function JourneyDrawer({
             },
           ]}
         >
-          <Pressable onPress={onLogout} style={styles.logoutButton}>
+          <Pressable
+            onPress={onLogout}
+            disabled={loggingOut}
+            accessibilityState={{ busy: loggingOut, disabled: loggingOut }}
+            style={[styles.logoutButton, loggingOut && styles.logoutButtonDisabled]}
+          >
             <Ionicons name="log-out-outline" size={20} color="#B94A4A" />
-            <Text style={styles.logoutText}>Sair da conta</Text>
+            <Text style={styles.logoutText}>{loggingOut ? "Saindo..." : "Sair da conta"}</Text>
           </Pressable>
         </View>
       </View>
@@ -702,6 +710,7 @@ export default function JourneyScreen() {
     requestedPostImport === "1" ? requestedImportId : undefined,
   );
   const [menuOpen, setMenuOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const [goals, setGoals] = useState<GoalProgress[]>([]);
   const [journeyLoading, setJourneyLoading] = useState(true);
   const [expenseToday, setExpenseToday] = useState(false);
@@ -861,18 +870,16 @@ export default function JourneyScreen() {
     });
   }
 
-  const logout = useCallback(async () => {
+  const logout = useCallback(() => {
     setMenuOpen(false);
-    const result = await signOut();
-    if (result.activeAccountChanged) return;
-    router.replace("/(auth)/login");
-    if (!result.remoteSignOutCompleted) {
-      Alert.alert(
-        "Sessão encerrada neste aparelho",
-        "Não foi possível confirmar a saída dos outros dispositivos. Tente novamente quando estiver conectado.",
-      );
-    }
-  }, [signOut]);
+    return runAccountLogout({
+      busy: loggingOut,
+      signOut,
+      replaceLogin: () => router.replace("/(auth)/login"),
+      showFeedback: (title, message) => Alert.alert(title, message),
+      setBusy: setLoggingOut,
+    });
+  }, [loggingOut, signOut]);
 
   useFocusEffect(
     useCallback(() => {
@@ -881,6 +888,7 @@ export default function JourneyScreen() {
       const subscription = BackHandler.addEventListener(
         "hardwareBackPress",
         () => {
+          if (loggingOut) return true;
           const now = Date.now();
           const action = getAndroidBackAction({
             menuOpen,
@@ -950,7 +958,7 @@ export default function JourneyScreen() {
         lastBackPressRef.current = 0;
         logoutPromptOpenRef.current = false;
       };
-    }, [logout, menuOpen, selectTab, tab]),
+    }, [logout, loggingOut, menuOpen, selectTab, tab]),
   );
 
   const challengeCard = (
@@ -1071,7 +1079,8 @@ export default function JourneyScreen() {
           avatarUrl={avatarUrl}
           onClose={() => setMenuOpen(false)}
           onTab={selectTab}
-          onLogout={logout}
+          loggingOut={loggingOut}
+          onLogout={() => void logout()}
         />
       </View>
     </OnboardingShell>
@@ -3115,6 +3124,9 @@ const styles = StyleSheet.create({
     backgroundColor: "#FDE7E7",
     borderWidth: 1,
     borderColor: "#F5B9B9",
+  },
+  logoutButtonDisabled: {
+    opacity: 0.64,
   },
   logoutText: {
     color: "#B94A4A",

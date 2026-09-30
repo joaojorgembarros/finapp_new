@@ -1,11 +1,10 @@
 // src/providers/SessionProvider.tsx
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Linking } from "react-native";
 import { Session } from "@supabase/supabase-js";
 import {
-  completeGoogleOAuthCallback,
   googleOAuthDedupe,
-  isGoogleAuthCancelled,
+  reportGoogleOAuthCallback,
 } from "../lib/googleAuth";
 import {
   completePasswordRecoveryCallback,
@@ -16,16 +15,16 @@ import {
 } from "../lib/passwordRecovery";
 import { supabase } from "../lib/supabase";
 import {
-  discardInvalidAuthSession,
-  isDefinitivelyInvalidAuthError,
   restoreValidatedSession,
   shouldApplyAuthStateSession,
 } from "../lib/sessionValidity";
+import {
+  createSignOutGate,
+  performSignOut,
+  type SignOutResult,
+} from "../lib/signOutSession";
 
-export type SignOutResult = {
-  remoteSignOutCompleted: boolean;
-  activeAccountChanged: boolean;
-};
+export type { SignOutResult };
 
 type Ctx = {
   session: Session | null;
@@ -35,22 +34,15 @@ type Ctx = {
   passwordRecoveryActive: boolean;
   passwordRecoveryError: string | null;
   passwordRecoveryOpen: boolean;
+  googleAuthError: string | null;
   endPasswordRecovery: () => void;
+  clearGoogleAuthError: () => void;
   consumePasswordRecoveryUrl: (url: string | null | undefined) => Promise<void>;
+  consumeGoogleOAuthUrl: (url: string | null | undefined) => Promise<void>;
   signOut: () => Promise<SignOutResult>;
 };
 
 const SessionContext = createContext<Ctx | null>(null);
-
-async function completeIncomingGoogleOAuth(url: string) {
-  try {
-    await completeGoogleOAuthCallback(url, supabase.auth, googleOAuthDedupe);
-  } catch (error) {
-    if (!isGoogleAuthCancelled(error) && typeof __DEV__ !== "undefined" && __DEV__) {
-      console.warn("Could not complete Google sign-in callback.");
-    }
-  }
-}
 
 export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
@@ -58,6 +50,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [passwordRecoveryPending, setPasswordRecoveryPending] = useState(false);
   const [passwordRecoveryActive, setPasswordRecoveryActive] = useState(false);
   const [passwordRecoveryError, setPasswordRecoveryError] = useState<string | null>(null);
+  const [googleAuthError, setGoogleAuthError] = useState<string | null>(null);
+  const signOutGateRef = useRef<ReturnType<typeof createSignOutGate> | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -94,6 +88,20 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  const consumeGoogleOAuthUrl = useCallback(async (url: string | null | undefined) => {
+    if (!url) return;
+    const report = await reportGoogleOAuthCallback(url, supabase.auth, googleOAuthDedupe);
+    if (report.kind === "unrelated" || report.kind === "ignored" || report.kind === "cancelled") {
+      return;
+    }
+    if (report.kind === "error") {
+      setGoogleAuthError(report.errorMessage);
+      return;
+    }
+    setGoogleAuthError(null);
+    setSession(report.session);
+  }, []);
+
   const consumePasswordRecoveryUrl = useCallback(async (url: string | null | undefined) => {
     if (!url) return;
     const parsed = parsePasswordRecoveryUrl(url);
@@ -127,7 +135,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
     const completeFromUrl = async (url: string | null) => {
       if (!url || cancelled) return;
-      await completeIncomingGoogleOAuth(url);
+      await consumeGoogleOAuthUrl(url);
       if (cancelled) return;
       await consumePasswordRecoveryUrl(url);
     };
@@ -141,13 +149,30 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
       subscription.remove();
     };
-  }, [consumePasswordRecoveryUrl]);
+  }, [consumeGoogleOAuthUrl, consumePasswordRecoveryUrl]);
 
   const endPasswordRecovery = () => {
     setPasswordRecoveryActive(false);
     setPasswordRecoveryPending(false);
     setPasswordRecoveryError(null);
   };
+
+  const clearGoogleAuthError = useCallback(() => {
+    setGoogleAuthError(null);
+  }, []);
+
+  if (!signOutGateRef.current) {
+    signOutGateRef.current = createSignOutGate(async () => {
+      const result = await performSignOut(supabase.auth);
+      if (result.localSessionCleared) {
+        setSession(null);
+        setPasswordRecoveryActive(false);
+        setPasswordRecoveryPending(false);
+        setPasswordRecoveryError(null);
+      }
+      return result;
+    });
+  }
 
   const passwordRecoveryOpen = shouldOpenPasswordRecoveryScreen({
     pending: passwordRecoveryPending,
@@ -164,23 +189,25 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       passwordRecoveryActive,
       passwordRecoveryError,
       passwordRecoveryOpen,
+      googleAuthError,
       endPasswordRecovery,
+      clearGoogleAuthError,
       consumePasswordRecoveryUrl,
-      signOut: async () => {
-        const { error } = await supabase.auth.signOut();
-
-        if (error && isDefinitivelyInvalidAuthError(error)) {
-          await discardInvalidAuthSession(supabase.auth);
-          setSession(null);
-          endPasswordRecovery();
-          return { remoteSignOutCompleted: false, activeAccountChanged: false };
-        }
-
-        if (error) throw error;
-        return { remoteSignOutCompleted: true, activeAccountChanged: false };
-      },
+      consumeGoogleOAuthUrl,
+      signOut: signOutGateRef.current!,
     }),
-    [session, loading, passwordRecoveryPending, passwordRecoveryActive, passwordRecoveryError, passwordRecoveryOpen, consumePasswordRecoveryUrl]
+    [
+      session,
+      loading,
+      passwordRecoveryPending,
+      passwordRecoveryActive,
+      passwordRecoveryError,
+      passwordRecoveryOpen,
+      googleAuthError,
+      clearGoogleAuthError,
+      consumePasswordRecoveryUrl,
+      consumeGoogleOAuthUrl,
+    ]
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

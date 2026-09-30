@@ -21,16 +21,33 @@ export class GoogleAuthPendingConfigurationError extends Error {
   }
 }
 
+export class GoogleAuthAlreadyHandledError extends Error {
+  readonly name = "GoogleAuthAlreadyHandledError";
+
+  constructor() {
+    super("Google sign-in result was already handled.");
+  }
+}
+
+export class GoogleAuthFailedError extends Error {
+  readonly name = "GoogleAuthFailedError";
+}
+
 export type GoogleOAuthCallback =
   | { kind: "unrelated" }
   | { kind: "cancelled" }
   | { kind: "error"; message: string }
   | { kind: "code"; code: string };
 
+export type GoogleOAuthClaimKind = "success" | "error" | "cancelled";
+
 export type GoogleOAuthDedupeState = {
   lastCode?: string | null;
-  lastAt?: number | null;
   inFlightCode?: string | null;
+  attemptActive?: boolean;
+  pendingErrorMessage?: string | null;
+  claimedKeys?: Record<string, GoogleOAuthClaimKind>;
+  inFlightReports?: Record<string, Promise<unknown>>;
 };
 
 export type GoogleAuthClient = {
@@ -79,9 +96,41 @@ export function googleOAuthRedirectUrl(
   return createURL(GOOGLE_OAUTH_CALLBACK_PATH);
 }
 
+export function getGoogleOAuthCallbackKey(rawUrl: string | null | undefined) {
+  const parsed = parseGoogleOAuthCallbackUrl(rawUrl);
+  if (parsed.kind === "unrelated") return null;
+  if (parsed.kind === "code") return `code:${parsed.code}`;
+  if (parsed.kind === "cancelled") return "cancelled";
+  return `error:${parsed.message}`;
+}
+
+export function getGoogleAuthPendingError(dedupe: GoogleOAuthDedupeState = googleOAuthDedupe) {
+  return dedupe.pendingErrorMessage ?? null;
+}
+
+export function beginGoogleAuthAttempt(dedupe: GoogleOAuthDedupeState = googleOAuthDedupe) {
+  if (dedupe.attemptActive) return;
+  dedupe.attemptActive = true;
+  dedupe.pendingErrorMessage = null;
+  const claimed = dedupe.claimedKeys;
+  if (!claimed) return;
+  for (const key of Object.keys(claimed)) {
+    if (!key.startsWith("code:")) delete claimed[key];
+  }
+}
+
+export function endGoogleAuthAttempt(dedupe: GoogleOAuthDedupeState = googleOAuthDedupe) {
+  dedupe.attemptActive = false;
+}
+
 export function isGoogleAuthCancelled(error: unknown) {
   return error instanceof GoogleAuthCancelledError
     || (typeof error === "object" && error !== null && "name" in error && error.name === "GoogleAuthCancelledError");
+}
+
+export function isGoogleAuthAlreadyHandled(error: unknown) {
+  return error instanceof GoogleAuthAlreadyHandledError
+    || (typeof error === "object" && error !== null && "name" in error && error.name === "GoogleAuthAlreadyHandledError");
 }
 
 export function isGoogleAuthPendingConfiguration(error: unknown) {
@@ -98,7 +147,8 @@ export function getGoogleAuthErrorMessage(
   error: unknown,
   isDev = typeof __DEV__ !== "undefined" && __DEV__,
 ) {
-  if (isGoogleAuthCancelled(error)) return null;
+  if (isGoogleAuthCancelled(error) || isGoogleAuthAlreadyHandled(error)) return null;
+  if (error instanceof GoogleAuthFailedError) return error.message;
   if (isGoogleAuthPendingConfiguration(error)) {
     return isDev
       ? "O login com Google ainda está em configuração neste ambiente. Use e-mail e senha por enquanto."
@@ -111,10 +161,124 @@ export function getGoogleAuthErrorMessage(
     return "Muitas tentativas em pouco tempo. Aguarde alguns minutos e tente novamente.";
   }
   if (message.includes("network") || message.includes("fetch") || message.includes("connection")) {
-    return "Não foi possível conectar agora. Confira sua internet e tente novamente.";
+    return "Sem conexão. Verifique sua internet e tente novamente.";
+  }
+  if (code === "missing_code" || message === "missing_code") {
+    return "Não foi possível concluir o login com Google. Tente novamente.";
+  }
+  if (code === "missing_session" || message === "missing_session") {
+    return "Não foi possível entrar com o Google. Tente novamente.";
   }
 
-  return "Não foi possível entrar com Google agora. Tente novamente em instantes.";
+  return "Não foi possível entrar com o Google. Tente novamente.";
+}
+
+export function getGoogleAuthFailureAlert(errorMessage: string | null | undefined) {
+  if (!errorMessage) return null;
+  return {
+    title: "Não foi possível entrar com o Google",
+    message: errorMessage,
+  };
+}
+
+export type GoogleOAuthCallbackReport =
+  | { kind: "unrelated"; processed: false; errorMessage: null }
+  | { kind: "ignored"; processed: false; errorMessage: null }
+  | { kind: "cancelled"; processed: false; errorMessage: null }
+  | { kind: "error"; processed: false; errorMessage: string }
+  | { kind: "success"; processed: true; session: Session; errorMessage: null };
+
+function rememberGoogleAuthClaim(
+  dedupe: GoogleOAuthDedupeState,
+  key: string,
+  report: GoogleOAuthCallbackReport,
+) {
+  if (report.kind !== "success" && report.kind !== "error" && report.kind !== "cancelled") return;
+  dedupe.claimedKeys ??= {};
+  dedupe.claimedKeys[key] = report.kind;
+  if (report.kind === "success") {
+    dedupe.pendingErrorMessage = null;
+    return;
+  }
+  if (report.kind === "cancelled") return;
+  dedupe.pendingErrorMessage = report.errorMessage;
+}
+
+async function resolveGoogleOAuthCallback(
+  rawUrl: string | null | undefined,
+  auth: Pick<GoogleAuthClient, "exchangeCodeForSession">,
+  dedupe: GoogleOAuthDedupeState,
+): Promise<GoogleOAuthCallbackReport> {
+  try {
+    const result = await completeGoogleOAuthCallback(rawUrl, auth, dedupe);
+    if (result.processed && "session" in result && result.session) {
+      return {
+        kind: "success",
+        processed: true,
+        session: result.session,
+        errorMessage: null,
+      };
+    }
+    return { kind: "ignored", processed: false, errorMessage: null };
+  } catch (error) {
+    if (isGoogleAuthCancelled(error)) {
+      return { kind: "cancelled", processed: false, errorMessage: null };
+    }
+    return {
+      kind: "error",
+      processed: false,
+      errorMessage: getGoogleAuthErrorMessage(error)
+        ?? "Não foi possível entrar com o Google. Tente novamente.",
+    };
+  }
+}
+
+export async function reportGoogleOAuthCallback(
+  rawUrl: string | null | undefined,
+  auth: Pick<GoogleAuthClient, "exchangeCodeForSession">,
+  dedupe: GoogleOAuthDedupeState = googleOAuthDedupe,
+): Promise<GoogleOAuthCallbackReport> {
+  const key = getGoogleOAuthCallbackKey(rawUrl);
+  if (!key) {
+    return { kind: "unrelated", processed: false, errorMessage: null };
+  }
+
+  dedupe.claimedKeys ??= {};
+  dedupe.inFlightReports ??= {};
+  if (dedupe.claimedKeys[key]) {
+    return { kind: "ignored", processed: false, errorMessage: null };
+  }
+
+  const pending = dedupe.inFlightReports[key];
+  if (pending) {
+    await pending;
+    return { kind: "ignored", processed: false, errorMessage: null };
+  }
+
+  const run = resolveGoogleOAuthCallback(rawUrl, auth, dedupe);
+  dedupe.inFlightReports[key] = run;
+  try {
+    const report = await run;
+    rememberGoogleAuthClaim(dedupe, key, report);
+    return report;
+  } finally {
+    if (dedupe.inFlightReports[key] === run) delete dedupe.inFlightReports[key];
+  }
+}
+
+export function getGoogleCallbackRedirect(input: {
+  session: Session | null | undefined;
+  loading: boolean;
+  callbackReady: boolean;
+  authenticatedHref: string;
+}) {
+  if (input.session) {
+    return { pending: false as const, href: input.authenticatedHref };
+  }
+  if (input.loading || !input.callbackReady) {
+    return { pending: true as const, href: null };
+  }
+  return { pending: false as const, href: "/(auth)/login" };
 }
 
 export function parseGoogleOAuthCallbackUrl(raw: string | null | undefined): GoogleOAuthCallback {
@@ -139,7 +303,6 @@ export async function completeGoogleOAuthCallback(
   rawUrl: string | null | undefined,
   auth: Pick<GoogleAuthClient, "exchangeCodeForSession">,
   dedupe: GoogleOAuthDedupeState = googleOAuthDedupe,
-  opts?: { now?: () => number },
 ) {
   const parsed = parseGoogleOAuthCallbackUrl(rawUrl);
   if (parsed.kind === "unrelated") return { processed: false as const };
@@ -150,19 +313,20 @@ export async function completeGoogleOAuthCallback(
     throw Object.assign(new Error(parsed.message), { code: parsed.message });
   }
 
-  const now = opts?.now?.() ?? Date.now();
   if (dedupe.inFlightCode === parsed.code) return { processed: false as const, reason: "inflight" as const };
-  if (dedupe.lastCode === parsed.code && dedupe.lastAt && now - dedupe.lastAt < 10_000) {
+  if (dedupe.lastCode === parsed.code) {
     return { processed: false as const, reason: "duplicate" as const };
   }
 
   dedupe.inFlightCode = parsed.code;
   try {
     const { data, error } = await auth.exchangeCodeForSession(parsed.code);
-    if (error) throw error;
-    if (!data.session?.user?.id) throw new Error("missing_session");
+    if (error || !data.session?.user?.id) {
+      dedupe.lastCode = parsed.code;
+      if (error) throw error;
+      throw new Error("missing_session");
+    }
     dedupe.lastCode = parsed.code;
-    dedupe.lastAt = now;
     return { processed: true as const, session: data.session };
   } finally {
     dedupe.inFlightCode = null;
@@ -180,6 +344,7 @@ export async function signInWithGoogle(
   if (enabled === false) throw new GoogleAuthPendingConfigurationError();
 
   if (deps.platform === "android") await deps.warmUpAsync();
+  beginGoogleAuthAttempt(dedupe);
 
   try {
     const redirectTo = deps.createRedirectUrl();
@@ -196,15 +361,21 @@ export async function signInWithGoogle(
     const result = await deps.openAuthSessionAsync(data.url, redirectTo);
     if (result.type !== "success") throw new GoogleAuthCancelledError();
 
-    const completed = await completeGoogleOAuthCallback(result.url, deps.auth, dedupe);
-    if (completed.processed && "session" in completed && completed.session) {
-      return completed.session;
-    }
+    const report = await reportGoogleOAuthCallback(result.url, deps.auth, dedupe);
+    if (report.kind === "success") return report.session;
+    if (report.kind === "cancelled") throw new GoogleAuthCancelledError();
+    if (report.kind === "error") throw new GoogleAuthFailedError(report.errorMessage);
 
-    const existing = await deps.auth.getSession();
-    if (existing.data.session?.user?.id) return existing.data.session;
-    throw new Error("missing_session");
+    const key = getGoogleOAuthCallbackKey(result.url);
+    const claimed = key ? dedupe.claimedKeys?.[key] : undefined;
+    if (claimed === "cancelled") throw new GoogleAuthCancelledError();
+    if (claimed === "success" || (key?.startsWith("code:") && !claimed)) {
+      const existing = await deps.auth.getSession();
+      if (existing.data.session?.user?.id) return existing.data.session;
+    }
+    throw new GoogleAuthAlreadyHandledError();
   } finally {
+    endGoogleAuthAttempt(dedupe);
     if (deps.platform === "android") {
       try {
         await deps.coolDownAsync();
