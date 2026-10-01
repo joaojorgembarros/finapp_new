@@ -1,3 +1,4 @@
+import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -6,9 +7,12 @@ import { useHouseholdId } from "../../src/hooks/useHousehold";
 import { useKeyboardAwareScroll } from "../../src/hooks/useKeyboardAwareScroll";
 import { BANK_OPTIONS, CASH_ACCOUNT, OTHER_BANK, TransactionAccountId, TransactionAccountOption } from "../../src/lib/banks";
 import { Category, listCategories } from "../../src/lib/categories";
+import { ymd } from "../../src/lib/date";
 import { setCommitmentPaid } from "../../src/lib/financialPlanning";
 import { getPaymentAmountIssue } from "../../src/lib/financialOverviewPresentation";
 import { formatBRLFromCents, formatBRLInputFromDigits, formatDateBRFromYMD, parseBRLToCents } from "../../src/lib/format";
+import { createInternalTransfer } from "../../src/lib/internalTransferPersistence";
+import { withSaveGate } from "../../src/lib/internalTransfers";
 import { addTransaction, deleteManualTransaction } from "../../src/lib/transactions";
 import {
   linkExpenseToCommitmentWithRetry,
@@ -19,7 +23,12 @@ import { BankLogo } from "../../src/ui/BankLogo";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
 import { ScreenHeaderCard } from "../../src/ui/ScreenHeaderCard";
 
-type TxType = "Receita" | "Despesa";
+type EntryMode = "Receita" | "Despesa" | "Transferência";
+
+function dateFromYmd(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, (month || 1) - 1, day || 1, 12);
+}
 
 function firstParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
@@ -57,11 +66,14 @@ export default function NewTransactionScreen() {
   const { householdId, loading: householdLoading } = useHouseholdId(userId);
   const { scrollRef, keyboardInset, registerField, focusField, cancelPendingScroll } = useKeyboardAwareScroll<"amount" | "description">(18);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [type, setType] = useState<TxType>(paymentFlow ? "Despesa" : "Receita");
+  const [type, setType] = useState<EntryMode>(paymentFlow ? "Despesa" : "Receita");
   const [amount, setAmount] = useState(paymentFlow ? formatBRLInputFromDigits(String(paymentAmountCents)) : "");
   const [description, setDescription] = useState(paymentFlow ? paymentCommitmentName : "");
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [accountId, setAccountId] = useState<TransactionAccountId | null>(null);
+  const [toAccountId, setToAccountId] = useState<TransactionAccountId | null>(null);
+  const [occurredOn, setOccurredOn] = useState(ymd(new Date()));
+  const [showDatePicker, setShowDatePicker] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const saveInFlightRef = useRef(false);
@@ -85,9 +97,10 @@ export default function NewTransactionScreen() {
     if (registeredAccounts.length === 1) return registeredAccounts[0].id;
     return registeredBankNames.includes("Não uso banco") ? CASH_ACCOUNT.id : null;
   }, [registeredAccounts, registeredBankNames]);
+  const transferMode = type === "Transferência";
   const availableCategories = useMemo(
     () => categories.filter((category) => category.flow === (type === "Receita" ? "income" : "expense")),
-    [categories, type]
+    [categories, type],
   );
 
   useFocusEffect(
@@ -107,19 +120,32 @@ export default function NewTransactionScreen() {
   );
 
   useEffect(() => {
+    if (transferMode) return;
     if (!availableCategories.some((category) => category.id === categoryId)) {
       setCategoryId(availableCategories[0]?.id ?? null);
     }
-  }, [availableCategories, categoryId]);
+  }, [availableCategories, categoryId, transferMode]);
 
   useEffect(() => {
     if (accountId && accountOptions.some((account) => account.id === accountId)) return;
     setAccountId(defaultAccountId && accountOptions.some((account) => account.id === defaultAccountId) ? defaultAccountId : null);
   }, [accountId, accountOptions, defaultAccountId]);
 
-  function changeType(nextType: TxType) {
+  useEffect(() => {
+    if (!toAccountId) return;
+    if (toAccountId === accountId || !accountOptions.some((account) => account.id === toAccountId)) {
+      setToAccountId(null);
+    }
+  }, [accountId, accountOptions, toAccountId]);
+
+  function changeType(nextType: EntryMode) {
     setType(nextType);
     setCategoryId(null);
+  }
+
+  function changeDate(event: DateTimePickerEvent, date?: Date) {
+    if (Platform.OS === "android") setShowDatePicker(false);
+    if (event.type === "set" && date) setOccurredOn(ymd(date));
   }
 
   function cancelNewTransaction() {
@@ -151,7 +177,31 @@ export default function NewTransactionScreen() {
     : null;
 
   async function save() {
-    if (!householdId || !userId || !enteredAmountCents || !description.trim() || !accountId || saveInFlightRef.current) return;
+    if (!householdId || !userId) return;
+    const result = await withSaveGate(saveInFlightRef, async () => {
+      if (transferMode) {
+        if (!enteredAmountCents || !accountId || !toAccountId || accountId === toAccountId) return;
+        try {
+          setSaving(true);
+          await createInternalTransfer({
+            householdId,
+            fromAccountId: accountId,
+            toAccountId,
+            amountCents: enteredAmountCents,
+            occurredOn,
+            note: description,
+          });
+          if (router.canGoBack()) router.back();
+          else router.replace({ pathname: "/(app)/journey", params: { tab: "movimentacoes" } });
+        } catch (error: any) {
+          Alert.alert("Transferência entre contas", error?.message ?? "Não foi possível registrar a transferência.");
+        } finally {
+          setSaving(false);
+        }
+        return;
+      }
+
+      if (!enteredAmountCents || !description.trim() || !accountId) return;
     if (paymentAmountIssue === "exceeds-remaining") {
       Alert.alert(
         "Valor maior que o restante",
@@ -160,7 +210,6 @@ export default function NewTransactionScreen() {
       return;
     }
     try {
-      saveInFlightRef.current = true;
       setSaving(true);
       let paymentTransaction = paymentFlow ? createdPaymentTransactionRef.current : null;
       if (paymentFlow && !paymentTransaction && paymentAmountCents <= 0) {
@@ -236,12 +285,15 @@ export default function NewTransactionScreen() {
         error?.message ?? (paymentFlow ? "Não foi possível salvar o gasto." : "Não foi possível salvar o lançamento.")
       );
     } finally {
-      saveInFlightRef.current = false;
       setSaving(false);
     }
+    });
+    void result;
   }
 
-  const valid = Boolean(enteredAmountCents && !paymentAmountIssue && description.trim() && accountId && householdId && userId);
+  const valid = transferMode
+    ? Boolean(enteredAmountCents && accountId && toAccountId && accountId !== toAccountId && householdId && userId)
+    : Boolean(enteredAmountCents && !paymentAmountIssue && description.trim() && accountId && householdId && userId);
 
   return (
     <OnboardingShell light>
@@ -260,7 +312,7 @@ export default function NewTransactionScreen() {
             navigationVariant={paymentFlow ? "close" : undefined}
             eyebrow="Movimentações"
             title={paymentFlow ? "Registrar pagamento" : "Novo lançamento"}
-            subtitle={paymentFlow ? "Escolha a conta e confirme o valor pago." : "Registre entradas e saídas com clareza."}
+            subtitle={paymentFlow ? "Escolha a conta e confirme o valor pago." : "Registre entradas, saídas ou uma transferência entre as suas contas."}
           />
 
           {paymentFlow ? (
@@ -285,7 +337,7 @@ export default function NewTransactionScreen() {
               </Pressable>
 
               <View style={styles.typeTabs}>
-                {(["Receita", "Despesa"] as TxType[]).map((item) => {
+                {(["Receita", "Despesa", "Transferência"] as EntryMode[]).map((item) => {
                   const active = item === type;
                   return <Pressable key={item} onPress={() => changeType(item)} style={[styles.typeTab, active && styles.typeTabActive]}><Text style={[styles.typeTabText, active && styles.typeTabTextActive]}>{item}</Text></Pressable>;
                 })}
@@ -293,7 +345,9 @@ export default function NewTransactionScreen() {
             </>
           ) : null}
 
-          <Text style={styles.label}>{type === "Receita" ? "Onde o dinheiro entrou?" : "De onde o dinheiro saiu?"}</Text>
+          <Text style={styles.label}>
+            {transferMode ? "Conta de origem" : type === "Receita" ? "Onde o dinheiro entrou?" : "De onde o dinheiro saiu?"}
+          </Text>
           <View style={styles.panel}>
             {accountOptions.map((account) => {
               const active = account.id === accountId;
@@ -315,6 +369,41 @@ export default function NewTransactionScreen() {
           </View>
           {!accountId ? <Text style={styles.required}>Escolha uma conta para continuar.</Text> : null}
 
+          {transferMode ? (
+            <>
+              <Text style={styles.label}>Conta de destino</Text>
+              <View style={styles.panel}>
+                {accountOptions.map((account) => {
+                  const active = account.id === toAccountId;
+                  const disabled = account.id === accountId;
+                  return (
+                    <Pressable
+                      key={account.id}
+                      onPress={() => { if (!disabled) setToAccountId(account.id); }}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Conta de destino ${account.name}`}
+                      accessibilityState={{ selected: active, disabled }}
+                      style={[styles.account, active && styles.active, disabled && styles.saveDisabled]}
+                    >
+                      <BankLogo bankId={account.id} size={34} color={account.color} shortName={account.shortName} />
+                      <Text numberOfLines={1} style={[styles.accountText, active && styles.activeText]}>{account.name}</Text>
+                      {active ? <Ionicons name="checkmark-circle" size={17} color="#fff" /> : null}
+                    </Pressable>
+                  );
+                })}
+              </View>
+              {!toAccountId ? <Text style={styles.required}>Escolha a conta de destino.</Text> : null}
+              {accountId && toAccountId && accountId === toAccountId ? <Text style={styles.required}>Origem e destino precisam ser contas diferentes.</Text> : null}
+
+              <Text style={styles.label}>Data</Text>
+              <Pressable onPress={() => setShowDatePicker(true)} style={styles.dateButton}>
+                <Text style={styles.dateButtonText}>{formatDateBRFromYMD(occurredOn)}</Text>
+                <Ionicons name="calendar-outline" size={19} color={OB.support} />
+              </Pressable>
+              {showDatePicker ? <DateTimePicker value={dateFromYmd(occurredOn)} mode="date" onChange={changeDate} /> : null}
+            </>
+          ) : null}
+
           <View onLayout={registerField("amount")}>
             <Text style={styles.label}>Valor</Text>
             <View style={styles.inputBox}>
@@ -328,6 +417,8 @@ export default function NewTransactionScreen() {
             ) : null}
           </View>
 
+          {!transferMode ? (
+            <>
           <Text style={styles.label}>Categoria</Text>
           <View style={[styles.panel, styles.categoryPanel]}>
             {loading || householdLoading ? <ActivityIndicator color={OB.primary} /> : availableCategories.map((category) => {
@@ -335,15 +426,17 @@ export default function NewTransactionScreen() {
               return <Pressable key={category.id} onPress={() => setCategoryId(category.id)} accessibilityRole="button" accessibilityLabel={`Categoria ${category.name}`} accessibilityState={{ selected: active }} style={[styles.category, active && styles.active]}>{active ? <Ionicons name="checkmark-circle" size={15} color="#fff" /> : null}<Text style={[styles.categoryText, active && styles.activeText]}>{category.name}</Text></Pressable>;
             })}
           </View>
+            </>
+          ) : null}
 
           <View onLayout={registerField("description")}>
-            <Text style={styles.label}>Descrição</Text>
-            <TextInput accessibilityLabel="Descrição do pagamento" value={description} onChangeText={setDescription} onFocus={() => focusField("description")} onPressIn={() => focusField("description")} onSubmitEditing={Keyboard.dismiss} returnKeyType="done" placeholder="Ex: compra mercado" placeholderTextColor={OB.support} style={styles.textInput} />
+            <Text style={styles.label}>{transferMode ? "Descrição (opcional)" : "Descrição"}</Text>
+            <TextInput accessibilityLabel="Descrição do pagamento" value={description} onChangeText={setDescription} onFocus={() => focusField("description")} onPressIn={() => focusField("description")} onSubmitEditing={Keyboard.dismiss} returnKeyType="done" placeholder={transferMode ? "Ex: PIX para o Inter" : "Ex: compra mercado"} placeholderTextColor={OB.support} style={styles.textInput} />
           </View>
 
           <Pressable onPress={() => void save()} disabled={!valid || saving} accessibilityRole="button" accessibilityState={{ disabled: !valid || saving }} style={[styles.saveButton, (!valid || saving) && styles.saveDisabled]}>
             <Text style={[styles.saveText, (!valid || saving) && styles.saveTextDisabled]}>
-              {saving ? "Salvando..." : paymentFlow ? "Salvar pagamento" : "Salvar lançamento"}
+              {saving ? "Salvando..." : paymentFlow ? "Salvar pagamento" : transferMode ? "Salvar transferência" : "Salvar lançamento"}
             </Text>
           </Pressable>
           {!paymentFlow ? (
@@ -371,9 +464,9 @@ const styles = StyleSheet.create({
   importTitle: { color: OB.primary, fontSize: 14, fontWeight: "900" },
   importText: { color: OB.support, fontSize: 11, fontWeight: "800", lineHeight: 16, marginTop: 2 },
   typeTabs: { flexDirection: "row", gap: 8, marginBottom: 2 },
-  typeTab: { flex: 1, minHeight: 52, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: "#fff", borderWidth: 1, borderColor: OB.supportSoft },
+  typeTab: { flex: 1, minHeight: 52, paddingHorizontal: 6, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: "#fff", borderWidth: 1, borderColor: OB.supportSoft },
   typeTabActive: { backgroundColor: OB.primary, borderColor: OB.primary },
-  typeTabText: { color: OB.support, fontSize: 12, fontWeight: "900" },
+  typeTabText: { color: OB.support, fontSize: 11, fontWeight: "900", textAlign: "center" },
   typeTabTextActive: { color: "#fff" },
   paymentContextCard: { minHeight: 74, borderRadius: 18, padding: 13, flexDirection: "row", backgroundColor: "#fff", borderWidth: 1, borderColor: OB.supportSoft },
   paymentContextItem: { flex: 1, minWidth: 0, paddingRight: 9 },
@@ -395,6 +488,8 @@ const styles = StyleSheet.create({
   category: { minHeight: 44, borderRadius: 13, paddingHorizontal: 12, paddingVertical: 9, flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: OB.offWhite, borderWidth: 1, borderColor: "transparent" },
   categoryText: { color: OB.support, fontSize: 12, fontWeight: "900" },
   textInput: { minHeight: 58, borderRadius: 17, borderWidth: 1.5, borderColor: OB.supportSoft, backgroundColor: OB.offWhite, paddingHorizontal: 15, color: OB.primary, fontSize: 15, fontWeight: "800" },
+  dateButton: { minHeight: 58, borderRadius: 17, borderWidth: 1.5, borderColor: OB.supportSoft, backgroundColor: OB.offWhite, paddingHorizontal: 15, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  dateButtonText: { color: OB.primary, fontSize: 15, fontWeight: "800" },
   saveButton: { minHeight: 58, borderRadius: 18, backgroundColor: OB.primary, alignItems: "center", justifyContent: "center", marginTop: 8 },
   saveDisabled: { backgroundColor: "rgba(123,160,200,0.32)" },
   saveText: { color: "#fff", fontSize: 15, fontWeight: "900" },

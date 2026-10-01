@@ -227,6 +227,7 @@ export type StatementImportTransaction = {
   occurred_on: string;
   source_line: number | null;
   category_id: string | null;
+  transfer_group_id?: string | null;
 };
 
 export async function listStatementImportTransactions(
@@ -235,7 +236,7 @@ export async function listStatementImportTransactions(
 ) {
   const { data, error } = await supabase
     .from("transactions")
-    .select("id,type,amount_cents,note,occurred_on,source_line,category_id")
+    .select("id,type,amount_cents,note,occurred_on,source_line,category_id,transfer_group_id")
     .eq("household_id", householdId)
     .eq("statement_import_id", importId)
     .order("occurred_on", { ascending: false })

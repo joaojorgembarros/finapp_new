@@ -24,6 +24,14 @@ import { useKeyboardAwareScroll } from "../../src/hooks/useKeyboardAwareScroll";
 import { findTransactionAccountById } from "../../src/lib/banks";
 import { Category, listCategories } from "../../src/lib/categories";
 import { formatBRLFromCents, formatDateBRFromYMD } from "../../src/lib/format";
+import {
+  filterMovementsForList,
+  filterMovementsForTotals,
+  isInternalTransferLeg,
+  periodBalanceCaption,
+  summarizeMovementTotals,
+} from "../../src/lib/internalTransfers";
+import { listHouseholdPaymentTransactionIds } from "../../src/lib/internalTransferPersistence";
 import { listTransactionHistory, TxRow } from "../../src/lib/transactions";
 import { useSession } from "../../src/providers/SessionProvider";
 import { BankLogo } from "../../src/ui/BankLogo";
@@ -55,6 +63,7 @@ function accountName(accountId: string | null) {
 
 function TransactionCard({ transaction, onPress }: { transaction: TxRow; onPress: () => void }) {
   const income = transaction.type === "income";
+  const internalTransfer = isInternalTransferLeg(transaction);
   const color = income ? "#169B62" : "#D84C4C";
   const transactionAccount = findTransactionAccountById(transaction.account_id);
   const title = transaction.note?.trim() || transaction.category?.name || "Movimentação";
@@ -64,7 +73,7 @@ function TransactionCard({ transaction, onPress }: { transaction: TxRow; onPress
       onPress={onPress}
       style={({ pressed }) => [styles.transactionCard, pressed && styles.transactionCardPressed]}
       accessibilityRole="button"
-      accessibilityLabel={`Editar ${income ? "receita" : "despesa"}: ${title}, ${transactionAccount?.name ?? "conta não informada"}`}
+      accessibilityLabel={`Editar ${internalTransfer ? "transferência interna" : income ? "receita" : "despesa"}: ${title}, ${transactionAccount?.name ?? "conta não informada"}`}
     >
       {transactionAccount ? (
         <BankLogo
@@ -87,6 +96,12 @@ function TransactionCard({ transaction, onPress }: { transaction: TxRow; onPress
           <Ionicons name={transaction.statement_import_id ? "document-text-outline" : "create-outline"} size={11} color={transaction.statement_import_id ? "#376EA5" : OB.support} />
           <Text style={[styles.sourceText, transaction.statement_import_id && styles.sourceTextCsv]}>{transaction.statement_import_id ? "CSV" : "Manual"}</Text>
         </View>
+        {internalTransfer ? (
+          <View style={[styles.sourceBadge, styles.sourceBadgeTransfer]}>
+            <Ionicons name="swap-horizontal-outline" size={11} color={OB.primary} />
+            <Text style={[styles.sourceText, styles.sourceTextTransfer]}>Entre contas</Text>
+          </View>
+        ) : null}
       </View>
       <View style={styles.amountColumn}>
         <Text style={[styles.transactionAmount, { color }]}>{income ? "+" : "-"}{formatBRLFromCents(transaction.amount_cents)}</Text>
@@ -119,6 +134,7 @@ export function TransactionHistoryScreen({
   const [month, setMonth] = useState("all");
   const [account, setAccount] = useState("all");
   const [statementImportId, setStatementImportId] = useState<string | null>(requestedImportId ?? null);
+  const [paymentTransactionIds, setPaymentTransactionIds] = useState<string[]>([]);
 
   useEffect(() => {
     setStatementImportId(requestedImportId ?? null);
@@ -139,12 +155,14 @@ export function TransactionHistoryScreen({
       if (refresh) setRefreshing(true);
       else setLoading(true);
       setLoadError("");
-      const [nextTransactions, nextCategories] = await Promise.all([
+      const [nextTransactions, nextCategories, nextPaymentIds] = await Promise.all([
         listTransactionHistory(householdId),
         listCategories(householdId),
+        listHouseholdPaymentTransactionIds(householdId),
       ]);
       setTransactions(nextTransactions);
       setCategories(nextCategories);
+      setPaymentTransactionIds(nextPaymentIds);
     } catch (error: any) {
       setLoadError(error?.message ?? "Não foi possível carregar as movimentações.");
     } finally {
@@ -169,25 +187,31 @@ export function TransactionHistoryScreen({
       .sort((a, b) => a.name.localeCompare(b.name, "pt-BR")),
     [transactions]
   );
-  const filtered = useMemo(() => {
-    const query = search.trim().toLocaleLowerCase("pt-BR");
-    return transactions.filter((transaction) => {
-      if (statementImportId && transaction.statement_import_id !== statementImportId) return false;
-      if (flow !== "all" && transaction.type !== flow) return false;
-      if (month !== "all" && !transaction.occurred_on.startsWith(month)) return false;
-      const accountKey = transaction.account_id ?? "not-informed";
-      if (account !== "all" && accountKey !== account) return false;
-      if (!query) return true;
-      return [transaction.note, transaction.category?.name, accountName(transaction.account_id)]
-        .filter(Boolean)
-        .some((value) => String(value).toLocaleLowerCase("pt-BR").includes(query));
-    });
-  }, [account, flow, month, search, statementImportId, transactions]);
-  const totals = useMemo(() => filtered.reduce((summary, transaction) => {
-    if (transaction.type === "income") summary.income += Number(transaction.amount_cents || 0);
-    else summary.expense += Number(transaction.amount_cents || 0);
-    return summary;
-  }, { income: 0, expense: 0 }), [filtered]);
+  const historyFilters = useMemo(() => ({
+    month,
+    account,
+    statementImportId,
+    flow,
+    search,
+  }), [account, flow, month, search, statementImportId]);
+  const transactionsForTotals = useMemo(
+    () => filterMovementsForTotals(transactions, historyFilters),
+    [historyFilters, transactions],
+  );
+  const filtered = useMemo(
+    () => filterMovementsForList(
+      transactions,
+      historyFilters,
+      (transaction) => [transaction.note, transaction.category?.name, accountName(transaction.account_id)],
+    ),
+    [historyFilters, transactions],
+  );
+  const totals = useMemo(
+    () => summarizeMovementTotals(transactionsForTotals, { accountId: account }),
+    [account, transactionsForTotals],
+  );
+  const periodCaption = periodBalanceCaption(account);
+  const periodBalanceColor = totals.periodBalance >= 0 ? "#169B62" : "#D84C4C";
 
   const busy = loading || householdLoading;
 
@@ -320,9 +344,17 @@ export function TransactionHistoryScreen({
         </View>
 
         <View style={styles.summaryCard}>
-          <View style={styles.summaryItem}><Text style={styles.summaryLabel}>Entradas</Text><Text style={[styles.summaryValue, { color: "#169B62" }]}>{formatBRLFromCents(totals.income)}</Text></View>
-          <View style={styles.summaryDivider} />
-          <View style={styles.summaryItem}><Text style={styles.summaryLabel}>Saídas</Text><Text style={[styles.summaryValue, { color: "#D84C4C" }]}>{formatBRLFromCents(totals.expense)}</Text></View>
+          <View style={styles.summaryRow}>
+            <View style={styles.summaryItem}><Text style={styles.summaryLabel}>Entradas</Text><Text style={[styles.summaryValue, { color: "#169B62" }]}>{formatBRLFromCents(totals.income)}</Text></View>
+            <View style={styles.summaryDivider} />
+            <View style={styles.summaryItem}><Text style={styles.summaryLabel}>Saídas</Text><Text style={[styles.summaryValue, { color: "#D84C4C" }]}>{formatBRLFromCents(totals.expense)}</Text></View>
+            <View style={styles.summaryDivider} />
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>Saldo do período</Text>
+              <Text style={[styles.summaryValue, { color: periodBalanceColor }]}>{formatBRLFromCents(totals.periodBalance)}</Text>
+            </View>
+          </View>
+          <Text style={styles.summaryHint}>{periodCaption}</Text>
         </View>
 
         <View style={styles.listHeader}>
@@ -348,6 +380,8 @@ export function TransactionHistoryScreen({
           categories={categories}
           householdId={householdId}
           userId={userId}
+          transactions={transactions}
+          paymentTransactionIds={paymentTransactionIds}
           onClose={() => setSelectedTransaction(null)}
           onChanged={() => load(true)}
         />
@@ -405,11 +439,13 @@ const styles = StyleSheet.create({
   smallChipActive: { backgroundColor: "rgba(6,25,54,0.10)", borderColor: "rgba(6,25,54,0.30)" },
   smallChipText: { color: OB.support, fontSize: 10, fontWeight: "800" },
   smallChipTextActive: { color: OB.primary, fontWeight: "900" },
-  summaryCard: { minHeight: 82, borderRadius: 19, padding: 15, flexDirection: "row", alignItems: "center", backgroundColor: "#fff", borderWidth: 1, borderColor: OB.supportSoft },
+  summaryCard: { borderRadius: 19, padding: 15, gap: 10, backgroundColor: "#fff", borderWidth: 1, borderColor: OB.supportSoft },
+  summaryRow: { flexDirection: "row", alignItems: "center" },
   summaryItem: { flex: 1 },
-  summaryLabel: { color: OB.support, fontSize: 10, fontWeight: "900", textTransform: "uppercase" },
-  summaryValue: { fontSize: 15, fontWeight: "900", marginTop: 6 },
-  summaryDivider: { width: 1, alignSelf: "stretch", marginHorizontal: 12, backgroundColor: OB.supportSoft },
+  summaryLabel: { color: OB.support, fontSize: 9, fontWeight: "900", textTransform: "uppercase" },
+  summaryValue: { fontSize: 13, fontWeight: "900", marginTop: 6 },
+  summaryDivider: { width: 1, alignSelf: "stretch", marginHorizontal: 8, backgroundColor: OB.supportSoft },
+  summaryHint: { color: OB.support, fontSize: 9, lineHeight: 14, fontWeight: "700" },
   listHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 2, marginTop: 2 },
   listTitle: { color: OB.primary, fontSize: 17, fontWeight: "900" },
   listCount: { color: OB.support, fontSize: 10, fontWeight: "800" },
@@ -423,8 +459,10 @@ const styles = StyleSheet.create({
   sourceBadge: { alignSelf: "flex-start", borderRadius: 8, paddingHorizontal: 7, paddingVertical: 4, flexDirection: "row", alignItems: "center", gap: 4, marginTop: 6 },
   sourceBadgeManual: { backgroundColor: OB.offWhite },
   sourceBadgeCsv: { backgroundColor: "rgba(55,110,165,0.12)" },
+  sourceBadgeTransfer: { backgroundColor: "rgba(6,25,54,0.08)" },
   sourceText: { color: OB.support, fontSize: 8, fontWeight: "900", textTransform: "uppercase" },
   sourceTextCsv: { color: "#376EA5" },
+  sourceTextTransfer: { color: OB.primary },
   transactionAmount: { maxWidth: 105, fontSize: 12, fontWeight: "900", paddingTop: 2 },
   amountColumn: { minHeight: 42, alignItems: "flex-end", justifyContent: "space-between" },
   stateCard: { minHeight: 180, borderRadius: 20, padding: 24, alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "#fff", borderWidth: 1, borderColor: OB.supportSoft },

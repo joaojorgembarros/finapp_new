@@ -4,6 +4,7 @@ import {
   getCycleForOffset,
   isCommitmentPaymentAmountValid,
 } from "./financialPlanning";
+import { summarizeMovementTotals } from "./internalTransfers";
 
 vi.mock("./supabase", () => ({
   supabase: {},
@@ -236,5 +237,39 @@ describe("conservative financial calculation", () => {
     expect(incomeAbovePlan.periodEndForecastCents).toBe(140_000);
     expect(negativeForecast.remainingExpectedIncomeCents).toBe(200_000);
     expect(negativeForecast.periodEndForecastCents).toBe(-100_000);
+  });
+
+  it("ignores an internal transfer in household-wide realized income, expense, available cash and forecast", () => {
+    const baseInput = {
+      expectedIncomeCents: 300_000,
+      totalCommitmentsCents: 80_000,
+      pendingCommitmentsCents: 80_000,
+      reserveCents: 20_000,
+      allocatedCents: 10_000,
+    };
+    const rows = [
+      { type: "income" as const, amount_cents: 300_000, transfer_group_id: null, account_id: "nubank" },
+      { type: "expense" as const, amount_cents: 50_000, transfer_group_id: null, account_id: "nubank" },
+      { type: "expense" as const, amount_cents: 100_000, transfer_group_id: "group-1", account_id: "nubank" },
+      { type: "income" as const, amount_cents: 100_000, transfer_group_id: "group-1", account_id: "inter" },
+    ];
+    const realized = summarizeMovementTotals(rows);
+    const withTransfer = calculateFinancialSummary({
+      ...baseInput,
+      realizedIncomeCents: realized.income,
+      realizedExpenseCents: realized.expense,
+    });
+    const withoutTransfer = calculateFinancialSummary({
+      ...baseInput,
+      realizedIncomeCents: 300_000,
+      realizedExpenseCents: 50_000,
+    });
+
+    expect(realized).toEqual({ income: 300_000, expense: 50_000, periodBalance: 250_000 });
+    expect(withTransfer.realizedIncomeCents).toBe(withoutTransfer.realizedIncomeCents);
+    expect(withTransfer.realizedExpenseCents).toBe(withoutTransfer.realizedExpenseCents);
+    expect(withTransfer.availableCents).toBe(withoutTransfer.availableCents);
+    expect(withTransfer.periodEndForecastCents).toBe(withoutTransfer.periodEndForecastCents);
+    expect(withTransfer.remainingExpectedIncomeCents).toBe(0);
   });
 });

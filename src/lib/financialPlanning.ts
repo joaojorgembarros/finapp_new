@@ -3,6 +3,7 @@ import {
   assertCyclePaymentFits,
   cyclePaymentAlreadyPaidCents,
 } from "./commitmentPaymentPersistence";
+import { summarizeMovementTotals } from "./internalTransfers";
 import { supabase } from "./supabase";
 
 const sb: any = supabase;
@@ -75,6 +76,7 @@ export type FinancialOverviewTransaction = {
   statement_import_id: string | null;
   occurred_on: string;
   created_at: string;
+  transfer_group_id?: string | null;
   category?: { name: string } | null;
 };
 
@@ -542,7 +544,7 @@ export async function setCommitmentPaid(params: SetCommitmentPaidParams) {
       .maybeSingle(),
     sb
       .from("transactions")
-      .select("amount_cents,type,occurred_on,ignored_at")
+      .select("amount_cents,type,occurred_on,ignored_at,transfer_group_id")
       .eq("household_id", params.householdId)
       .eq("id", params.transactionId)
       .maybeSingle(),
@@ -554,6 +556,9 @@ export async function setCommitmentPaid(params: SetCommitmentPaidParams) {
   }
   if (!commitmentResult.data || !transactionResult.data || transactionResult.data.type !== "expense" || transactionResult.data.ignored_at) {
     throw new Error("A despesa selecionada não está disponível neste ciclo.");
+  }
+  if (transactionResult.data.transfer_group_id) {
+    throw new Error("Uma transferência entre contas próprias não pode contabilizar um compromisso.");
   }
   const commitmentAmount = integerCents(commitmentResult.data.amount_cents);
   const transactionAmount = integerCents(transactionResult.data.amount_cents);
@@ -623,29 +628,20 @@ function dueOnForCycle(dueDay: number, cycle: FinancialCycle) {
 }
 
 async function listCycleTransactions(householdId: string, cycle: FinancialCycle) {
-  const columns = "id,type,amount_cents,note,category_id,account_id,statement_import_id,occurred_on,created_at,category:categories(name)";
-  let result = await sb
+  const result = await sb
     .from("transactions")
-    .select(columns)
+    .select("id,type,amount_cents,note,category_id,account_id,statement_import_id,occurred_on,created_at,transfer_group_id,category:categories(name)")
     .eq("household_id", householdId)
     .is("ignored_at", null)
     .gte("occurred_on", cycle.start)
     .lt("occurred_on", cycle.end)
     .order("occurred_on", { ascending: false });
-  if (result.error?.code === "42703") {
-    result = await sb
-      .from("transactions")
-      .select("id,type,amount_cents,note,category_id,statement_import_id,occurred_on,created_at,category:categories(name)")
-      .eq("household_id", householdId)
-      .gte("occurred_on", cycle.start)
-      .lt("occurred_on", cycle.end)
-      .order("occurred_on", { ascending: false });
-  }
   if (result.error) throw result.error;
   return (result.data ?? []).map((row: any) => ({
     ...row,
     amount_cents: Math.max(0, integerCents(row.amount_cents)),
     account_id: row.account_id ?? null,
+    transfer_group_id: row.transfer_group_id ?? null,
   })) as FinancialOverviewTransaction[];
 }
 
@@ -806,12 +802,9 @@ export async function getFinancialOverview(params: {
       .reduce((sum, row) => sum + row.amount_cents, 0),
   }));
 
-  const realizedIncomeCents = transactions
-    .filter((transaction) => transaction.type === "income")
-    .reduce((sum, transaction) => sum + transaction.amount_cents, 0);
-  const realizedExpenseCents = transactions
-    .filter((transaction) => transaction.type === "expense")
-    .reduce((sum, transaction) => sum + transaction.amount_cents, 0);
+  const realizedFlows = summarizeMovementTotals(transactions);
+  const realizedIncomeCents = realizedFlows.income;
+  const realizedExpenseCents = realizedFlows.expense;
   const totalCommitmentsCents = overviewCommitments.reduce((sum, item) => sum + item.amount_cents, 0);
   const pendingCommitmentsCents = overviewCommitments.reduce((sum, item) => sum + item.pending_cents, 0);
   const allocatedCents = cycleRows.reduce((sum, row) => sum + row.amount_cents, 0);

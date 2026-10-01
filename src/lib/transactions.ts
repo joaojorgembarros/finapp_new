@@ -2,6 +2,7 @@
 import { supabase } from "./supabase";
 import { addMonths, ymd } from "./date";
 import type { TransactionAccountId } from "./banks";
+import { summarizeMovementTotals } from "./internalTransfers";
 
 export type TxType = "income" | "expense";
 
@@ -21,8 +22,14 @@ export type TxRow = {
   ignored_at?: string | null;
   ignored_by?: string | null;
   updated_at?: string;
+  transfer_group_id?: string | null;
   category?: { name: string } | null;
 };
+
+const TRANSACTION_LIST_SELECT = `
+  id, household_id, created_by, type, amount_cents, note, category_id, account_id, statement_import_id, occurred_on, created_at, transfer_group_id,
+  category:categories(name)
+`;
 
 // ✅ compat com telas antigas que importam Transaction
 export type Transaction = TxRow;
@@ -110,38 +117,15 @@ export async function listTransactionsByMonth(
 ) {
   const { start, end } = monthRange(monthKey);
 
-  let { data, error } = await sb
+  const { data, error } = await sb
     .from("transactions")
-    .select(
-      `
-      id, household_id, created_by, type, amount_cents, note, category_id, account_id, statement_import_id, occurred_on, created_at,
-      category:categories(name)
-    `
-    )
+    .select(TRANSACTION_LIST_SELECT)
     .eq("household_id", householdId)
     .is("ignored_at", null)
-    .gte("occurred_on", start) // ✅ era .get
+    .gte("occurred_on", start)
     .lt("occurred_on", end)
     .order("occurred_on", { ascending: false })
     .order("created_at", { ascending: false });
-
-  if (error?.code === "42703") {
-    const fallback = await sb
-      .from("transactions")
-      .select(
-        `
-        id, household_id, created_by, type, amount_cents, note, category_id, statement_import_id, occurred_on, created_at,
-        category:categories(name)
-      `
-      )
-      .eq("household_id", householdId)
-      .gte("occurred_on", start)
-      .lt("occurred_on", end)
-      .order("occurred_on", { ascending: false })
-      .order("created_at", { ascending: false });
-    data = (fallback.data ?? []).map((row: any) => ({ ...row, account_id: null }));
-    error = fallback.error;
-  }
 
   if (error) throw error;
   return (data ?? []) as TxRow[];
@@ -151,38 +135,15 @@ export async function listTransactionsRecent(householdId: string, days = 90) {
   const end = ymd(addDays(new Date(), 1)); // até amanhã (exclusivo)
   const start = ymd(addDays(new Date(), -Math.max(1, Number(days || 90))));
 
-  let { data, error } = await sb
+  const { data, error } = await sb
     .from("transactions")
-    .select(
-      `
-      id, household_id, created_by, type, amount_cents, note, category_id, account_id, statement_import_id, occurred_on, created_at,
-      category:categories(name)
-    `
-    )
+    .select(TRANSACTION_LIST_SELECT)
     .eq("household_id", householdId)
     .is("ignored_at", null)
-    .gte("occurred_on", start) // ✅ era .get
+    .gte("occurred_on", start)
     .lt("occurred_on", end)
     .order("occurred_on", { ascending: false })
     .order("created_at", { ascending: false });
-
-  if (error?.code === "42703") {
-    const fallback = await sb
-      .from("transactions")
-      .select(
-        `
-        id, household_id, created_by, type, amount_cents, note, category_id, statement_import_id, occurred_on, created_at,
-        category:categories(name)
-      `
-      )
-      .eq("household_id", householdId)
-      .gte("occurred_on", start)
-      .lt("occurred_on", end)
-      .order("occurred_on", { ascending: false })
-      .order("created_at", { ascending: false });
-    data = (fallback.data ?? []).map((row: any) => ({ ...row, account_id: null }));
-    error = fallback.error;
-  }
 
   if (error) throw error;
   return (data ?? []) as TxRow[];
@@ -195,12 +156,7 @@ export async function listTransactionHistory(householdId: string) {
   for (let from = 0; ; from += pageSize) {
     const { data, error } = await sb
       .from("transactions")
-      .select(
-        `
-        id, household_id, created_by, type, amount_cents, note, category_id, account_id, statement_import_id, occurred_on, created_at,
-        category:categories(name)
-      `
-      )
+      .select(TRANSACTION_LIST_SELECT)
       .eq("household_id", householdId)
       .is("ignored_at", null)
       .order("occurred_on", { ascending: false })
@@ -239,7 +195,7 @@ export async function getMonthlyNet(
 
   const { data, error } = await sb
     .from("transactions")
-    .select("type,amount_cents,occurred_on")
+    .select("type,amount_cents,occurred_on,transfer_group_id")
     .eq("household_id", householdId)
     .is("ignored_at", null)
     .gte("occurred_on", start)
@@ -247,15 +203,8 @@ export async function getMonthlyNet(
 
   if (error) throw error;
 
-  let income = 0;
-  let expense = 0;
-
-  for (const t of data ?? []) {
-    if (t.type === "income") income += Number(t.amount_cents || 0);
-    else expense += Number(t.amount_cents || 0);
-  }
-
-  return { income, expense, net: income - expense };
+  const totals = summarizeMovementTotals(data ?? []);
+  return { income: totals.income, expense: totals.expense, net: totals.periodBalance };
 }
 
 export async function getNetBetween(
@@ -267,7 +216,7 @@ export async function getNetBetween(
 
   const { data, error } = await sb
     .from("transactions")
-    .select("type,amount_cents,occurred_on")
+    .select("type,amount_cents,occurred_on,transfer_group_id")
     .eq("household_id", householdId)
     .is("ignored_at", null)
     .gte("occurred_on", startYMD)
@@ -275,15 +224,8 @@ export async function getNetBetween(
 
   if (error) throw error;
 
-  let income = 0;
-  let expense = 0;
-
-  for (const t of data ?? []) {
-    if (t.type === "income") income += Number(t.amount_cents || 0);
-    else expense += Number(t.amount_cents || 0);
-  }
-
-  return { income, expense, net: income - expense };
+  const totals = summarizeMovementTotals(data ?? []);
+  return { income: totals.income, expense: totals.expense, net: totals.periodBalance };
 }
 
 function transactionManagementError(error: any) {
