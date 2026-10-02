@@ -140,6 +140,18 @@ export async function listStatementImports(householdId: string) {
   );
 }
 
+export async function statementImportExists(householdId: string, importId: string) {
+  const { data, error } = await supabase
+    .from("statement_imports")
+    .select("id")
+    .eq("household_id", householdId)
+    .eq("id", importId)
+    .maybeSingle();
+
+  if (error) throw error;
+  return Boolean(data);
+}
+
 export async function deleteStatementImport(householdId: string, importId: string) {
   const { data, error } = await supabase
     .from("statement_imports")

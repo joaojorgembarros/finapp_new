@@ -32,6 +32,8 @@ import {
   summarizeMovementTotals,
 } from "../../src/lib/internalTransfers";
 import { resolveMovementListContext } from "../../src/lib/movementImportContext";
+import { onlyImportAfterStatementDeletion } from "../../src/lib/statementImportManagement";
+import { statementImportExists } from "../../src/lib/statementImports";
 import { listTransactionHistory, TxRow } from "../../src/lib/transactions";
 import { useSession } from "../../src/providers/SessionProvider";
 import { BankLogo } from "../../src/ui/BankLogo";
@@ -209,6 +211,23 @@ export function TransactionHistoryScreen({
     useCallback(() => {
       void load();
     }, [load])
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!householdId || !onlyImportParam) return;
+      let cancelled = false;
+      void statementImportExists(householdId, onlyImportParam)
+        .then((exists) => {
+          if (cancelled || exists) return;
+          setStatementImportId(onlyImportAfterStatementDeletion(onlyImportParam, onlyImportParam));
+          router.setParams({ onlyImport: undefined });
+        })
+        .catch(() => undefined);
+      return () => {
+        cancelled = true;
+      };
+    }, [householdId, onlyImportParam])
   );
 
   const months = useMemo(
@@ -411,6 +430,17 @@ export function TransactionHistoryScreen({
           </ScrollView>
         </View>
 
+        <Pressable
+          onPress={() => router.push("/(app)/import-history")}
+          accessibilityRole="button"
+          accessibilityLabel="Extratos importados"
+          style={({ pressed }) => [styles.importsLink, pressed && styles.actionButtonPressed]}
+        >
+          <Ionicons name="folder-open-outline" size={16} color={OB.primary} />
+          <Text style={styles.importsLinkText}>Extratos importados</Text>
+          <Ionicons name="chevron-forward" size={14} color={OB.support} />
+        </Pressable>
+
         <View style={styles.summaryCard}>
           <View style={styles.summaryRow}>
             <View style={styles.summaryItem}><Text style={styles.summaryLabel}>Entradas</Text><Text style={[styles.summaryValue, { color: "#169B62" }]}>{formatBRLFromCents(totals.income)}</Text></View>
@@ -501,6 +531,8 @@ const styles = StyleSheet.create({
   smallChipActive: { backgroundColor: "rgba(6,25,54,0.10)", borderColor: "rgba(6,25,54,0.30)" },
   smallChipText: { color: OB.support, fontSize: 10, fontWeight: "800" },
   smallChipTextActive: { color: OB.primary, fontWeight: "900" },
+  importsLink: { minHeight: 44, borderRadius: 14, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(255,255,255,0.72)", borderWidth: 1, borderColor: OB.supportSoft },
+  importsLinkText: { flex: 1, color: OB.primary, fontSize: 13, fontWeight: "800" },
   summaryCard: { borderRadius: 19, padding: 15, gap: 10, backgroundColor: "#fff", borderWidth: 1, borderColor: OB.supportSoft },
   summaryRow: { flexDirection: "row", alignItems: "center" },
   summaryItem: { flex: 1 },

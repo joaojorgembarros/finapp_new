@@ -27,6 +27,12 @@ import {
   unlinkInternalTransfer,
 } from "../lib/internalTransferPersistence";
 import {
+  IMPORTED_REMOVAL_CONFIRMATION,
+  importedRemovalMessage,
+  removalPlan,
+  transactionOriginLabel,
+} from "../lib/statementImportManagement";
+import {
   deleteManualTransaction,
   ignoreImportedTransaction,
   TxRow,
@@ -83,7 +89,12 @@ export function TransactionEditorBody({
   const [error, setError] = useState("");
   const [pickingCounterpart, setPickingCounterpart] = useState(false);
 
-  const imported = Boolean(transaction.statement_import_id);
+  const imported = removalPlan(transaction) === "ignore";
+  const linkedCommitmentPayment = imported && [...paymentTransactionIds].some((id) => id === transaction.id);
+  const originLabel = transactionOriginLabel({
+    statementImportId: transaction.statement_import_id,
+    accountName: findTransactionAccountById(transaction.account_id)?.name,
+  });
   const linkedTransfer = isInternalTransferLeg(transaction);
   const availableCategories = useMemo(() => categories.filter((category) => category.flow === type), [categories, type]);
   const counterparts = useMemo(
@@ -213,18 +224,16 @@ export function TransactionEditorBody({
     if (linkedTransfer) {
       Alert.alert(
         "Desfazer vínculo primeiro",
-        imported
-          ? "Esta movimentação faz parte de uma transferência entre as suas contas. Desfaça o vínculo para ignorá-la. A contraparte será mantida."
-          : "Este lançamento faz parte de uma transferência entre as suas contas. Desfaça o vínculo para excluí-lo. A contraparte será mantida.",
+        "Esta movimentação faz parte de uma transferência entre as suas contas. Desfaça esse vínculo antes de excluir o lançamento. A contraparte será mantida.",
         [
           { text: "Cancelar", style: "cancel" },
           { text: "Só desfazer o vínculo", onPress: () => { void confirmUnlink(); } },
           {
-            text: imported ? "Desfazer vínculo e ignorar" : "Desfazer vínculo e excluir",
+            text: "Desfazer vínculo e excluir",
             style: "destructive",
             onPress: () => {
               void confirmUnlink(async () => {
-                if (imported) {
+                if (removalPlan(transaction) === "ignore") {
                   await ignoreImportedTransaction({ householdId, transactionId: transaction.id, userId });
                 } else {
                   await deleteManualTransaction(householdId, transaction.id);
@@ -237,20 +246,20 @@ export function TransactionEditorBody({
       return;
     }
     Alert.alert(
-      imported ? "Ignorar movimentação?" : "Excluir lançamento?",
+      imported ? IMPORTED_REMOVAL_CONFIRMATION.title : "Excluir lançamento?",
       imported
-        ? "Ela deixará de aparecer nos totais e nas movimentações, mas continuará protegida contra duplicidade numa nova importação."
+        ? importedRemovalMessage(linkedCommitmentPayment)
         : "Esta ação remove o lançamento manual definitivamente.",
       [
         { text: "Cancelar", style: "cancel" },
         {
-          text: imported ? "Ignorar" : "Excluir",
+          text: "Excluir",
           style: "destructive",
           onPress: async () => {
             try {
               setSaving(true);
               setError("");
-              if (imported) {
+              if (removalPlan(transaction) === "ignore") {
                 await ignoreImportedTransaction({ householdId, transactionId: transaction.id, userId });
               } else {
                 await deleteManualTransaction(householdId, transaction.id);
@@ -277,7 +286,7 @@ export function TransactionEditorBody({
         <View style={[styles.header, compact && styles.headerCompact, { paddingTop: headerTopInset }]}>
           <View style={styles.headerActionSlot} pointerEvents="none" />
           <View style={styles.headerCopy}>
-            <Text style={styles.eyebrow}>{imported ? "Importado por CSV" : "Lançamento manual"}</Text>
+            <Text style={styles.eyebrow}>{originLabel}</Text>
             <Text
               style={[styles.title, compact && styles.titleCompact]}
               accessibilityRole="header"
@@ -285,7 +294,7 @@ export function TransactionEditorBody({
               adjustsFontSizeToFit
               minimumFontScale={0.82}
             >
-              {pickingCounterpart ? "Escolher contraparte" : imported ? "Ajustar movimentação" : "Editar lançamento"}
+              {pickingCounterpart ? "Escolher contraparte" : "Editar lançamento"}
             </Text>
           </View>
           <Pressable onPress={onClose} disabled={saving} style={styles.closeButton} accessibilityRole="button" accessibilityLabel="Fechar" accessibilityState={{ disabled: saving }}>
@@ -454,8 +463,8 @@ export function TransactionEditorBody({
             {saving ? <ActivityIndicator color="#fff" /> : <><Ionicons name="save-outline" size={19} color="#fff" /><Text style={styles.saveText}>Salvar alterações</Text></>}
           </Pressable>
           <Pressable onPress={confirmRemove} disabled={saving} style={styles.removeButton}>
-            <Ionicons name={imported ? "eye-off-outline" : "trash-outline"} size={18} color="#C63F3F" />
-            <Text style={styles.removeText}>{imported ? "Ignorar esta movimentação" : "Excluir lançamento"}</Text>
+            <Ionicons name="trash-outline" size={18} color="#C63F3F" />
+            <Text style={styles.removeText}>Excluir lançamento</Text>
           </Pressable>
             </>
           )}

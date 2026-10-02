@@ -13,7 +13,13 @@ import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
 import { useHouseholdId } from "../../src/hooks/useHousehold";
 import { findBankById } from "../../src/lib/banks";
-import { formatBRLFromCents, formatDateBRFromYMD } from "../../src/lib/format";
+import { formatBRLFromCents } from "../../src/lib/format";
+import {
+  countIgnoredImportedTransactions,
+  formatStatementPeriod,
+  importsAfterDeletion,
+  statementExcludedCountLabel,
+} from "../../src/lib/statementImportManagement";
 import {
   deleteStatementImport,
   listStatementImports,
@@ -21,6 +27,7 @@ import {
 } from "../../src/lib/statementImports";
 import { useSession } from "../../src/providers/SessionProvider";
 import { BankLogo } from "../../src/ui/BankLogo";
+import { confirmStatementDeletion } from "../../src/ui/confirmStatementDeletion";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
 import { ScreenHeaderCard } from "../../src/ui/ScreenHeaderCard";
 
@@ -36,23 +43,22 @@ function formatImportedAt(value: string) {
   });
 }
 
-function formatPeriod(statementImport: StatementImport) {
-  const start = formatDateBRFromYMD(statementImport.period_start);
-  const end = formatDateBRFromYMD(statementImport.period_end);
-  return start === end ? start : `${start} a ${end}`;
-}
-
 function ImportCard({
   statementImport,
+  excludedCount,
   deleting,
+  onOpen,
   onDelete,
   onReviewCategories,
 }: {
   statementImport: StatementImport;
+  excludedCount: number;
   deleting: boolean;
+  onOpen: () => void;
   onDelete: () => void;
   onReviewCategories: () => void;
 }) {
+  const excludedLabel = statementExcludedCountLabel(excludedCount);
   const bank = findBankById(statementImport.bank_id);
 
   return (
@@ -72,14 +78,19 @@ function ImportCard({
         ) : null}
       </View>
 
-      <View style={styles.periodRow}>
-        <Ionicons name="calendar-outline" size={15} color={OB.support} />
-        <Text style={styles.periodText}>{formatPeriod(statementImport)}</Text>
+      <View style={styles.periodBlock}>
+        <Text style={styles.periodLabel}>Período do extrato</Text>
+        <View style={styles.periodRow}>
+          <Ionicons name="calendar-outline" size={15} color={OB.support} />
+          <Text style={styles.periodText}>
+            {formatStatementPeriod(statementImport.period_start, statementImport.period_end)}
+          </Text>
+        </View>
       </View>
 
       <View style={styles.metrics}>
         <View style={styles.metric}>
-          <Text style={styles.metricLabel}>Movimentações</Text>
+          <Text style={styles.metricLabel}>Importadas</Text>
           <Text style={styles.metricValue}>{statementImport.transaction_count}</Text>
         </View>
         <View style={styles.metric}>
@@ -95,6 +106,20 @@ function ImportCard({
           </Text>
         </View>
       </View>
+
+      {statementImport.final_balance_cents !== null ? (
+        <View style={styles.balanceRow}>
+          <Text style={styles.metricLabel}>Saldo final</Text>
+          <Text style={styles.balanceValue}>{formatBRLFromCents(statementImport.final_balance_cents)}</Text>
+        </View>
+      ) : null}
+
+      {excludedLabel ? (
+        <View style={styles.excludedRow}>
+          <Ionicons name="trash-outline" size={15} color={OB.support} />
+          <Text style={styles.excludedText}>{excludedLabel}</Text>
+        </View>
+      ) : null}
 
       {statementImport.skipped_transaction_count > 0 ? (
         <View style={styles.skippedRow}>
@@ -116,6 +141,18 @@ function ImportCard({
 
       <Pressable
         accessibilityRole="button"
+        accessibilityLabel={`Ver extrato ${statementImport.file_name}`}
+        disabled={deleting}
+        onPress={onOpen}
+        style={({ pressed }) => [styles.reviewButton, pressed && styles.pressed]}
+      >
+        <Ionicons name="eye-outline" size={17} color={OB.primary} />
+        <Text style={styles.reviewButtonText}>Ver extrato</Text>
+        <Ionicons name="chevron-forward" size={15} color={OB.support} />
+      </Pressable>
+
+      <Pressable
+        accessibilityRole="button"
         accessibilityLabel={`Revisar categorias de ${statementImport.file_name}`}
         disabled={deleting}
         onPress={onReviewCategories}
@@ -128,7 +165,7 @@ function ImportCard({
 
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`Desfazer importação de ${statementImport.file_name}`}
+        accessibilityLabel={`Excluir extrato ${statementImport.file_name}`}
         disabled={deleting}
         onPress={onDelete}
         style={({ pressed }) => [
@@ -142,7 +179,7 @@ function ImportCard({
         ) : (
           <Ionicons name="trash-outline" size={17} color="#B42318" />
         )}
-        <Text style={styles.deleteText}>{deleting ? "Desfazendo..." : "Desfazer importação"}</Text>
+        <Text style={styles.deleteText}>{deleting ? "Excluindo..." : "Excluir extrato"}</Text>
       </Pressable>
     </View>
   );
@@ -156,6 +193,7 @@ export default function ImportHistoryScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [excludedCounts, setExcludedCounts] = useState<Record<string, number>>({});
 
   const loadImports = useCallback(async (asRefresh = false) => {
     if (!householdId) {
@@ -167,7 +205,13 @@ export default function ImportHistoryScreen() {
       if (asRefresh) setRefreshing(true);
       else setLoading(true);
       setError("");
-      setImports(await listStatementImports(householdId));
+      const nextImports = await listStatementImports(householdId);
+      const nextExcluded = await countIgnoredImportedTransactions(
+        householdId,
+        nextImports.map((item) => item.id),
+      );
+      setImports(nextImports);
+      setExcludedCounts(nextExcluded);
     } catch (loadError: any) {
       setError(loadError?.message ?? "Não foi possível carregar o histórico.");
     } finally {
@@ -183,18 +227,12 @@ export default function ImportHistoryScreen() {
   );
 
   function confirmDelete(statementImport: StatementImport) {
-    Alert.alert(
-      "Desfazer esta importação?",
-      `${statementImport.transaction_count} movimentação(ões) de “${statementImport.file_name}” serão excluídas. Esta ação não pode ser desfeita.`,
-      [
-        { text: "Cancelar", style: "cancel" },
-        {
-          text: "Excluir movimentações",
-          style: "destructive",
-          onPress: () => void removeImport(statementImport),
-        },
-      ]
-    );
+    if (!householdId || deletingId) return;
+    confirmStatementDeletion({
+      householdId,
+      statement: statementImport,
+      onConfirm: () => void removeImport(statementImport),
+    });
   }
 
   async function removeImport(statementImport: StatementImport) {
@@ -203,10 +241,10 @@ export default function ImportHistoryScreen() {
     try {
       setDeletingId(statementImport.id);
       await deleteStatementImport(householdId, statementImport.id);
-      setImports((current) => current.filter((item) => item.id !== statementImport.id));
+      setImports((current) => importsAfterDeletion(current, statementImport.id));
       Alert.alert(
-        "Importação desfeita",
-        `${statementImport.transaction_count} movimentação(ões) foram removidas do app.`
+        "Extrato excluído",
+        "As movimentações deste extrato foram removidas. Os outros extratos continuam no app."
       );
     } catch (deleteError: any) {
       Alert.alert(
@@ -258,8 +296,8 @@ export default function ImportHistoryScreen() {
       >
         <ScreenHeaderCard
           eyebrow="Importar extrato"
-          title="Histórico"
-          subtitle="Consulte os arquivos importados e corrija uma importação feita por engano."
+          title="Extratos importados"
+          subtitle="Consulte o banco, o período e o saldo de cada arquivo importado."
           onBack={() => router.back()}
           backAccessibilityLabel="Voltar"
         />
@@ -276,8 +314,8 @@ export default function ImportHistoryScreen() {
                 </Text>
                 <Text style={styles.summaryText}>
                   {totalTransactions === 1
-                    ? "1 movimentação registrada"
-                    : `${totalTransactions} movimentações registradas`}
+                    ? "1 movimentação importada"
+                    : `${totalTransactions} movimentações importadas`}
                 </Text>
               </View>
             </View>
@@ -304,7 +342,7 @@ export default function ImportHistoryScreen() {
                     </View>
                     <View style={styles.bankSummaryCount}>
                       <Text style={styles.bankSummaryCountValue}>{summary.transactions}</Text>
-                      <Text style={styles.bankSummaryCountLabel}>movimentações</Text>
+                      <Text style={styles.bankSummaryCountLabel}>importadas</Text>
                     </View>
                   </View>
                 ))}
@@ -316,7 +354,7 @@ export default function ImportHistoryScreen() {
         {busy ? (
           <View style={styles.stateCard}>
             <ActivityIndicator color={OB.primary} />
-            <Text style={styles.stateTitle}>Carregando histórico...</Text>
+            <Text style={styles.stateTitle}>Carregando extratos...</Text>
           </View>
         ) : error ? (
           <View style={styles.stateCard}>
@@ -335,7 +373,14 @@ export default function ImportHistoryScreen() {
               <ImportCard
                 key={statementImport.id}
                 statementImport={statementImport}
+                excludedCount={excludedCounts[statementImport.id] ?? 0}
                 deleting={deletingId === statementImport.id}
+                onOpen={() =>
+                  router.push({
+                    pathname: "/(app)/import-detail",
+                    params: { importId: statementImport.id },
+                  })
+                }
                 onReviewCategories={() =>
                   router.push({
                     pathname: "/(app)/import-categories",
@@ -514,6 +559,16 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: "900",
   },
+  periodBlock: {
+    gap: 4,
+  },
+  periodLabel: {
+    color: OB.primary,
+    fontSize: 10,
+    fontWeight: "900",
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+  },
   periodRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -523,6 +578,22 @@ const styles = StyleSheet.create({
     color: OB.support,
     fontSize: 12,
     fontWeight: "800",
+  },
+  balanceRow: {
+    minHeight: 44,
+    borderRadius: 13,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: OB.offWhite,
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  balanceValue: {
+    color: OB.primary,
+    fontSize: 14,
+    fontWeight: "900",
   },
   metrics: {
     flexDirection: "row",
@@ -553,6 +624,22 @@ const styles = StyleSheet.create({
   },
   expense: {
     color: "#B94A4A",
+  },
+  excludedRow: {
+    minHeight: 36,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    backgroundColor: OB.offWhite,
+  },
+  excludedText: {
+    flex: 1,
+    color: OB.support,
+    fontSize: 10,
+    fontWeight: "800",
+    lineHeight: 15,
   },
   skippedRow: {
     minHeight: 36,

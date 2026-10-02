@@ -33,6 +33,7 @@ import {
 } from "../../src/lib/statementImports";
 import { reconcileImportedCommitments } from "../../src/lib/commitmentReconciliation";
 import { movementRouteAfterImport } from "../../src/lib/movementImportContext";
+import { sameFileReimportStatus } from "../../src/lib/statementImportManagement";
 
 const emptyResult: CsvParseResult = {
   rows: [],
@@ -253,10 +254,11 @@ export default function ImportCsvOnboarding() {
   const pickerCategoryId = categoryPickerRow
     ? categoryAssignments[categoryPickerRow.key] ?? null
     : null;
+  const sameFileBlocked = sameFileReimportStatus(duplicateImport?.id) === "blocked";
   const importDisabled =
     busy ||
     checkingDuplicate ||
-    Boolean(duplicateImport) ||
+    sameFileBlocked ||
     Boolean(duplicateCheckError) ||
     importableCount < 1 ||
     !selectedBankId ||
@@ -512,7 +514,9 @@ export default function ImportCsvOnboarding() {
       return Alert.alert("Escolha o banco", "Informe de qual banco é este extrato antes de importar.");
     }
     if (checkingDuplicate) return Alert.alert("Atenção", "Aguarde a verificação do arquivo.");
-    if (duplicateImport) return Alert.alert("Arquivo já importado", "Escolha outro extrato para continuar.");
+    if (sameFileReimportStatus(duplicateImport?.id) === "blocked") {
+      return Alert.alert("Arquivo já importado", "Escolha outro extrato para continuar.");
+    }
     if (busy) return;
 
     try {
