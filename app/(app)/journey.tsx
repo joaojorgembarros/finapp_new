@@ -582,13 +582,7 @@ function JourneyDrawer({
         />
         <View style={styles.drawerScrimTint} />
       </Pressable>
-      <View style={styles.drawerPanel}>
-        {safeBottom > 0 ? (
-          <View
-            pointerEvents="none"
-            style={[styles.drawerSystemSafeFill, { height: safeBottom }]}
-          />
-        ) : null}
+      <View style={[styles.drawerPanel, { bottom: Platform.OS === "android" ? safeBottom : 0 }]}>
         <View style={[styles.drawerHero, { paddingTop: safeTop + 14 }]}>
           <Pressable
             onPress={onClose}
@@ -647,7 +641,7 @@ function JourneyDrawer({
         <View
           style={[
             styles.drawerFooter,
-            {
+            Platform.OS !== "android" && {
               paddingBottom: 10 + FLOATING_TAB_BAR_VISUAL_GAP + safeBottom,
             },
           ]}
@@ -663,6 +657,12 @@ function JourneyDrawer({
           </Pressable>
         </View>
       </View>
+      {Platform.OS === "android" && safeBottom > 0 ? (
+        <View
+          pointerEvents="none"
+          style={[styles.drawerSystemSafeArea, { height: safeBottom }]}
+        />
+      ) : null}
     </View>
   );
 }
@@ -2995,7 +2995,6 @@ const styles = StyleSheet.create({
   drawerPanel: {
     position: "absolute",
     top: 0,
-    bottom: 0,
     left: 0,
     width: "72%",
     maxWidth: 280,
@@ -3006,13 +3005,14 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 8, height: 0 },
     elevation: 35,
   },
-  drawerSystemSafeFill: {
+  drawerSystemSafeArea: {
     position: "absolute",
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: OB.offWhite,
-    zIndex: 1,
+    backgroundColor: "#E8EEF4",
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "rgba(12, 35, 72, 0.16)",
   },
   drawerHero: {
     minHeight: 154,

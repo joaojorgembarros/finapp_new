@@ -5,7 +5,6 @@ import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -41,16 +40,15 @@ import { OB } from "./OnboardingKit";
 
 type Field = "amount" | "note";
 
-type Props = {
-  visible: boolean;
-  transaction: TxRow | null;
+type TransactionEditorBodyProps = {
+  transaction: TxRow;
   categories: Category[];
   householdId: string;
   userId: string;
   transactions?: TxRow[];
   paymentTransactionIds?: Iterable<string>;
   onClose: () => void;
-  onChanged: () => Promise<void> | void;
+  onChanged?: () => Promise<void> | void;
 };
 
 function dateFromYmd(value: string) {
@@ -58,8 +56,9 @@ function dateFromYmd(value: string) {
   return new Date(year, (month || 1) - 1, day || 1, 12);
 }
 
-export function TransactionEditorModal({
-  visible,
+const CONTENT_BOTTOM_BREATH = 24;
+
+export function TransactionEditorBody({
   transaction,
   categories,
   householdId,
@@ -68,9 +67,10 @@ export function TransactionEditorModal({
   paymentTransactionIds = [],
   onClose,
   onChanged,
-}: Props) {
+}: TransactionEditorBodyProps) {
   const { width } = useWindowDimensions();
   const compact = width < 360;
+  const headerTopInset = compact ? 8 : 16;
   const { scrollRef, keyboardInset, registerField, focusField, cancelPendingScroll } = useKeyboardAwareScroll<Field>();
   const [type, setType] = useState<TxType>("expense");
   const [amount, setAmount] = useState("");
@@ -83,16 +83,15 @@ export function TransactionEditorModal({
   const [error, setError] = useState("");
   const [pickingCounterpart, setPickingCounterpart] = useState(false);
 
-  const imported = Boolean(transaction?.statement_import_id);
-  const linkedTransfer = isInternalTransferLeg(transaction ?? {});
+  const imported = Boolean(transaction.statement_import_id);
+  const linkedTransfer = isInternalTransferLeg(transaction);
   const availableCategories = useMemo(() => categories.filter((category) => category.flow === type), [categories, type]);
-  const counterparts = useMemo(() => {
-    if (!transaction) return [];
-    return findInternalTransferCounterparts(transaction, transactions, paymentTransactionIds);
-  }, [paymentTransactionIds, transaction, transactions]);
+  const counterparts = useMemo(
+    () => findInternalTransferCounterparts(transaction, transactions, paymentTransactionIds),
+    [paymentTransactionIds, transaction, transactions],
+  );
 
   useEffect(() => {
-    if (!transaction || !visible) return;
     setType(transaction.type);
     setAmount(formatBRLFromCents(transaction.amount_cents));
     setOccurredOn(transaction.occurred_on);
@@ -103,7 +102,7 @@ export function TransactionEditorModal({
     setSaving(false);
     setError("");
     setPickingCounterpart(false);
-  }, [transaction, visible]);
+  }, [transaction]);
 
   function changeType(nextType: TxType) {
     setType(nextType);
@@ -125,7 +124,7 @@ export function TransactionEditorModal({
         transactionId: transaction.id,
         counterpartId: counterpart.id,
       });
-      await onChanged();
+      await onChanged?.();
       onClose();
     } catch (linkError: any) {
       setError(linkError?.message ?? "Não foi possível vincular essas movimentações.");
@@ -144,7 +143,7 @@ export function TransactionEditorModal({
         transactionId: transaction.id,
       });
       if (afterUnlink) await afterUnlink();
-      await onChanged();
+      await onChanged?.();
       onClose();
     } catch (unlinkError: any) {
       setError(unlinkError?.message ?? "Não foi possível desfazer a transferência.");
@@ -200,7 +199,7 @@ export function TransactionEditorModal({
           occurred_on: linkedTransfer ? transaction.occurred_on : occurredOn,
         });
       }
-      await onChanged();
+      await onChanged?.();
       onClose();
     } catch (saveError: any) {
       setError(saveError?.message ?? "Não foi possível salvar as alterações.");
@@ -256,7 +255,7 @@ export function TransactionEditorModal({
               } else {
                 await deleteManualTransaction(householdId, transaction.id);
               }
-              await onChanged();
+              await onChanged?.();
               onClose();
             } catch (removeError: any) {
               setError(removeError?.message ?? "Não foi possível concluir a ação.");
@@ -270,9 +269,12 @@ export function TransactionEditorModal({
   }
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-        <View style={[styles.header, compact && styles.headerCompact]}>
+      <KeyboardAvoidingView
+        enabled={Platform.OS === "ios"}
+        behavior="padding"
+        style={styles.screen}
+      >
+        <View style={[styles.header, compact && styles.headerCompact, { paddingTop: headerTopInset }]}>
           <View style={styles.headerActionSlot} pointerEvents="none" />
           <View style={styles.headerCopy}>
             <Text style={styles.eyebrow}>{imported ? "Importado por CSV" : "Lançamento manual"}</Text>
@@ -293,7 +295,8 @@ export function TransactionEditorModal({
 
         <ScrollView
           ref={scrollRef}
-          contentContainerStyle={[styles.content, { paddingBottom: 36 + keyboardInset }]}
+          style={styles.scroll}
+          contentContainerStyle={[styles.content, { paddingBottom: CONTENT_BOTTOM_BREATH + keyboardInset }]}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="none"
           onScrollBeginDrag={cancelPendingScroll}
@@ -346,7 +349,7 @@ export function TransactionEditorModal({
           ) : null}
           {imported ? (
             <View style={styles.readOnlyCard}>
-              <View><Text style={styles.readOnlyLabel}>Valor original</Text><Text style={styles.readOnlyValue}>{formatBRLFromCents(transaction?.amount_cents ?? 0)}</Text></View>
+              <View><Text style={styles.readOnlyLabel}>Valor original</Text><Text style={styles.readOnlyValue}>{formatBRLFromCents(transaction.amount_cents)}</Text></View>
               <View><Text style={styles.readOnlyLabel}>Data</Text><Text style={styles.readOnlyValue}>{formatDateBRFromYMD(occurredOn)}</Text></View>
             </View>
           ) : (
@@ -458,13 +461,13 @@ export function TransactionEditorModal({
           )}
         </ScrollView>
       </KeyboardAvoidingView>
-    </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: OB.offWhite },
-  header: { paddingHorizontal: 20, paddingTop: Platform.OS === "android" ? 22 : 16, paddingBottom: 15, flexDirection: "row", alignItems: "center", borderBottomWidth: 1, borderBottomColor: OB.supportSoft, backgroundColor: "#fff" },
+  screen: { flex: 1, backgroundColor: OB.offWhite, overflow: "hidden" },
+  scroll: { flex: 1 },
+  header: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 15, flexDirection: "row", alignItems: "center", borderBottomWidth: 1, borderBottomColor: OB.supportSoft, backgroundColor: "#fff" },
   headerCompact: { paddingHorizontal: 12 },
   headerActionSlot: { width: 44, height: 44 },
   headerCopy: { flex: 1, minWidth: 0, alignItems: "center" },
@@ -472,7 +475,7 @@ const styles = StyleSheet.create({
   title: { color: OB.primary, fontSize: 22, fontWeight: "900", marginTop: 4, textAlign: "center" },
   titleCompact: { fontSize: 19 },
   closeButton: { width: 44, height: 44, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: OB.offWhite },
-  content: { padding: 20, paddingBottom: 36 },
+  content: { padding: 20, paddingBottom: CONTENT_BOTTOM_BREATH },
   readOnlyCard: { padding: 16, borderRadius: 18, flexDirection: "row", justifyContent: "space-between", backgroundColor: "rgba(55,110,165,0.10)", borderWidth: 1, borderColor: "rgba(55,110,165,0.18)", marginBottom: 18 },
   readOnlyLabel: { color: OB.support, fontSize: 9, fontWeight: "900", textTransform: "uppercase" },
   readOnlyValue: { color: OB.primary, fontSize: 15, fontWeight: "900", marginTop: 5 },

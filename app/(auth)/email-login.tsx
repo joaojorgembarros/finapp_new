@@ -30,9 +30,9 @@ import {
 } from "../../src/lib/authValidation";
 
 const NAVY = "#06152E";
-const CREAM = "#FDECD6";
+const WHITE = "#FFFFFF";
 const SECONDARY = "#8C9AAE";
-const BORDER = "rgba(253, 236, 214, 0.28)";
+const BORDER = "rgba(255, 255, 255, 0.28)";
 const SYMBOL = require("../../assets/splash-brand-symbol.png");
 
 type FocusKey = "email" | "password" | null;
@@ -105,7 +105,7 @@ function AuthField({
         onPress={focusInput}
         style={[styles.field, focused && styles.fieldFocused, disabled && styles.disabledField]}
       >
-        <Ionicons name={icon} size={19} color={focused ? CREAM : SECONDARY} />
+        <Ionicons name={icon} size={19} color={focused ? WHITE : SECONDARY} />
         <TextInput
           ref={ref}
           accessibilityLabel={label}
@@ -124,7 +124,7 @@ function AuthField({
           placeholderTextColor={SECONDARY}
           returnKeyType={returnKeyType}
           secureTextEntry={secureTextEntry}
-          selectionColor={CREAM}
+          selectionColor={WHITE}
           style={styles.fieldInput}
           value={value}
         />
@@ -238,7 +238,7 @@ export default function EmailLoginScreen() {
                 <Ionicons
                   name={Platform.OS === "ios" ? "chevron-back" : "arrow-back"}
                   size={28}
-                  color={CREAM}
+                  color={WHITE}
                 />
               </Pressable>
             </View>
@@ -250,7 +250,7 @@ export default function EmailLoginScreen() {
                   resizeMode="contain"
                   source={SYMBOL}
                   style={styles.symbol}
-                  tintColor={CREAM}
+                  tintColor={WHITE}
                 />
                 <Text style={styles.title}>Entre na sua conta</Text>
                 <Text style={styles.subtitle}>Acesse com seu e-mail e senha.</Text>
@@ -308,7 +308,7 @@ export default function EmailLoginScreen() {
                       <Ionicons
                         name={showPassword ? "eye-off-outline" : "eye-outline"}
                         size={20}
-                        color={showPassword ? CREAM : SECONDARY}
+                        color={showPassword ? WHITE : SECONDARY}
                       />
                     </Pressable>
                   }
@@ -411,7 +411,7 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   title: {
-    color: CREAM,
+    color: WHITE,
     fontSize: 28,
     fontWeight: "700",
     lineHeight: 34,
@@ -430,7 +430,7 @@ const styles = StyleSheet.create({
   },
   fieldLabel: {
     marginBottom: 8,
-    color: "rgba(253,236,214,0.72)",
+    color: "rgba(255,255,255,0.72)",
     fontSize: 12,
     fontWeight: "700",
     letterSpacing: 0.4,
@@ -447,15 +447,15 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.02)",
   },
   fieldFocused: {
-    borderColor: "rgba(253,236,214,0.72)",
-    backgroundColor: "rgba(253,236,214,0.04)",
+    borderColor: "rgba(255,255,255,0.72)",
+    backgroundColor: "rgba(255,255,255,0.04)",
   },
   disabledField: {
     opacity: 0.58,
   },
   fieldInput: {
     flex: 1,
-    color: CREAM,
+    color: WHITE,
     fontSize: 15,
     fontWeight: "600",
     paddingVertical: 1,
@@ -474,7 +474,7 @@ const styles = StyleSheet.create({
     marginTop: -10,
   },
   forgotText: {
-    color: "rgba(253,236,214,0.74)",
+    color: "rgba(255,255,255,0.74)",
     fontSize: 13,
     fontWeight: "600",
   },
@@ -483,7 +483,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: CREAM,
+    backgroundColor: WHITE,
   },
   primaryPressed: {
     opacity: 0.86,
@@ -508,7 +508,7 @@ const styles = StyleSheet.create({
     marginTop: -2,
   },
   createAccountText: {
-    color: "rgba(253,236,214,0.78)",
+    color: "rgba(255,255,255,0.78)",
     fontSize: 14,
     fontWeight: "700",
   },

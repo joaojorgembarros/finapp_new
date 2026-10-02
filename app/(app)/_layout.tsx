@@ -1,6 +1,7 @@
 import React from "react";
-import { ActivityIndicator, View } from "react-native";
+import { ActivityIndicator, Platform, View } from "react-native";
 import { Redirect, Stack } from "expo-router";
+import { getEditTransactionStackOptions } from "../../src/lib/editTransactionNavigation";
 import { PASSWORD_RECOVERY_HREF } from "../../src/lib/passwordRecovery";
 import { useSession } from "../../src/providers/SessionProvider";
 
@@ -18,5 +19,9 @@ export default function AppLayout() {
   if (passwordRecoveryOpen) return <Redirect href={PASSWORD_RECOVERY_HREF} />;
   if (!session) return <Redirect href="/(auth)/login" />;
 
-  return <Stack screenOptions={{ headerShown: false }} />;
+  return (
+    <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="edit-transaction" options={getEditTransactionStackOptions(Platform.OS)} />
+    </Stack>
+  );
 }

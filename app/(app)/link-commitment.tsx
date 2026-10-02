@@ -514,12 +514,12 @@ export default function LinkCommitmentScreen() {
                         )
                       );
                       return (
-                        <View key={item.payment.id}>
+                        <View key={item.payment.id} style={styles.registeredPaymentItem}>
                           <View style={[styles.registeredPaymentRow, compact && styles.registeredPaymentRowCompact]}>
                             <View style={styles.registeredPaymentDate}>
                               <Text style={styles.registeredPaymentDateText}>{formatShortDateFromYmd(item.payment.paid_on)}</Text>
                             </View>
-                            <View style={styles.flex}>
+                            <View style={styles.registeredPaymentCopy}>
                               <Text style={styles.registeredPaymentName} numberOfLines={2}>
                                 {item.transaction ? transactionTitle(item.transaction) : "Movimentação vinculada indisponível"}
                               </Text>
@@ -538,16 +538,18 @@ export default function LinkCommitmentScreen() {
                               Esta movimentação foi alterada ou não está mais disponível. Remova o vínculo para corrigir o compromisso; a movimentação continuará em Saiu.
                             </Text>
                           ) : null}
-                          <Pressable
-                            onPress={() => removePayment(item.payment)}
-                            disabled={saving}
-                            accessibilityRole="button"
-                            accessibilityState={{ disabled: saving }}
-                            style={({ pressed }) => [styles.removePaymentButton, pressed && !saving && styles.transactionCardPressed, saving && styles.disabled]}
-                          >
-                            <Ionicons name="unlink-outline" size={17} color="#A33F3F" />
-                            <Text style={styles.removePaymentButtonText}>Remover vínculo</Text>
-                          </Pressable>
+                          <View style={styles.registeredPaymentActions}>
+                            <Pressable
+                              onPress={() => removePayment(item.payment)}
+                              disabled={saving}
+                              accessibilityRole="button"
+                              accessibilityState={{ disabled: saving }}
+                              style={({ pressed }) => [styles.removePaymentButton, pressed && !saving && styles.removePaymentButtonPressed, saving && styles.disabled]}
+                            >
+                              <Ionicons name="unlink-outline" size={18} color="#A33F3F" />
+                              <Text style={styles.removePaymentButtonText}>Remover vínculo</Text>
+                            </Pressable>
+                          </View>
                         </View>
                       );
                     })}
@@ -1068,19 +1070,23 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(220,160,64,0.12)",
   },
   partialText: { flex: 1, color: "#8A5A12", fontSize: 9, lineHeight: 14, fontWeight: "700" },
-  registeredPaymentsCard: { borderRadius: 20, padding: 15, gap: 12, backgroundColor: "#fff", borderWidth: 1, borderColor: OB.supportSoft },
+  registeredPaymentsCard: { borderRadius: 20, padding: 16, gap: 14, backgroundColor: "#fff", borderWidth: 1, borderColor: OB.supportSoft },
   registeredPaymentsTitle: { color: OB.primary, fontSize: 15, fontWeight: "900" },
-  registeredPaymentRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  registeredPaymentItem: { borderRadius: 16, padding: 14, gap: 12, backgroundColor: OB.offWhite, borderWidth: 1, borderColor: OB.supportSoft },
+  registeredPaymentRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   registeredPaymentRowCompact: { flexWrap: "wrap" },
-  registeredPaymentDate: { minWidth: 72, minHeight: 38, borderRadius: 12, alignItems: "center", justifyContent: "center", paddingHorizontal: 8, backgroundColor: OB.offWhite },
+  registeredPaymentDate: { minWidth: 72, minHeight: 40, borderRadius: 12, alignItems: "center", justifyContent: "center", paddingHorizontal: 8, backgroundColor: "#fff", borderWidth: 1, borderColor: OB.supportSoft },
   registeredPaymentDateText: { color: OB.primary, fontSize: 9, fontWeight: "900" },
-  registeredPaymentName: { color: OB.primary, fontSize: 11, lineHeight: 15, fontWeight: "900" },
-  registeredPaymentMeta: { color: "#5E7591", fontSize: 10, fontWeight: "700", marginTop: 3 },
-  registeredPaymentAmount: { width: 94, color: OB.primary, fontSize: 12, fontWeight: "900", textAlign: "right" },
-  registeredPaymentAmountCompact: { width: "100%", marginTop: 2 },
-  registeredPaymentWarning: { color: "#A33F3F", fontSize: 9, lineHeight: 14, fontWeight: "700" },
-  removePaymentButton: { minHeight: 44, borderRadius: 13, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, backgroundColor: "#FFF8F8", borderWidth: 1, borderColor: "rgba(163,63,63,0.22)" },
-  removePaymentButtonText: { color: "#A33F3F", fontSize: 10, fontWeight: "900" },
+  registeredPaymentCopy: { flex: 1, minWidth: 0, gap: 4 },
+  registeredPaymentName: { color: OB.primary, fontSize: 12, lineHeight: 16, fontWeight: "900" },
+  registeredPaymentMeta: { color: "#5E7591", fontSize: 10, fontWeight: "700" },
+  registeredPaymentAmount: { width: 94, color: OB.primary, fontSize: 13, fontWeight: "900", textAlign: "right" },
+  registeredPaymentAmountCompact: { width: "100%", marginTop: 2, textAlign: "left" },
+  registeredPaymentWarning: { color: "#A33F3F", fontSize: 10, lineHeight: 15, fontWeight: "700" },
+  registeredPaymentActions: { borderTopWidth: 1, borderTopColor: "rgba(123,160,200,0.22)", paddingTop: 12 },
+  removePaymentButton: { minHeight: 48, borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "#FFF6F6", borderWidth: 1, borderColor: "rgba(163,63,63,0.16)" },
+  removePaymentButtonPressed: { backgroundColor: "#FBECEC" },
+  removePaymentButtonText: { color: "#A33F3F", fontSize: 12, fontWeight: "800" },
   paymentLimitCard: { borderRadius: 18, padding: 14, flexDirection: "row", alignItems: "flex-start", gap: 10, backgroundColor: "rgba(220,160,64,0.12)", borderWidth: 1, borderColor: "rgba(220,160,64,0.25)" },
   paymentLimitTitle: { color: "#6F490F", fontSize: 11, fontWeight: "900" },
   paymentLimitText: { color: "#8A5A12", fontSize: 9.5, lineHeight: 15, fontWeight: "700", marginTop: 4 },

@@ -22,8 +22,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHouseholdId } from "../../src/hooks/useHousehold";
 import { useKeyboardAwareScroll } from "../../src/hooks/useKeyboardAwareScroll";
 import { findTransactionAccountById } from "../../src/lib/banks";
-import { Category, listCategories } from "../../src/lib/categories";
 import { formatBRLFromCents, formatDateBRFromYMD } from "../../src/lib/format";
+import { getEditTransactionHref } from "../../src/lib/editTransactionNavigation";
 import {
   filterMovementsForList,
   filterMovementsForTotals,
@@ -31,7 +31,6 @@ import {
   periodBalanceCaption,
   summarizeMovementTotals,
 } from "../../src/lib/internalTransfers";
-import { listHouseholdPaymentTransactionIds } from "../../src/lib/internalTransferPersistence";
 import { listTransactionHistory, TxRow } from "../../src/lib/transactions";
 import { useSession } from "../../src/providers/SessionProvider";
 import { BankLogo } from "../../src/ui/BankLogo";
@@ -42,7 +41,6 @@ import {
   shouldShowStandaloneScreenHeader,
 } from "../../src/ui/journeyChrome";
 import { ScreenHeaderCard } from "../../src/ui/ScreenHeaderCard";
-import { TransactionEditorModal } from "../../src/ui/TransactionEditorModal";
 
 type FlowFilter = "all" | "income" | "expense";
 type TransactionHistoryScreenProps = {
@@ -124,8 +122,6 @@ export function TransactionHistoryScreen({
   const { householdId, loading: householdLoading } = useHouseholdId(userId);
   const { scrollRef, keyboardInset, registerField, focusField, cancelPendingScroll } = useKeyboardAwareScroll<"search">();
   const [transactions, setTransactions] = useState<TxRow[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [selectedTransaction, setSelectedTransaction] = useState<TxRow | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState("");
@@ -134,7 +130,6 @@ export function TransactionHistoryScreen({
   const [month, setMonth] = useState("all");
   const [account, setAccount] = useState("all");
   const [statementImportId, setStatementImportId] = useState<string | null>(requestedImportId ?? null);
-  const [paymentTransactionIds, setPaymentTransactionIds] = useState<string[]>([]);
 
   useEffect(() => {
     setStatementImportId(requestedImportId ?? null);
@@ -155,14 +150,7 @@ export function TransactionHistoryScreen({
       if (refresh) setRefreshing(true);
       else setLoading(true);
       setLoadError("");
-      const [nextTransactions, nextCategories, nextPaymentIds] = await Promise.all([
-        listTransactionHistory(householdId),
-        listCategories(householdId),
-        listHouseholdPaymentTransactionIds(householdId),
-      ]);
-      setTransactions(nextTransactions);
-      setCategories(nextCategories);
-      setPaymentTransactionIds(nextPaymentIds);
+      setTransactions(await listTransactionHistory(householdId));
     } catch (error: any) {
       setLoadError(error?.message ?? "Não foi possível carregar as movimentações.");
     } finally {
@@ -367,25 +355,12 @@ export function TransactionHistoryScreen({
         ) : loadError ? (
           <View style={styles.stateCard}><Ionicons name="cloud-offline-outline" size={32} color={OB.support} /><Text style={styles.stateTitle}>Não foi possível carregar</Text><Text style={styles.stateText}>{loadError}</Text><Pressable onPress={() => void load()} style={styles.retryButton}><Text style={styles.retryText}>Tentar novamente</Text></Pressable></View>
         ) : filtered.length ? (
-          <View style={styles.transactionList}>{filtered.map((transaction) => <TransactionCard key={transaction.id} transaction={transaction} onPress={() => setSelectedTransaction(transaction)} />)}</View>
+          <View style={styles.transactionList}>{filtered.map((transaction) => <TransactionCard key={transaction.id} transaction={transaction} onPress={() => router.push(getEditTransactionHref(transaction.id))} />)}</View>
         ) : (
           <View style={styles.stateCard}><Ionicons name="receipt-outline" size={32} color={OB.support} /><Text style={styles.stateTitle}>Nenhuma movimentação encontrada</Text><Text style={styles.stateText}>Altere os filtros ou registre um novo lançamento.</Text></View>
         )}
         </Animated.ScrollView>
       </KeyboardAvoidingView>
-      {householdId && userId ? (
-        <TransactionEditorModal
-          visible={Boolean(selectedTransaction)}
-          transaction={selectedTransaction}
-          categories={categories}
-          householdId={householdId}
-          userId={userId}
-          transactions={transactions}
-          paymentTransactionIds={paymentTransactionIds}
-          onClose={() => setSelectedTransaction(null)}
-          onChanged={() => load(true)}
-        />
-      ) : null}
     </>
   );
 

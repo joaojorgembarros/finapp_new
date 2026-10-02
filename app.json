@@ -34,7 +34,9 @@
           "microphonePermission": false
         }
       ],
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-navigation-bar",
+      "./plugins/withAndroidNavigationBarContrast"
     ],
     "ios": {
       "supportsTablet": true,
