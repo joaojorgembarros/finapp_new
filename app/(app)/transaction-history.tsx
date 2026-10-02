@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -31,6 +31,7 @@ import {
   periodBalanceCaption,
   summarizeMovementTotals,
 } from "../../src/lib/internalTransfers";
+import { resolveMovementListContext } from "../../src/lib/movementImportContext";
 import { listTransactionHistory, TxRow } from "../../src/lib/transactions";
 import { useSession } from "../../src/providers/SessionProvider";
 import { BankLogo } from "../../src/ui/BankLogo";
@@ -47,6 +48,10 @@ type TransactionHistoryScreenProps = {
   embedded?: boolean;
   onScroll?: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
 };
+
+function routeParam(value?: string | string[]) {
+  return Array.isArray(value) ? value[0] : value;
+}
 
 function monthLabel(monthKey: string) {
   const [year, month] = monthKey.split("-").map(Number);
@@ -113,8 +118,14 @@ export function TransactionHistoryScreen({
   embedded = false,
   onScroll,
 }: TransactionHistoryScreenProps = {}) {
-  const params = useLocalSearchParams<{ importId?: string | string[] }>();
-  const requestedImportId = Array.isArray(params.importId) ? params.importId[0] : params.importId;
+  const params = useLocalSearchParams<{
+    importId?: string | string[];
+    postImport?: string | string[];
+    onlyImport?: string | string[];
+  }>();
+  const requestedImportId = routeParam(params.importId);
+  const onlyImportParam = routeParam(params.onlyImport);
+  const postImportActive = routeParam(params.postImport) === "1" && Boolean(requestedImportId);
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const stackActions = width < 600;
@@ -129,16 +140,51 @@ export function TransactionHistoryScreen({
   const [flow, setFlow] = useState<FlowFilter>("all");
   const [month, setMonth] = useState("all");
   const [account, setAccount] = useState("all");
-  const [statementImportId, setStatementImportId] = useState<string | null>(requestedImportId ?? null);
+  const [statementImportId, setStatementImportId] = useState<string | null>(null);
+  const [importNoticeDismissed, setImportNoticeDismissed] = useState(false);
+  const seenPostImportId = useRef<string | null>(null);
 
   useEffect(() => {
-    setStatementImportId(requestedImportId ?? null);
-    if (requestedImportId) {
+    const next = resolveMovementListContext({
+      routeImportId: requestedImportId,
+      onlyImport: onlyImportParam,
+      postImportActive,
+      seenPostImportId: seenPostImportId.current,
+    });
+    seenPostImportId.current = next.seenPostImportId;
+    if (next.resetListFilters) {
       setSearch("");
       setFlow("all");
       setMonth("all");
       setAccount("all");
+      setImportNoticeDismissed(false);
     }
+    setStatementImportId(next.statementImportId);
+    if (next.clearOnlyImportParam) {
+      router.setParams({ onlyImport: undefined });
+    }
+  }, [onlyImportParam, postImportActive, requestedImportId]);
+
+  const showAllMovements = useCallback(() => {
+    setStatementImportId(null);
+    setImportNoticeDismissed(true);
+    router.setParams({ onlyImport: undefined });
+  }, []);
+
+  const clearExplicitImport = useCallback(() => {
+    setStatementImportId(null);
+    setImportNoticeDismissed(false);
+    router.setParams({ onlyImport: undefined });
+  }, []);
+
+  const showOnlyThisImport = useCallback(() => {
+    if (!requestedImportId) return;
+    setSearch("");
+    setFlow("all");
+    setMonth("all");
+    setAccount("all");
+    setStatementImportId(requestedImportId);
+    router.setParams({ onlyImport: requestedImportId });
   }, [requestedImportId]);
 
   const load = useCallback(async (refresh = false) => {
@@ -200,8 +246,8 @@ export function TransactionHistoryScreen({
   );
   const periodCaption = periodBalanceCaption(account);
   const periodBalanceColor = totals.periodBalance >= 0 ? "#169B62" : "#D84C4C";
-
   const busy = loading || householdLoading;
+  const showImportSuccess = postImportActive && !statementImportId && !importNoticeDismissed && !busy && !loadError;
 
   const content = (
     <>
@@ -294,6 +340,40 @@ export function TransactionHistoryScreen({
           {search ? <Pressable onPress={() => setSearch("")} hitSlop={10}><Ionicons name="close-circle" size={19} color={OB.support} /></Pressable> : null}
         </View>
 
+        {showImportSuccess ? (
+          <View style={styles.importDoneCard}>
+            <View style={styles.importDoneHeader}>
+              <Ionicons name="checkmark-circle-outline" size={20} color="#169B62" />
+              <View style={styles.importFilterInfo}>
+                <Text style={styles.importFilterTitle}>Importação concluída</Text>
+                <Text style={styles.importFilterText}>
+                  {transactions.length === 1
+                    ? "1 movimentação disponível"
+                    : `${transactions.length} movimentações disponíveis`}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.importDoneActions}>
+              <Pressable
+                onPress={showAllMovements}
+                accessibilityRole="button"
+                accessibilityLabel="Ver todas as movimentações"
+                style={styles.importDoneButton}
+              >
+                <Text style={styles.importDoneButtonText}>Ver todas as movimentações</Text>
+              </Pressable>
+              <Pressable
+                onPress={showOnlyThisImport}
+                accessibilityRole="button"
+                accessibilityLabel="Ver somente esta importação"
+                style={[styles.importDoneButton, styles.importDoneButtonSecondary]}
+              >
+                <Text style={styles.importDoneButtonTextSecondary}>Ver somente esta importação</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
+
         {statementImportId ? (
           <View style={styles.importFilterCard}>
             <Ionicons name="document-text-outline" size={19} color="#376EA5" />
@@ -301,7 +381,7 @@ export function TransactionHistoryScreen({
               <Text style={styles.importFilterTitle}>Movimentações do arquivo importado</Text>
               <Text style={styles.importFilterText}>A lista está mostrando somente os registros desta importação.</Text>
             </View>
-            <Pressable onPress={() => setStatementImportId(null)} hitSlop={10} accessibilityRole="button" accessibilityLabel="Mostrar todas as movimentações">
+            <Pressable onPress={clearExplicitImport} hitSlop={10} accessibilityRole="button" accessibilityLabel="Mostrar todas as movimentações">
               <Ionicons name="close-circle" size={21} color={OB.support} />
             </Pressable>
           </View>
@@ -399,6 +479,13 @@ const styles = StyleSheet.create({
   secondaryActionSubtitle: { color: OB.support, fontSize: 9, lineHeight: 13, fontWeight: "700", marginTop: 2 },
   searchBox: { minHeight: 54, borderRadius: 17, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "#fff", borderWidth: 1, borderColor: OB.supportSoft },
   searchInput: { flex: 1, color: OB.primary, fontSize: 13, fontWeight: "700" },
+  importDoneCard: { borderRadius: 16, padding: 13, gap: 12, backgroundColor: "rgba(22,155,98,0.08)", borderWidth: 1, borderColor: "rgba(22,155,98,0.22)" },
+  importDoneHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
+  importDoneActions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  importDoneButton: { minHeight: 42, borderRadius: 14, paddingHorizontal: 14, alignItems: "center", justifyContent: "center", backgroundColor: OB.primary },
+  importDoneButtonSecondary: { backgroundColor: "#fff", borderWidth: 1, borderColor: OB.supportSoft },
+  importDoneButtonText: { color: "#fff", fontSize: 12, fontWeight: "900" },
+  importDoneButtonTextSecondary: { color: OB.primary, fontSize: 12, fontWeight: "900" },
   importFilterCard: { minHeight: 64, borderRadius: 16, padding: 13, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "rgba(55,110,165,0.10)", borderWidth: 1, borderColor: "rgba(55,110,165,0.22)" },
   importFilterInfo: { flex: 1 },
   importFilterTitle: { color: OB.primary, fontSize: 11, fontWeight: "900" },

@@ -793,6 +793,7 @@ export default function JourneyScreen() {
     router.setParams({
       postImport: undefined,
       importId: undefined,
+      onlyImport: undefined,
       reconciledCommitments: undefined,
     });
   }, []);

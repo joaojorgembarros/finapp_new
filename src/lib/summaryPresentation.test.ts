@@ -8,6 +8,7 @@ import {
   detectSummarySetupGaps,
   groupCommittedMoney,
   shortCycleMonthLabel,
+  summaryCycleNavigationAvailable,
   type SummaryCommitment,
 } from "./summaryPresentation";
 
@@ -195,6 +196,11 @@ describe("summaryPresentation", () => {
       missingPaydayConfig: true,
       missingDreams: true,
     });
+  });
+
+  it("keeps period navigation available while a new import is highlighted", () => {
+    expect(summaryCycleNavigationAvailable(true)).toBe(true);
+    expect(summaryCycleNavigationAvailable(false)).toBe(true);
   });
 
   it("formats compact month labels", () => {

@@ -32,6 +32,7 @@ import {
   StatementImport,
 } from "../../src/lib/statementImports";
 import { reconcileImportedCommitments } from "../../src/lib/commitmentReconciliation";
+import { movementRouteAfterImport } from "../../src/lib/movementImportContext";
 
 const emptyResult: CsvParseResult = {
   rows: [],
@@ -550,13 +551,11 @@ export default function ImportCsvOnboarding() {
       clearFile();
       const destination = {
         pathname: "/(app)/journey" as const,
-        params: {
-          tab: "movimentacoes",
-          postImport: "1",
+        params: movementRouteAfterImport({
           importId: importResult.import_id,
-          reconciledCommitments: String(reconciliation.matchedCount),
-          ...(importCycleDate ? { cycleDate: importCycleDate } : {}),
-        },
+          reconciledCommitments: reconciliation.matchedCount,
+          cycleDate: importCycleDate || null,
+        }),
       };
       if (router.canDismiss()) {
         router.dismissTo(destination);

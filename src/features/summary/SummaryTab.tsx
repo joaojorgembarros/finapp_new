@@ -40,6 +40,7 @@ import {
   detectSummarySetupGaps,
   groupCommittedMoney,
   shortCycleMonthLabel,
+  summaryCycleNavigationAvailable,
 } from "../../lib/summaryPresentation";
 import {
   JOURNEY_HEADER_HEIGHT,
@@ -283,6 +284,7 @@ export function SummaryTab({
   const needsPlanningFlow = needsPlanningSetup || planningGuideStarted;
   const showPlanningGuide = postImportMatchesCycle && !setupGuideDismissed;
   const postImportModeActive = Boolean(postImportId && !setupGuideDismissed);
+  const cycleNavigationAvailable = summaryCycleNavigationAvailable(postImportModeActive);
   const busy = loading || householdLoading;
   const todayYmd = localDateYmd();
   const viewingCurrentCycle = overview
@@ -429,7 +431,7 @@ export function SummaryTab({
     >
       <View style={styles.header}>
         <Text style={styles.title} accessibilityRole="header">Resumo</Text>
-        {!postImportModeActive ? (
+        {cycleNavigationAvailable ? (
           <View style={styles.cycleInline}>
             <Pressable onPress={() => changeCycle(-1)} hitSlop={10} accessibilityLabel="Período anterior">
               <Ionicons name="chevron-back" size={18} color={OB.primary} />
@@ -444,7 +446,7 @@ export function SummaryTab({
         ) : null}
       </View>
 
-      {!postImportModeActive && !viewingCurrentCycle ? (
+      {cycleNavigationAvailable && !viewingCurrentCycle ? (
         <Pressable onPress={showToday} style={styles.todayButton}>
           <Text style={styles.todayButtonText}>Voltar ao ciclo atual</Text>
         </Pressable>
