@@ -33,6 +33,13 @@ export type StoredTransactionIdentity = {
   originalNote?: string | null;
   categoryId: string | null;
   accountId: string | null;
+  /**
+   * Bank stored on the originating statement. Used only when an imported
+   * transaction has a null account_id. Today this is the same catalog id
+   * as account_id (nubank, inter, ...). Nubank pessoal and Nubank PJ still
+   * share that id and can still conflict.
+   */
+  statementBankId?: string | null;
   statementImportId: string | null;
   ignoredAt: string | null;
 };
@@ -54,6 +61,39 @@ function identityKey(type: string, amountCents: number, occurredOn: string, note
   return `${type}|${amountCents}|${occurredOn}|${note}`;
 }
 
+function presentAccount(value: string | null | undefined) {
+  const account = value?.trim();
+  return account ? account : null;
+}
+
+/**
+ * Imported account used for dedup. A null account falls back to the statement
+ * bank and is never a wildcard. Manual null is handled separately.
+ */
+export function effectiveImportedAccountId(transaction: {
+  accountId?: string | null;
+  statementBankId?: string | null;
+}) {
+  return presentAccount(transaction.accountId) ?? presentAccount(transaction.statementBankId);
+}
+
+/**
+ * Manual rows match the import account, and a manual with no account matches
+ * every import account. Imported rows match only the same effective account.
+ */
+export function matchesImportAccount(
+  transaction: StoredTransactionIdentity,
+  incomingAccountId: string,
+) {
+  const incoming = presentAccount(incomingAccountId);
+  if (!incoming) return false;
+  if (!transaction.statementImportId) {
+    const account = presentAccount(transaction.accountId);
+    return account == null || account === incoming;
+  }
+  return effectiveImportedAccountId(transaction) === incoming;
+}
+
 export function normalizeIncomingStatementNote(note: string | null | undefined) {
   return (note ?? "").trim().slice(0, 500).toLowerCase().replace(/\s+/g, " ");
 }
@@ -72,9 +112,11 @@ export function normalizeStoredStatementNote(transaction: {
 export function findConflictPairs(
   existing: StoredTransactionIdentity[],
   incoming: StatementRowIdentity[],
+  incomingAccountId: string,
 ): StatementConflictPair[] {
   const groups = new Map<string, StoredTransactionIdentity[]>();
   for (const transaction of existing) {
+    if (!matchesImportAccount(transaction, incomingAccountId)) continue;
     const key = identityKey(
       transaction.type,
       transaction.amountCents,

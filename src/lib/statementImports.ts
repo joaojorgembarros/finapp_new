@@ -63,10 +63,8 @@ function isMissingBalanceConfidenceColumn(error: unknown) {
   return candidate?.code === "42703" || candidate?.code === "PGRST204" || /balance_confidence/i.test(description);
 }
 
-function isMissingImportStatementV6(error: unknown) {
-  const candidate = error as { code?: string } | null;
-  return candidate?.code === "42883" || candidate?.code === "PGRST202";
-}
+export const STATEMENT_IMPORT_BACKEND_UPDATE_MESSAGE =
+  "O serviço de importação ainda não está atualizado. Tente novamente em alguns minutos.";
 
 export type CategorizedStatementRow = ParsedCsvTx & {
   categoryId?: string | null;
@@ -175,16 +173,23 @@ function isMissingRpc(error: unknown, name: string) {
 
 export async function findStatementImportConflicts(
   householdId: string,
-  rows: ParsedCsvTx[]
+  rows: ParsedCsvTx[],
+  accountId: string,
 ) {
   if (!rows.length) return [];
 
-  const { data, error } = await supabase.rpc("find_statement_import_conflicts", {
+  const { data, error } = await supabase.rpc("find_statement_import_conflicts_v2", {
     p_household_id: householdId,
+    p_account_id: accountId,
     p_rows: toStatementRows(rows),
   });
 
-  if (error) throw error;
+  if (error) {
+    if (isMissingRpc(error, "find_statement_import_conflicts_v2")) {
+      throw new Error(STATEMENT_IMPORT_BACKEND_UPDATE_MESSAGE);
+    }
+    throw error;
+  }
   if (!Array.isArray(data)) return [];
   return data
     .map(Number)
@@ -194,16 +199,20 @@ export async function findStatementImportConflicts(
 export async function findStatementImportConflictPairs(
   householdId: string,
   rows: ParsedCsvTx[],
+  accountId: string,
 ) {
   if (!rows.length) return [];
 
-  const { data, error } = await supabase.rpc("find_statement_import_conflict_pairs", {
+  const { data, error } = await supabase.rpc("find_statement_import_conflict_pairs_v2", {
     p_household_id: householdId,
+    p_account_id: accountId,
     p_rows: toStatementRows(rows),
   });
 
   if (error) {
-    if (isMissingRpc(error, "find_statement_import_conflict_pairs")) return null;
+    if (isMissingRpc(error, "find_statement_import_conflict_pairs_v2")) {
+      throw new Error(STATEMENT_IMPORT_BACKEND_UPDATE_MESSAGE);
+    }
     throw error;
   }
   return normalizeConflictPairs(data);
@@ -278,26 +287,17 @@ export async function importStatement(params: {
     p_category_rules: params.categoryRules,
   };
   const forceSourceLines = params.forceSourceLines ?? [];
-  const reviewedResult = await supabase.rpc("import_statement_v7", {
+  const reviewedResult = await supabase.rpc("import_statement_v8", {
     ...rpcParams,
     p_force_source_lines: forceSourceLines,
   });
-  if (!reviewedResult.error) return reviewedResult.data as ImportStatementResult;
-  if (!isMissingRpc(reviewedResult.error, "import_statement_v7")) throw reviewedResult.error;
-  if (forceSourceLines.length) {
-    throw new Error("Atualize o banco antes de importar uma linha marcada como diferente.");
+  if (reviewedResult.error) {
+    if (isMissingRpc(reviewedResult.error, "import_statement_v8")) {
+      throw new Error(STATEMENT_IMPORT_BACKEND_UPDATE_MESSAGE);
+    }
+    throw reviewedResult.error;
   }
-
-  const currentResult = await supabase.rpc("import_statement_v6", rpcParams);
-
-  if (!currentResult.error) return currentResult.data as ImportStatementResult;
-  if (!isMissingImportStatementV6(currentResult.error)) throw currentResult.error;
-
-  const { p_balance_confidence: _balanceConfidence, ...legacyRpcParams } = rpcParams;
-  const legacyResult = await supabase.rpc("import_statement_v5", legacyRpcParams);
-
-  if (legacyResult.error) throw legacyResult.error;
-  return legacyResult.data as ImportStatementResult;
+  return reviewedResult.data as ImportStatementResult;
 }
 
 export type StatementImportTransaction = {

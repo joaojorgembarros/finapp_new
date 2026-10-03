@@ -318,7 +318,7 @@ export default function ImportCsvOnboarding() {
     setReviewIndex(0);
     setDuplicateCheckError("");
 
-    if (!householdId || !fileHash || !result.rows.length) {
+    if (!householdId || !fileHash || !result.rows.length || !selectedBankId) {
       setCheckingDuplicate(false);
       return () => {
         active = false;
@@ -328,19 +328,13 @@ export default function ImportCsvOnboarding() {
     setCheckingDuplicate(true);
     Promise.all([
       findStatementImportByHash(householdId, fileHash),
-      findStatementImportConflictPairs(householdId, result.rows),
+      findStatementImportConflictPairs(householdId, result.rows, selectedBankId),
+      findStatementImportConflicts(householdId, result.rows, selectedBankId),
     ])
-      .then(async ([existingImport, pairs]) => {
+      .then(([existingImport, pairs, conflictingLines]) => {
         if (!active) return;
         setDuplicateImport(existingImport);
-        if (pairs) {
-          setConflictPairs(pairs);
-          setConflictLines(pairs.map((pair) => pair.rawLine));
-          return;
-        }
-        const conflictingLines = await findStatementImportConflicts(householdId, result.rows);
-        if (!active) return;
-        setConflictPairs(null);
+        setConflictPairs(pairs);
         setConflictLines(conflictingLines);
       })
       .catch((error: any) => {
@@ -353,7 +347,7 @@ export default function ImportCsvOnboarding() {
     return () => {
       active = false;
     };
-  }, [fileHash, householdId, result.rows]);
+  }, [fileHash, householdId, result.rows, selectedBankId]);
 
   useEffect(() => {
     let active = true;
