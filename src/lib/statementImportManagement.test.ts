@@ -113,10 +113,13 @@ describe("imported statement list and deletion", () => {
       expenseCents: 80000,
       finalBalanceCents: 500000,
       showsFinalBalance: true,
+      finalBalanceLabel: "Saldo final do extrato",
+      finalBalanceAsOf: "em 30/09/2026",
     });
     expect(facts.importedAt).toBe(nubank.created_at);
     expect(facts.periodLabel).not.toBe(facts.importedAt);
     expect(facts.transactionCount).toBe(10);
+    expect(facts.finalBalanceCents).not.toBe(facts.incomeCents - facts.expenseCents);
     expect(statementImportedCountLabel(facts.transactionCount)).toBe("10 movimentações importadas");
     expect(statementExcludedCountLabel(2)).toBe("2 excluídas");
     expect(statementExcludedCountLabel(0)).toBeNull();

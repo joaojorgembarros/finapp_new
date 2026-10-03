@@ -6,6 +6,7 @@ import {
   findInternalTransferCounterparts,
   INTERNAL_TRANSFER_ERRORS,
   periodBalanceCaption,
+  periodBalanceDetail,
   summarizeMovementTotals,
   unlinkInternalTransferLegs,
   validateInternalTransferLink,
@@ -229,6 +230,17 @@ describe("period totals and list filters", () => {
   it("uses account-specific copy for the period balance hint", () => {
     expect(periodBalanceCaption("all")).toContain("Entradas menos saídas");
     expect(periodBalanceCaption("nubank")).toContain("desta conta");
+  });
+
+  it("labels every date or the selected month without changing a negative period result", () => {
+    const totals = summarizeMovementTotals([
+      { type: "income", amount_cents: 450_000, account_id: "inter", transfer_group_id: null },
+      { type: "expense", amount_cents: 490_000, account_id: "bradesco", transfer_group_id: null },
+    ]);
+    expect(totals).toEqual({ income: 450_000, expense: 490_000, periodBalance: -40_000 });
+    expect(totals.periodBalance).toBe(totals.income - totals.expense);
+    expect(periodBalanceDetail("all")).toBe("Entradas − saídas • Todas as datas");
+    expect(periodBalanceDetail("2026-09")).toBe("Entradas − saídas • 01/09/2026 a 30/09/2026");
   });
 });
 

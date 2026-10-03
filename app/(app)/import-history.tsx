@@ -18,7 +18,9 @@ import {
   countIgnoredImportedTransactions,
   formatStatementPeriod,
   importsAfterDeletion,
+  STATEMENT_FINAL_BALANCE_LABEL,
   statementExcludedCountLabel,
+  statementFinalBalanceAsOf,
 } from "../../src/lib/statementImportManagement";
 import {
   deleteStatementImport,
@@ -60,6 +62,7 @@ function ImportCard({
 }) {
   const excludedLabel = statementExcludedCountLabel(excludedCount);
   const bank = findBankById(statementImport.bank_id);
+  const finalBalanceAsOf = statementFinalBalanceAsOf(statementImport.period_end);
 
   return (
     <View style={styles.importCard}>
@@ -109,7 +112,10 @@ function ImportCard({
 
       {statementImport.final_balance_cents !== null ? (
         <View style={styles.balanceRow}>
-          <Text style={styles.metricLabel}>Saldo final</Text>
+          <View style={styles.balanceCopy}>
+            <Text style={styles.metricLabel}>{STATEMENT_FINAL_BALANCE_LABEL}</Text>
+            {finalBalanceAsOf ? <Text style={styles.balanceAsOf}>{finalBalanceAsOf}</Text> : null}
+          </View>
           <Text style={styles.balanceValue}>{formatBRLFromCents(statementImport.final_balance_cents)}</Text>
         </View>
       ) : null}
@@ -590,6 +596,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: OB.supportSoft,
   },
+  balanceCopy: { flex: 1, minWidth: 0, gap: 2 },
+  balanceAsOf: { color: OB.support, fontSize: 11, fontWeight: "700" },
   balanceValue: {
     color: OB.primary,
     fontSize: 14,

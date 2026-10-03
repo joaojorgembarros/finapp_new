@@ -93,6 +93,14 @@ export function totalsWithoutIgnored<T extends {
   return summarizeMovementTotals(rows.filter((row) => !row.ignored_at));
 }
 
+export const STATEMENT_FINAL_BALANCE_LABEL = "Saldo final do extrato";
+
+export function statementFinalBalanceAsOf(periodEnd?: string | null) {
+  if (!periodEnd || !/^\d{4}-\d{2}-\d{2}$/.test(periodEnd)) return null;
+  const [year, month, day] = periodEnd.split("-");
+  return `em ${day}/${month}/${year}`;
+}
+
 export function formatStatementPeriod(periodStart: string, periodEnd: string) {
   const start = formatDateBRFromYMD(periodStart);
   const end = formatDateBRFromYMD(periodEnd);
@@ -113,6 +121,10 @@ export function statementImportFacts(statement: Pick<
     expenseCents: statement.expense_cents,
     finalBalanceCents: statement.final_balance_cents,
     showsFinalBalance: statement.final_balance_cents !== null,
+    finalBalanceLabel: STATEMENT_FINAL_BALANCE_LABEL,
+    finalBalanceAsOf: statement.final_balance_cents === null
+      ? null
+      : statementFinalBalanceAsOf(statement.period_end),
     skippedCount: statement.skipped_transaction_count,
     rejectedCount: statement.rejected_transaction_count,
   };

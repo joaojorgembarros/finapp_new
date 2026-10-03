@@ -28,7 +28,8 @@ import {
   filterMovementsForList,
   filterMovementsForTotals,
   isInternalTransferLeg,
-  periodBalanceCaption,
+  PERIOD_BALANCE_EXPLANATION,
+  periodBalanceDetail,
   summarizeMovementTotals,
 } from "../../src/lib/internalTransfers";
 import { resolveMovementListContext } from "../../src/lib/movementImportContext";
@@ -144,6 +145,7 @@ export function TransactionHistoryScreen({
   const [account, setAccount] = useState("all");
   const [statementImportId, setStatementImportId] = useState<string | null>(null);
   const [importNoticeDismissed, setImportNoticeDismissed] = useState(false);
+  const [periodHelpOpen, setPeriodHelpOpen] = useState(false);
   const seenPostImportId = useRef<string | null>(null);
 
   useEffect(() => {
@@ -263,7 +265,7 @@ export function TransactionHistoryScreen({
     () => summarizeMovementTotals(transactionsForTotals, { accountId: account }),
     [account, transactionsForTotals],
   );
-  const periodCaption = periodBalanceCaption(account);
+  const periodDetail = periodBalanceDetail(month);
   const periodBalanceColor = totals.periodBalance >= 0 ? "#169B62" : "#D84C4C";
   const busy = loading || householdLoading;
   const showImportSuccess = postImportActive && !statementImportId && !importNoticeDismissed && !busy && !loadError;
@@ -452,7 +454,18 @@ export function TransactionHistoryScreen({
               <Text style={[styles.summaryValue, { color: periodBalanceColor }]}>{formatBRLFromCents(totals.periodBalance)}</Text>
             </View>
           </View>
-          <Text style={styles.summaryHint}>{periodCaption}</Text>
+          <View style={styles.summaryHintRow}>
+            <Text style={styles.summaryHint}>{periodDetail}</Text>
+            <Pressable
+              onPress={() => setPeriodHelpOpen((open) => !open)}
+              accessibilityRole="button"
+              accessibilityLabel={PERIOD_BALANCE_EXPLANATION}
+              hitSlop={8}
+            >
+              <Ionicons name={periodHelpOpen ? "information-circle" : "information-circle-outline"} size={15} color={OB.support} />
+            </Pressable>
+          </View>
+          {periodHelpOpen ? <Text style={styles.summaryHint}>{PERIOD_BALANCE_EXPLANATION}</Text> : null}
         </View>
 
         <View style={styles.listHeader}>
@@ -539,7 +552,8 @@ const styles = StyleSheet.create({
   summaryLabel: { color: OB.support, fontSize: 9, fontWeight: "900", textTransform: "uppercase" },
   summaryValue: { fontSize: 13, fontWeight: "900", marginTop: 6 },
   summaryDivider: { width: 1, alignSelf: "stretch", marginHorizontal: 8, backgroundColor: OB.supportSoft },
-  summaryHint: { color: OB.support, fontSize: 9, lineHeight: 14, fontWeight: "700" },
+  summaryHintRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  summaryHint: { flex: 1, color: OB.support, fontSize: 11, lineHeight: 15, fontWeight: "700" },
   listHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 2, marginTop: 2 },
   listTitle: { color: OB.primary, fontSize: 17, fontWeight: "900" },
   listCount: { color: OB.support, fontSize: 10, fontWeight: "800" },

@@ -17,7 +17,9 @@ import {
   countIgnoredImportedTransactions,
   formatStatementPeriod,
   movementsRouteForStatement,
+  STATEMENT_FINAL_BALANCE_LABEL,
   statementExcludedCountLabel,
+  statementFinalBalanceAsOf,
   statementImportedCountLabel,
 } from "../../src/lib/statementImportManagement";
 import {
@@ -199,7 +201,13 @@ export default function ImportDetailScreen() {
             <Fact label="Entradas" value={formatBRLFromCents(statement.income_cents)} />
             <Fact label="Saídas" value={formatBRLFromCents(statement.expense_cents)} />
             {statement.final_balance_cents !== null ? (
-              <Fact label="Saldo final" value={formatBRLFromCents(statement.final_balance_cents)} />
+              <Fact
+                label={STATEMENT_FINAL_BALANCE_LABEL}
+                value={[
+                  formatBRLFromCents(statement.final_balance_cents),
+                  statementFinalBalanceAsOf(statement.period_end),
+                ].filter(Boolean).join("\n")}
+              />
             ) : null}
             {statement.skipped_transaction_count > 0 ? (
               <Fact
