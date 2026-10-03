@@ -24,6 +24,7 @@ import {
 } from "../../src/lib/statementCategoryRules";
 import {
   findStatementImportByHash,
+  findStatementImportConflictPairs,
   findStatementImportConflicts,
   hashStatementContent,
   importStatement,
@@ -31,6 +32,15 @@ import {
   StatementBalanceConfidence,
   StatementImport,
 } from "../../src/lib/statementImports";
+import {
+  CONFIRMED_SAME_NOTHING_NEW_MESSAGE,
+  confirmedSameLeavesNothingNew,
+  forceSourceLinesForDecisions,
+  manualReviewConflicts,
+  planStatementImport,
+  StatementConflictPair,
+  unresolvedManualConflictCount,
+} from "../../src/lib/statementConflictReview";
 import { reconcileImportedCommitments } from "../../src/lib/commitmentReconciliation";
 import { movementRouteAfterImport } from "../../src/lib/movementImportContext";
 import { sameFileReimportStatus } from "../../src/lib/statementImportManagement";
@@ -173,6 +183,9 @@ export default function ImportCsvOnboarding() {
   const [fileHash, setFileHash] = useState<string | null>(null);
   const [duplicateImport, setDuplicateImport] = useState<StatementImport | null>(null);
   const [conflictLines, setConflictLines] = useState<number[]>([]);
+  const [conflictPairs, setConflictPairs] = useState<StatementConflictPair[] | null>(null);
+  const [manualDecisions, setManualDecisions] = useState<Record<number, "same" | "different">>({});
+  const [reviewIndex, setReviewIndex] = useState(0);
   const [checkingDuplicate, setCheckingDuplicate] = useState(false);
   const [duplicateCheckError, setDuplicateCheckError] = useState("");
   const [categories, setCategories] = useState<Category[]>([]);
@@ -218,7 +231,29 @@ export default function ImportCsvOnboarding() {
       : "Resultado do arquivo";
   const balanceSummaryValue = accountBalance ?? partial;
   const hasFile = Boolean(file);
-  const conflictLineSet = useMemo(() => new Set(conflictLines), [conflictLines]);
+  const manualConflicts = useMemo(
+    () => manualReviewConflicts(conflictPairs ?? []),
+    [conflictPairs],
+  );
+  const importPlan = useMemo(() => planStatementImport({
+    incoming: result.rows.map((row) => ({
+      rawLine: row.rawLine,
+      type: row.type,
+      amountCents: row.amount_cents,
+      occurredOn: row.occurred_on,
+      note: row.note,
+    })),
+    pairs: conflictPairs ?? [],
+    decisions: manualDecisions,
+    legacyConflictLines: conflictPairs === null ? conflictLines : [],
+    existingFileId: duplicateImport?.id ?? null,
+  }), [conflictLines, conflictPairs, duplicateImport?.id, manualDecisions, result.rows]);
+  const skippedLineSet = useMemo(
+    () => new Set(importPlan.skippedRawLines),
+    [importPlan.skippedRawLines],
+  );
+  const unresolvedManualCount = unresolvedManualConflictCount(manualConflicts, manualDecisions);
+  const reviewConflict = manualConflicts[reviewIndex] ?? null;
   const categorySuggestions = useMemo(() => {
     const suggestions = new Map<string, StatementCategorySuggestion>();
     for (const row of result.rows) {
@@ -230,23 +265,26 @@ export default function ImportCsvOnboarding() {
   const similarityCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const row of result.rows) {
-      if (conflictLineSet.has(row.rawLine)) continue;
+      if (skippedLineSet.has(row.rawLine)) continue;
       const key = `${row.type}:${statementSimilarityKey(row.note)}`;
       counts.set(key, (counts.get(key) ?? 0) + 1);
     }
     return counts;
-  }, [conflictLineSet, result.rows]);
-  const importableCount = result.rows.filter((row) => !conflictLineSet.has(row.rawLine)).length;
+  }, [result.rows, skippedLineSet]);
+  const importableCount = importPlan.transactionCount;
   const categorizedCount = result.rows.filter(
-    (row) => !conflictLineSet.has(row.rawLine) && Boolean(categoryAssignments[row.key])
+    (row) => !skippedLineSet.has(row.rawLine) && Boolean(categoryAssignments[row.key])
   ).length;
   const availableSuggestionCount = result.rows.filter(
     (row) =>
-      !conflictLineSet.has(row.rawLine) &&
+      !skippedLineSet.has(row.rawLine) &&
       !Object.prototype.hasOwnProperty.call(categoryAssignments, row.key) &&
       categorySuggestions.has(row.key)
   ).length;
-  const partialConflict = conflictLines.length > 0 && !duplicateImport;
+  const automaticConflictLines = conflictPairs === null
+    ? conflictLines
+    : conflictLines.filter((line) => !manualConflicts.some((pair) => pair.rawLine === line));
+  const partialConflict = automaticConflictLines.length > 0 && !duplicateImport;
   const previewRows = showAllPreview ? result.rows : result.rows.slice(0, 8);
   const pickerCategories = categoryPickerRow
     ? categories.filter((category) => category.flow === categoryPickerRow.type)
@@ -255,11 +293,17 @@ export default function ImportCsvOnboarding() {
     ? categoryAssignments[categoryPickerRow.key] ?? null
     : null;
   const sameFileBlocked = sameFileReimportStatus(duplicateImport?.id) === "blocked";
+  const confirmedSameOnly = confirmedSameLeavesNothingNew(
+    conflictPairs ?? [],
+    manualDecisions,
+    importPlan,
+  );
   const importDisabled =
     busy ||
     checkingDuplicate ||
     sameFileBlocked ||
     Boolean(duplicateCheckError) ||
+    unresolvedManualCount > 0 ||
     importableCount < 1 ||
     !selectedBankId ||
     !fileHash;
@@ -269,6 +313,9 @@ export default function ImportCsvOnboarding() {
 
     setDuplicateImport(null);
     setConflictLines([]);
+    setConflictPairs(null);
+    setManualDecisions({});
+    setReviewIndex(0);
     setDuplicateCheckError("");
 
     if (!householdId || !fileHash || !result.rows.length) {
@@ -281,11 +328,19 @@ export default function ImportCsvOnboarding() {
     setCheckingDuplicate(true);
     Promise.all([
       findStatementImportByHash(householdId, fileHash),
-      findStatementImportConflicts(householdId, result.rows),
+      findStatementImportConflictPairs(householdId, result.rows),
     ])
-      .then(([existingImport, conflictingLines]) => {
+      .then(async ([existingImport, pairs]) => {
         if (!active) return;
         setDuplicateImport(existingImport);
+        if (pairs) {
+          setConflictPairs(pairs);
+          setConflictLines(pairs.map((pair) => pair.rawLine));
+          return;
+        }
+        const conflictingLines = await findStatementImportConflicts(householdId, result.rows);
+        if (!active) return;
+        setConflictPairs(null);
         setConflictLines(conflictingLines);
       })
       .catch((error: any) => {
@@ -340,7 +395,7 @@ export default function ImportCsvOnboarding() {
 
     const automaticCandidates = result.rows.filter(
       (row) =>
-        !conflictLineSet.has(row.rawLine) &&
+        !skippedLineSet.has(row.rawLine) &&
         categorySuggestions.get(row.key)?.confidence === "high"
     );
     if (!automaticCandidates.length) return;
@@ -371,7 +426,7 @@ export default function ImportCsvOnboarding() {
       }
       return changed ? next : current;
     });
-  }, [categoryAssignments, categorySuggestions, conflictLineSet, result.rows]);
+  }, [categoryAssignments, categorySuggestions, result.rows, skippedLineSet]);
 
   async function pickCsv() {
     if (reading || busy) return;
@@ -418,6 +473,9 @@ export default function ImportCsvOnboarding() {
     setBankPickerOpen(false);
     setDuplicateImport(null);
     setConflictLines([]);
+    setConflictPairs(null);
+    setManualDecisions({});
+    setReviewIndex(0);
     setCategoryAssignments({});
     setPendingCategoryRules({});
     setAutoSuggestedRows(new Set());
@@ -463,7 +521,7 @@ export default function ImportCsvOnboarding() {
     setCategoryAssignments((current) => {
       const next = { ...current };
       for (const candidate of result.rows) {
-        if (candidate.type !== row.type || conflictLineSet.has(candidate.rawLine)) continue;
+        if (candidate.type !== row.type || skippedLineSet.has(candidate.rawLine)) continue;
         if (statementSimilarityKey(candidate.note) === similarityKey) {
           next[candidate.key] = categoryId;
         }
@@ -495,7 +553,7 @@ export default function ImportCsvOnboarding() {
       const next = { ...current };
       for (const row of result.rows) {
         if (
-          conflictLineSet.has(row.rawLine) ||
+          skippedLineSet.has(row.rawLine) ||
           Object.prototype.hasOwnProperty.call(next, row.key)
         ) continue;
         const suggestion = categorySuggestions.get(row.key);
@@ -503,6 +561,11 @@ export default function ImportCsvOnboarding() {
       }
       return next;
     });
+  }
+
+  function chooseManualDecision(rawLine: number, decision: "same" | "different") {
+    setManualDecisions((current) => ({ ...current, [rawLine]: decision }));
+    setReviewIndex((index) => index < manualConflicts.length - 1 ? index + 1 : index);
   }
 
   async function importRows() {
@@ -516,6 +579,20 @@ export default function ImportCsvOnboarding() {
     if (checkingDuplicate) return Alert.alert("Atenção", "Aguarde a verificação do arquivo.");
     if (sameFileReimportStatus(duplicateImport?.id) === "blocked") {
       return Alert.alert("Arquivo já importado", "Escolha outro extrato para continuar.");
+    }
+    if (unresolvedManualCount > 0) {
+      return Alert.alert(
+        "Revise as duplicidades",
+        unresolvedManualCount === 1
+          ? "1 possível duplicidade precisa ser revisada."
+          : `${unresolvedManualCount} possíveis duplicidades precisam ser revisadas.`,
+      );
+    }
+    if (confirmedSameLeavesNothingNew(conflictPairs ?? [], manualDecisions, importPlan)) {
+      return Alert.alert("Nada novo para importar", CONFIRMED_SAME_NOTHING_NEW_MESSAGE);
+    }
+    if (importPlan.transactionCount < 1) {
+      return Alert.alert("Nada novo para importar", "Nenhuma linha nova será importada.");
     }
     if (busy) return;
 
@@ -535,10 +612,12 @@ export default function ImportCsvOnboarding() {
           categoryId: categoryAssignments[row.key] ?? null,
         })),
         categoryRules: Object.values(pendingCategoryRules),
+        forceSourceLines: forceSourceLinesForDecisions(conflictPairs ?? [], manualDecisions),
       });
 
+      const insertedLines = new Set(importPlan.insertedRawLines);
       const importCycleDate = importResult.imported_period_end ?? result.rows
-        .filter((row) => !conflictLineSet.has(row.rawLine))
+        .filter((row) => insertedLines.has(row.rawLine))
         .reduce(
         (latest, row) => row.occurred_on > latest ? row.occurred_on : latest,
         ""
@@ -701,8 +780,8 @@ export default function ImportCsvOnboarding() {
                   </Text>
                   <Text style={styles.conflictText}>
                     {importableCount
-                      ? `${importableCount} nova(s) serão importadas e ${conflictLines.length} repetida(s) serão ignoradas.`
-                      : `${conflictLines.length} movimentação(ões) já constam no app. Nada será duplicado.`}
+                      ? `${importableCount} nova(s) serão importadas e ${automaticConflictLines.length} repetida(s) serão ignoradas.`
+                      : `${automaticConflictLines.length} movimentação(ões) já constam no app. Nada será duplicado.`}
                   </Text>
                 </View>
               </View>
@@ -807,6 +886,88 @@ export default function ImportCsvOnboarding() {
               ) : null}
             </View>
 
+            {reviewConflict && !duplicateImport ? (
+              <View style={styles.reviewCard}>
+                <View style={styles.reviewHeader}>
+                  <Text style={styles.sectionTitle}>Possíveis duplicidades</Text>
+                  <Text style={styles.reviewProgress}>{reviewIndex + 1} de {manualConflicts.length}</Text>
+                </View>
+                <Text style={styles.reviewIntro}>
+                  Confira se o lançamento do extrato é o mesmo que já está no Sonho+.
+                </Text>
+                {reviewConflict.matches.length > 1 ? (
+                  <Text style={styles.reviewMultiple}>Encontramos mais de um lançamento parecido</Text>
+                ) : null}
+                <View style={styles.reviewSide}>
+                  <Text style={styles.reviewSideLabel}>Já existe no Sonho+</Text>
+                  {reviewConflict.matches.map((match) => (
+                    <View key={match.transactionId} style={styles.reviewItem}>
+                      <Text style={styles.reviewNote}>{match.note?.trim() || "Sem descrição"}</Text>
+                      <Text style={styles.reviewMeta}>
+                        {formatDateBRFromYMD(reviewConflict.occurredOn)} • {formatBRLFromCents(reviewConflict.amountCents)}
+                      </Text>
+                      <Text style={styles.reviewOrigin}>Manual</Text>
+                    </View>
+                  ))}
+                </View>
+                <View style={[styles.reviewSide, styles.reviewSideBank]}>
+                  <Text style={styles.reviewSideLabel}>No extrato {selectedBank?.name ?? "do banco"}</Text>
+                  <View style={styles.reviewItem}>
+                    <Text style={styles.reviewNote}>{reviewConflict.note.trim() || "Sem descrição"}</Text>
+                    <Text style={styles.reviewMeta}>
+                      {formatDateBRFromYMD(reviewConflict.occurredOn)} • {formatBRLFromCents(reviewConflict.amountCents)}
+                    </Text>
+                    <Text style={styles.reviewOriginBank}>Extrato</Text>
+                  </View>
+                </View>
+                <View style={styles.reviewActions}>
+                  <Pressable
+                    onPress={() => chooseManualDecision(reviewConflict.rawLine, "same")}
+                    accessibilityRole="button"
+                    accessibilityLabel="É o mesmo lançamento"
+                    style={[
+                      styles.reviewChoice,
+                      manualDecisions[reviewConflict.rawLine] === "same" && styles.reviewChoiceSelected,
+                    ]}
+                  >
+                    <Text style={styles.reviewChoiceText}>É o mesmo lançamento</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => chooseManualDecision(reviewConflict.rawLine, "different")}
+                    accessibilityRole="button"
+                    accessibilityLabel="São lançamentos diferentes"
+                    style={[
+                      styles.reviewChoice,
+                      styles.reviewChoiceDifferent,
+                      manualDecisions[reviewConflict.rawLine] === "different" && styles.reviewChoiceSelected,
+                    ]}
+                  >
+                    <Text style={styles.reviewChoiceText}>São lançamentos diferentes</Text>
+                  </Pressable>
+                </View>
+                <View style={styles.reviewNav}>
+                  <Pressable
+                    onPress={() => setReviewIndex((index) => Math.max(0, index - 1))}
+                    disabled={reviewIndex === 0}
+                    accessibilityRole="button"
+                    accessibilityLabel="Voltar para a duplicidade anterior"
+                    style={[styles.reviewNavButton, reviewIndex === 0 && styles.reviewNavButtonDisabled]}
+                  >
+                    <Text style={styles.reviewNavText}>Anterior</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => setReviewIndex((index) => Math.min(manualConflicts.length - 1, index + 1))}
+                    disabled={reviewIndex >= manualConflicts.length - 1}
+                    accessibilityRole="button"
+                    accessibilityLabel="Próxima duplicidade"
+                    style={[styles.reviewNavButton, reviewIndex >= manualConflicts.length - 1 && styles.reviewNavButtonDisabled]}
+                  >
+                    <Text style={styles.reviewNavText}>Próxima</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : null}
+
             <View style={styles.card}>
               <View style={styles.previewHeader}>
                 <Text style={styles.sectionTitle}>Prévia do extrato</Text>
@@ -821,7 +982,7 @@ export default function ImportCsvOnboarding() {
                 <PreviewRow
                   key={row.key}
                   row={row}
-                  conflict={conflictLineSet.has(row.rawLine)}
+                  conflict={skippedLineSet.has(row.rawLine)}
                   categories={categories}
                   categoryId={categoryAssignments[row.key] ?? null}
                   autoSuggested={autoSuggestedRows.has(row.key)}
@@ -847,13 +1008,22 @@ export default function ImportCsvOnboarding() {
               {!result.rows.length ? <Text style={styles.mutedText}>Nenhuma linha válida encontrada neste arquivo.</Text> : null}
             </View>
 
+            {confirmedSameOnly ? (
+              <Text style={styles.mutedText}>{CONFIRMED_SAME_NOTHING_NEW_MESSAGE}</Text>
+            ) : null}
             <Pressable onPress={importRows} disabled={importDisabled} style={[styles.importButton, importDisabled && styles.importButtonDisabled]}>
               <Text style={[styles.importText, importDisabled && styles.importTextDisabled]}>
                 {busy
                   ? "Importando..."
                   : checkingDuplicate
                     ? "Verificando arquivo..."
-                    : duplicateImport
+                    : unresolvedManualCount
+                      ? unresolvedManualCount === 1
+                        ? "1 possível duplicidade precisa ser revisada"
+                        : `${unresolvedManualCount} possíveis duplicidades precisam ser revisadas`
+                      : confirmedSameOnly
+                        ? "Nada novo para importar"
+                      : duplicateImport
                       ? "Arquivo já importado"
                       : partialConflict
                         ? importableCount
@@ -1704,6 +1874,127 @@ const styles = StyleSheet.create({
   detectedBankText: {
     color: "#175CD3",
     fontSize: 9,
+    fontWeight: "900",
+  },
+  reviewCard: {
+    borderRadius: 18,
+    padding: 14,
+    gap: 12,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  reviewHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  reviewProgress: {
+    color: OB.support,
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  reviewIntro: {
+    color: OB.support,
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 17,
+  },
+  reviewMultiple: {
+    color: "#175CD3",
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  reviewSide: {
+    borderRadius: 14,
+    padding: 12,
+    gap: 8,
+    backgroundColor: OB.offWhite,
+  },
+  reviewSideBank: {
+    backgroundColor: "rgba(55,110,165,0.10)",
+  },
+  reviewSideLabel: {
+    color: OB.primary,
+    fontSize: 10,
+    fontWeight: "900",
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+  },
+  reviewItem: {
+    gap: 2,
+  },
+  reviewNote: {
+    color: OB.primary,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  reviewMeta: {
+    color: OB.support,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  reviewOrigin: {
+    alignSelf: "flex-start",
+    marginTop: 4,
+    color: OB.support,
+    fontSize: 10,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  reviewOriginBank: {
+    alignSelf: "flex-start",
+    marginTop: 4,
+    color: "#376EA5",
+    fontSize: 10,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  reviewActions: {
+    gap: 8,
+  },
+  reviewChoice: {
+    minHeight: 46,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  reviewChoiceDifferent: {
+    backgroundColor: "#fff",
+  },
+  reviewChoiceSelected: {
+    borderColor: OB.primary,
+    backgroundColor: "rgba(6,25,54,0.06)",
+  },
+  reviewChoiceText: {
+    color: OB.primary,
+    fontSize: 13,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  reviewNav: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  reviewNavButton: {
+    flex: 1,
+    minHeight: 40,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: OB.offWhite,
+  },
+  reviewNavButtonDisabled: {
+    opacity: 0.45,
+  },
+  reviewNavText: {
+    color: OB.primary,
+    fontSize: 12,
     fontWeight: "900",
   },
 });
