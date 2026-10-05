@@ -39,8 +39,16 @@ import {
   upsertOnboardingDebtDetail,
   type OnboardingDebtDetail,
 } from "../../src/lib/onboardingDebts";
+import { ymd } from "../../src/lib/date";
 import { formatBRLFromCents, formatBRLInputFromDigits, parseBRLToCents } from "../../src/lib/format";
+import {
+  confirmFinancialPattern,
+  loadFinancialPatternSuggestions,
+  rejectFinancialPattern,
+  type FinancialPatternSuggestion,
+} from "../../src/lib/financialPatternSuggestions";
 import { useSession } from "../../src/providers/SessionProvider";
+import { FinancialPatternInbox } from "../../src/ui/FinancialPatternInbox";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
 import { ScreenHeaderCard } from "../../src/ui/ScreenHeaderCard";
 
@@ -126,6 +134,8 @@ export default function FinancialPlanScreen() {
   const [paydayDay, setPaydayDay] = useState("5");
   const [minimumReserve, setMinimumReserve] = useState("");
   const [commitments, setCommitments] = useState<FinancialCommitment[]>([]);
+  const [patternSuggestions, setPatternSuggestions] = useState<FinancialPatternSuggestion[]>([]);
+  const [busyPatternKey, setBusyPatternKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [savingSettings, setSavingSettings] = useState(false);
   const [savingCommitment, setSavingCommitment] = useState(false);
@@ -168,12 +178,15 @@ export default function FinancialPlanScreen() {
     try {
       setLoading(true);
       setLoadError("");
-      const [settings, rows] = await Promise.all([
+      const referenceDate = ymd(new Date());
+      const [settings, rows, suggestions] = await Promise.all([
         getFinancialSettings(householdId),
         listCommitments(householdId),
+        loadFinancialPatternSuggestions({ householdId, referenceDate }).catch(() => []),
       ]);
       applySettings(settings);
       setCommitments(rows);
+      setPatternSuggestions(suggestions);
       if (guided && settings.updated_by !== null) setGuidedStep(2);
     } catch (error: any) {
       setLoadError(error?.message ?? "Não foi possível carregar seu planejamento.");
@@ -358,8 +371,7 @@ export default function FinancialPlanScreen() {
         await saveOnboardingDebtMetadata({ debts, debtDetails: nextDetails });
         setLocalDebtDetails(nextDetails);
       }
-      const rows = await listCommitments(householdId);
-      setCommitments(rows);
+      await refreshPlanning();
       closeModal();
     } catch (error: any) {
       const message = error?.message ?? "Confira os dados e tente novamente.";
@@ -367,6 +379,54 @@ export default function FinancialPlanScreen() {
       if (Platform.OS !== "web") Alert.alert("Não foi possível salvar", message);
     } finally {
       setSavingCommitment(false);
+    }
+  }
+
+  async function refreshPlanning() {
+    if (!householdId) return;
+    const [rows, suggestions] = await Promise.all([
+      listCommitments(householdId),
+      loadFinancialPatternSuggestions({ householdId, referenceDate: ymd(new Date()) }).catch(() => []),
+    ]);
+    setCommitments(rows);
+    setPatternSuggestions(suggestions);
+  }
+
+  async function handleConfirmPattern(payload: {
+    suggestion: FinancialPatternSuggestion;
+    name: string;
+    amountCents: number;
+    dueDay: number;
+    existingCommitmentId?: string | null;
+  }) {
+    if (!householdId) return;
+    try {
+      setBusyPatternKey(payload.suggestion.decisionKey);
+      setCommitmentSaveError("");
+      await confirmFinancialPattern({ householdId, ...payload });
+      await refreshPlanning();
+    } catch (error: any) {
+      const message = error?.message ?? "Não foi possível adicionar este padrão.";
+      setCommitmentSaveError(message);
+      throw error;
+    } finally {
+      setBusyPatternKey(null);
+    }
+  }
+
+  async function handleRejectPattern(suggestion: FinancialPatternSuggestion) {
+    if (!householdId) return;
+    try {
+      setBusyPatternKey(suggestion.decisionKey);
+      setCommitmentSaveError("");
+      await rejectFinancialPattern({ householdId, suggestion });
+      setPatternSuggestions((current) => current.filter((item) => item.decisionKey !== suggestion.decisionKey));
+    } catch (error: any) {
+      const message = error?.message ?? "Não foi possível ignorar este padrão.";
+      setCommitmentSaveError(message);
+      if (Platform.OS !== "web") Alert.alert("Não foi possível salvar", message);
+    } finally {
+      setBusyPatternKey(null);
     }
   }
 
@@ -583,6 +643,13 @@ export default function FinancialPlanScreen() {
 
               {!guided || guidedStep === 2 ? (
                 <>
+                  <FinancialPatternInbox
+                    suggestions={patternSuggestions}
+                    busyKey={busyPatternKey}
+                    onConfirm={handleConfirmPattern}
+                    onReject={handleRejectPattern}
+                  />
+
                   <View style={styles.commitmentHeader}>
                     <View style={styles.flex}>
                       <Text style={styles.sectionTitle}>O que ainda falta pagar?</Text>
