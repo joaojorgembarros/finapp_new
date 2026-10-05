@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Alert, Image, Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import { router } from "expo-router";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
@@ -14,6 +13,7 @@ import { supabase } from "../../src/lib/supabase";
 import { deleteOwnAccount, requestPasswordReset } from "../../src/lib/auth";
 import { runAccountLogout } from "../../src/lib/accountLogout";
 import { LEGAL_URLS, openLegalUrl } from "../../src/lib/legal";
+import { imagePickerUserMessage, pickImageFromLibrary } from "../../src/lib/imagePicker";
 
 const TYPES: EmploymentType[] = ["CLT", "PJ", "Autônomo", "Estudante", "Outro"];
 
@@ -48,12 +48,6 @@ function base64ToBytes(base64: string) {
   }
 
   return bytes;
-}
-
-function extensionFromMime(mimeType?: string | null) {
-  if (mimeType === "image/png") return "png";
-  if (mimeType === "image/webp") return "webp";
-  return "jpg";
 }
 
 export default function OnboardingProfileScreen() {
@@ -163,21 +157,19 @@ export default function OnboardingProfileScreen() {
   async function pickAvatar() {
     if (!userId || uploadingAvatar) return;
 
-    const result = await DocumentPicker.getDocumentAsync({
-      type: "image/*",
-      copyToCacheDirectory: true,
-    });
-
-    if (result.canceled) return;
-
-    const asset = result.assets[0];
-    if (!asset?.uri) return;
+    let picked;
+    try {
+      picked = await pickImageFromLibrary({ cropSquare: true });
+    } catch (error) {
+      Alert.alert("Foto de perfil", imagePickerUserMessage(error));
+      return;
+    }
+    if (!picked) return;
 
     try {
       setUploadingAvatar(true);
-      const mimeType = asset.mimeType || "image/jpeg";
-      const extension = extensionFromMime(mimeType);
-      const base64 = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.Base64 });
+      const { uri, mimeType, extension } = picked;
+      const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
       const bytes = new Uint8Array(base64ToBytes(base64));
       const path = `${userId}/avatar-${Date.now()}.${extension}`;
 

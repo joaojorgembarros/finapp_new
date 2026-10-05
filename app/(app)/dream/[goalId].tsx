@@ -15,7 +15,6 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
-import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useHouseholdId } from "../../../src/hooks/useHousehold";
@@ -30,6 +29,7 @@ import {
   listGoalContributions,
   updateGoalDetails,
 } from "../../../src/lib/goals";
+import { imagePickerUserMessage, pickImageFromLibrary, type PickedLibraryImage } from "../../../src/lib/imagePicker";
 import { supabase } from "../../../src/lib/supabase";
 import { useSession } from "../../../src/providers/SessionProvider";
 import { OB, OnboardingShell } from "../../../src/ui/OnboardingKit";
@@ -90,24 +90,8 @@ function base64ToBytes(base64: string) {
   return bytes;
 }
 
-function imageExtension(mimeType?: string | null) {
-  if (mimeType === "image/png") return "png";
-  if (mimeType === "image/webp") return "webp";
-  if (mimeType === "image/jpeg" || mimeType === "image/jpg") return "jpg";
-  return null;
-}
-
-type PickedPhoto = {
-  uri: string;
-  fileSize?: number | null;
-  mimeType?: string | null;
-};
-
-async function selectDreamPhoto(): Promise<PickedPhoto | null> {
-  const result = await DocumentPicker.getDocumentAsync({ type: "image/*", copyToCacheDirectory: true });
-  if (result.canceled) return null;
-  const asset = result.assets[0];
-  return asset ? { uri: asset.uri, fileSize: asset.size, mimeType: asset.mimeType } : null;
+async function selectDreamPhoto(): Promise<PickedLibraryImage | null> {
+  return pickImageFromLibrary({ cropSquare: false });
 }
 
 function calendarCells(month: Date) {
@@ -237,29 +221,22 @@ export default function DreamDetailsScreen() {
 
   async function pickPhoto() {
     if (!householdId || !userId || !goal || uploadingPhoto) return;
-    let asset: PickedPhoto | null;
+    let asset: PickedLibraryImage | null;
     try {
       asset = await selectDreamPhoto();
-    } catch (error: any) {
-      return Alert.alert("Escolher foto", error?.message ?? "Não foi possível abrir suas fotos.");
+    } catch (error) {
+      return Alert.alert("Escolher foto", imagePickerUserMessage(error));
     }
-    if (!asset?.uri) return;
-    if (asset.fileSize && asset.fileSize > 5 * 1024 * 1024) {
-      return Alert.alert("Foto muito grande", "Escolha uma imagem de até 5 MB.");
-    }
-
-    const mimeType = asset.mimeType || "image/jpeg";
-    const extension = imageExtension(mimeType);
-    if (!extension) return Alert.alert("Formato não aceito", "Escolha uma foto JPG, PNG ou WebP.");
+    if (!asset) return;
 
     let uploadedPath: string | null = null;
     try {
       setUploadingPhoto(true);
       const base64 = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.Base64 });
       const bytes = new Uint8Array(base64ToBytes(base64));
-      uploadedPath = `${householdId}/${userId}/${goal.id}/cover-${Date.now()}.${extension}`;
+      uploadedPath = `${householdId}/${userId}/${goal.id}/cover-${Date.now()}.${asset.extension}`;
       const { error: uploadError } = await supabase.storage.from("goal-photos").upload(uploadedPath, bytes.buffer, {
-        contentType: mimeType,
+        contentType: asset.mimeType,
         upsert: false,
       });
       if (uploadError) throw uploadError;
