@@ -495,7 +495,9 @@ describe("income observation stays out of planning totals", () => {
     const screen = readFileSync(join(root, "../../app/(app)/financial-plan.tsx"), "utf8");
     const section = readFileSync(join(root, "../ui/ObservedIncomeSection.tsx"), "utf8");
 
-    expect(screen).not.toMatch(/income_fixed_cents|income_variable_avg_cents|expectedMonthlyIncomeCents/);
-    expect(section).not.toMatch(/Usar no planejamento|Confirmar|Rejeitar/);
+    expect(screen).not.toMatch(/upsertProfile|from\("profiles"\)|expectedMonthlyIncomeCents/);
+    expect(section).toMatch(/Usar no planejamento/);
+    expect(section).not.toMatch(/Outras entradas observadas[\s\S]*Usar no planejamento/);
+    expect(section).not.toMatch(/Confirmar|Rejeitar/);
   });
 });

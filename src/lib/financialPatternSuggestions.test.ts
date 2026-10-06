@@ -4,6 +4,7 @@ import {
   isActionablePattern,
   type PatternDetectionTransaction,
 } from "./financialPatternDetection";
+import { incomeAcknowledgementKey } from "./incomeAcknowledgementPlan";
 import {
   buildFinancialPatternSuggestions,
   financialPatternDecisionKey,
@@ -65,6 +66,19 @@ describe("financialPatternDecisionKey", () => {
     expect(nubank).toBe("merchant:v1:expense:nubank:netflix");
     expect(inter).toBe("merchant:v1:expense:inter:netflix");
     expect(nubank).not.toBe(inter);
+  });
+
+  it("uses the same versioned income identity when the amount changes", () => {
+    const key = incomeAcknowledgementKey({
+      normalizedMerchant: "salario:empresa alpha",
+      accountId: "nubank",
+    });
+    expect(key).toBe(financialPatternDecisionKey({
+      direction: "income",
+      normalizedMerchant: "salario:empresa alpha",
+      accountId: "nubank",
+    }));
+    expect(key).toBe("merchant:v1:income:nubank:salario:empresa alpha");
   });
 });
 
