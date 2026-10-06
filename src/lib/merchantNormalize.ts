@@ -53,6 +53,62 @@ const CANONICAL_MERCHANTS: { token: string; key: string; displayName: string }[]
   { token: "folha", key: "salario", displayName: "Salário" },
 ];
 
+const SALARY_MARKERS = new Set(["salario", "folha", "provento"]);
+const LEGAL_SUFFIXES = new Set(["ltda", "eireli", "epp", "mei", "sa"]);
+const PORTUGUESE_CONNECTORS = new Set(["de", "da", "do", "das", "dos"]);
+const INCOME_WRAPPER_TOKENS = new Set([
+  ...GENERIC_PAYMENT_TOKENS,
+  "pagto",
+  "pg",
+  "recebimento",
+]);
+
+function cleanedTokens(note: string) {
+  const cleaned = cleanMerchantText(note);
+  if (!cleaned) return null;
+  const tokens = cleaned.split(" ").filter(Boolean);
+  return tokens.length ? tokens : null;
+}
+
+function incomePayerTokens(tokens: string[], extraDropped: Set<string> = new Set()) {
+  return tokens.filter((token) => (
+    !extraDropped.has(token)
+    && !INCOME_WRAPPER_TOKENS.has(token)
+    && !LEGAL_SUFFIXES.has(token)
+    && !PORTUGUESE_CONNECTORS.has(token)
+  ));
+}
+
+/**
+ * Income-only payer key. Expense grouping keeps using normalizeMerchant.
+ * `salario` when the description has a salary word and no identifiable payer.
+ * `salario:<payer>` when payer words remain after removing salary markers,
+ * generic payment words, legal suffixes and Portuguese connectors.
+ */
+export function incomeSalaryCounterpartyKey(note: string): string | null {
+  const tokens = cleanedTokens(note);
+  if (!tokens || !tokens.some((token) => SALARY_MARKERS.has(token))) return null;
+
+  const payer = incomePayerTokens(tokens, SALARY_MARKERS).join(" ");
+  if (payer.length < 3) return "salario";
+  return `salario:${payer}`;
+}
+
+/**
+ * Non-salary income payer. Null when fewer than two identifying words remain,
+ * so PIX JOAO and TED RECEBIDA stay on the weak merchant path.
+ * Key is the remaining words, for example `empresa beta`.
+ */
+export function incomeCounterpartyKey(note: string): string | null {
+  const tokens = cleanedTokens(note);
+  if (!tokens || tokens.some((token) => SALARY_MARKERS.has(token))) return null;
+
+  const payerTokens = incomePayerTokens(tokens);
+  if (payerTokens.length < 2) return null;
+  const payer = payerTokens.join(" ");
+  return payer.length < 3 ? null : payer;
+}
+
 export function normalizeMerchant(input: string): NormalizedMerchant {
   const cleaned = cleanMerchantText(input);
   if (!cleaned) {

@@ -1,4 +1,9 @@
-import { normalizeMerchant, type NormalizedMerchant } from "./merchantNormalize";
+import {
+  incomeCounterpartyKey,
+  incomeSalaryCounterpartyKey,
+  normalizeMerchant,
+  type NormalizedMerchant,
+} from "./merchantNormalize";
 
 export const PATTERN_DETECTION = {
   windowMonths: 6,
@@ -92,6 +97,12 @@ export const HABIT_OBSERVATION = {
   outlierMultiple: 2,
 } as const;
 
+export const OBSERVED_INCOME = {
+  otherClosedMonthsReviewed: 3,
+  otherMinActiveClosedMonths: 2,
+  otherMinEstimatedMonthlyCents: 5_000,
+} as const;
+
 export type HabitMonthTotal = {
   monthKey: string;
   spentCents: number;
@@ -107,6 +118,40 @@ export type ObservedFinancialHabit = {
   lastSeen: string;
   outlierMonthDiscarded: HabitMonthTotal | null;
   distinctMerchantCount: number;
+};
+
+export type ObservedRecurringIncome = {
+  patternKey: string;
+  behaviorType: "fixed_recurring_income" | "variable_recurring_income";
+  normalizedMerchant: string;
+  accountId: string | null;
+  estimatedMonthlyCents: number;
+  approximateDay: number | null;
+  confidence: number;
+  occurrenceCount: number;
+  firstSeen: string;
+  lastSeen: string;
+  transactionIds: string[];
+  monthsDetected: string[];
+};
+
+export type ObservedOtherInflowMonth = {
+  monthKey: string;
+  observedCents: number;
+};
+
+export type ObservedOtherInflows = {
+  estimatedMonthlyCents: number;
+  currentMonthObservedCents: number;
+  monthsUsed: ObservedOtherInflowMonth[];
+  transactionCount: number;
+  firstSeen: string;
+  lastSeen: string;
+};
+
+export type ObservedIncome = {
+  recurring: ObservedRecurringIncome[];
+  otherInflows: ObservedOtherInflows | null;
 };
 
 export function medianCents(values: number[]): number {
@@ -211,6 +256,35 @@ export function detectObservedHabits(
   return habits.slice(0, HABIT_OBSERVATION.maxPublished);
 }
 
+export function detectObservedIncome(
+  transactions: PatternDetectionTransaction[],
+  options: DetectFinancialPatternsOptions = {},
+): ObservedIncome {
+  const eligible = eligibleTransactions(transactions, options.referenceDate);
+  if (!eligible.length) return { recurring: [], otherInflows: null };
+
+  const reference = eligible.referenceDate;
+  const rows = eligible.filter((row) => compareYmd(row.occurredOn, reference) <= 0);
+  const patterns = detectMerchantPatterns(rows, reference);
+  const recurringPatterns = patterns.filter((pattern) => (
+    (pattern.behaviorType === "fixed_recurring_income" || pattern.behaviorType === "variable_recurring_income")
+    && isActionablePattern(pattern)
+  ));
+  const excludedIds = recognizedRecurringIncomeIds(rows);
+  const rowsById = new Map(rows.map((row) => [row.transaction.id, row]));
+  const recurring = recurringPatterns
+    .map((pattern) => toObservedRecurringIncome(pattern, rowsById))
+    .sort((left, right) => (
+      right.estimatedMonthlyCents - left.estimatedMonthlyCents
+      || left.patternKey.localeCompare(right.patternKey)
+    ));
+
+  return {
+    recurring,
+    otherInflows: detectOtherInflows(rows, reference, excludedIds),
+  };
+}
+
 function eligibleTransactions(transactions: PatternDetectionTransaction[], referenceDate?: string): EligibleSet {
   const parsed = transactions
     .filter((transaction) => !transaction.ignoredAt)
@@ -236,7 +310,7 @@ function eligibleTransactions(transactions: PatternDetectionTransaction[], refer
 function detectMerchantPatterns(rows: EligibleRow[], referenceDate: Ymd): DetectedFinancialPattern[] {
   const groups = new Map<string, EligibleRow[]>();
   for (const row of rows) {
-    const merchant = merchantFrom(row.transaction);
+    const merchant = groupingMerchant(row.transaction);
     const groupKey = [
       row.transaction.type,
       merchant.key || row.transaction.id,
@@ -250,7 +324,7 @@ function detectMerchantPatterns(rows: EligibleRow[], referenceDate: Ymd): Detect
   const patterns: DetectedFinancialPattern[] = [];
   for (const group of groups.values()) {
     const sorted = [...group].sort(compareOccurredThenId);
-    const merchant = merchantFrom(sorted[0].transaction);
+    const merchant = groupingMerchant(sorted[0].transaction);
     const amounts = sorted.map((row) => integerCents(row.transaction.amountCents));
     const dates = sorted.map((row) => row.occurredOn);
     const recent = recentRows(sorted);
@@ -346,6 +420,97 @@ function spentByMonth(rows: EligibleRow[]) {
     totals.set(key, (totals.get(key) ?? 0) + integerCents(row.transaction.amountCents));
   }
   return totals;
+}
+
+function toObservedRecurringIncome(
+  pattern: DetectedFinancialPattern,
+  rowsById: Map<string, EligibleRow>,
+): ObservedRecurringIncome {
+  const monthsDetected = [...new Set(
+    pattern.transactionIds
+      .map((id) => rowsById.get(id))
+      .filter((row): row is EligibleRow => Boolean(row))
+      .map((row) => monthKey(row.occurredOn)),
+  )].sort();
+  return {
+    patternKey: pattern.key,
+    behaviorType: pattern.behaviorType as ObservedRecurringIncome["behaviorType"],
+    normalizedMerchant: pattern.normalizedMerchant || "",
+    accountId: pattern.accountId ?? null,
+    estimatedMonthlyCents: pattern.estimatedAmountCents,
+    approximateDay: pattern.estimatedDay ?? null,
+    confidence: pattern.confidence,
+    occurrenceCount: pattern.occurrenceCount,
+    firstSeen: pattern.firstSeen,
+    lastSeen: pattern.lastSeen,
+    transactionIds: pattern.transactionIds,
+    monthsDetected,
+  };
+}
+
+function recognizedRecurringIncomeIds(rows: EligibleRow[]) {
+  const groups = new Map<string, EligibleRow[]>();
+  for (const row of rows) {
+    if (row.transaction.type !== "income") continue;
+    const merchant = groupingMerchant(row.transaction);
+    const groupKey = [
+      merchant.key || row.transaction.id,
+      row.transaction.accountId ?? "",
+    ].join("|");
+    const current = groups.get(groupKey) ?? [];
+    current.push(row);
+    groups.set(groupKey, current);
+  }
+
+  const ids = new Set<string>();
+  for (const group of groups.values()) {
+    const merchant = groupingMerchant(group[0].transaction);
+    if (merchant.confidence !== "strong" || !merchant.key) continue;
+    const behavior = classifyMerchantBehavior({
+      direction: "income",
+      merchant,
+      occurrenceCount: group.length,
+      cadence: detectCadence(group.map((row) => row.occurredOn)),
+      spread: amountSpread(group.map((row) => integerCents(row.transaction.amountCents))),
+    });
+    if (behavior !== "fixed_recurring_income" && behavior !== "variable_recurring_income") continue;
+    for (const row of group) ids.add(row.transaction.id);
+  }
+  return ids;
+}
+
+// Includes weak payers such as PIX/TED. Own transfers only stay out when transfer_group_id is set.
+function detectOtherInflows(
+  rows: EligibleRow[],
+  reference: Ymd,
+  excludedIds: Set<string>,
+): ObservedOtherInflows | null {
+  const remaining = rows.filter((row) => row.transaction.type === "income" && !excludedIds.has(row.transaction.id));
+  const observed = spentByMonth(remaining);
+  const currentKey = monthKey(reference);
+  const closedKeys = closedMonthKeys(reference, OBSERVED_INCOME.otherClosedMonthsReviewed);
+  const closedSet = new Set(closedKeys);
+  const activeMonths = closedKeys
+    .map((key) => ({ monthKey: key, observedCents: observed.get(key) ?? 0 }))
+    .filter((month) => month.observedCents > 0);
+  if (activeMonths.length < OBSERVED_INCOME.otherMinActiveClosedMonths) return null;
+
+  const evidence = remaining
+    .filter((row) => closedSet.has(monthKey(row.occurredOn)))
+    .sort(compareOccurredThenId);
+  if (!evidence.length) return null;
+
+  const estimatedMonthlyCents = medianCents(activeMonths.map((month) => month.observedCents));
+  if (estimatedMonthlyCents < OBSERVED_INCOME.otherMinEstimatedMonthlyCents) return null;
+
+  return {
+    estimatedMonthlyCents,
+    currentMonthObservedCents: observed.get(currentKey) ?? 0,
+    monthsUsed: activeMonths,
+    transactionCount: evidence.length,
+    firstSeen: formatYmd(evidence[0].occurredOn),
+    lastSeen: formatYmd(evidence[evidence.length - 1].occurredOn),
+  };
 }
 
 function classifyMerchantBehavior(params: {
@@ -494,6 +659,17 @@ function uniqueCategoryId(rows: EligibleRow[]) {
 
 function merchantFrom(transaction: PatternDetectionTransaction) {
   return normalizeMerchant(transaction.originalNote || transaction.note || "");
+}
+
+function groupingMerchant(transaction: PatternDetectionTransaction): NormalizedMerchant {
+  const base = merchantFrom(transaction);
+  if (transaction.type !== "income") return base;
+  const note = transaction.originalNote || transaction.note || "";
+  const salaryKey = incomeSalaryCounterpartyKey(note);
+  if (salaryKey) return { ...base, key: salaryKey, confidence: "strong" };
+  const counterpartyKey = incomeCounterpartyKey(note);
+  if (!counterpartyKey) return base;
+  return { ...base, key: counterpartyKey, confidence: "strong" };
 }
 
 function medianDayOfMonth(dates: Ymd[]) {

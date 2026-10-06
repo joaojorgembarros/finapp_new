@@ -2,10 +2,13 @@ import { listCategories } from "./categories";
 import {
   detectFinancialPatterns,
   detectObservedHabits,
+  detectObservedIncome,
   isActionablePattern,
   PATTERN_DETECTION,
   type DetectedFinancialPattern,
   type ObservedFinancialHabit,
+  type ObservedOtherInflows,
+  type ObservedRecurringIncome,
   type PatternBehaviorType,
   type PatternDetectionTransaction,
   type PatternDirection,
@@ -207,6 +210,61 @@ export async function loadObservedFinancialHabits(params: {
     }));
   } catch (error: any) {
     if (isMissingSchema(error)) return [];
+    throw error;
+  }
+}
+
+export type PlanningObservations = {
+  suggestions: FinancialPatternSuggestion[];
+  habits: ObservedFinancialHabitView[];
+  recurringIncome: ObservedRecurringIncome[];
+  otherInflows: ObservedOtherInflows | null;
+};
+
+export const EMPTY_PLANNING_OBSERVATIONS: PlanningObservations = {
+  suggestions: [],
+  habits: [],
+  recurringIncome: [],
+  otherInflows: null,
+};
+
+export async function loadPlanningObservations(params: {
+  householdId: string;
+  referenceDate: string;
+}): Promise<PlanningObservations> {
+  const referenceDate = requirePatternReferenceDate(params.referenceDate);
+  const windowStart = patternDetectionWindowStart(referenceDate);
+  try {
+    const [transactions, decisions, commitments, categories] = await Promise.all([
+      loadPatternTransactions(params.householdId, windowStart, referenceDate),
+      loadPatternDecisions(params.householdId).catch((error) => {
+        if (isMissingSchema(error)) return [];
+        throw error;
+      }),
+      loadCommitmentsForSuggestions(params.householdId).catch((error) => {
+        if (isMissingSchema(error)) return [];
+        throw error;
+      }),
+      listCategories(params.householdId, "expense").catch(() => []),
+    ]);
+    const names = new Map(categories.map((category) => [category.id, category.name]));
+    const income = detectObservedIncome(transactions, { referenceDate });
+    return {
+      suggestions: buildFinancialPatternSuggestions({
+        transactions,
+        referenceDate,
+        decisions,
+        commitments,
+      }),
+      habits: detectObservedHabits(transactions, { referenceDate }).map((habit) => ({
+        ...habit,
+        categoryName: names.get(habit.categoryId) ?? "",
+      })),
+      recurringIncome: income.recurring,
+      otherInflows: income.otherInflows,
+    };
+  } catch (error: any) {
+    if (isMissingSchema(error)) return EMPTY_PLANNING_OBSERVATIONS;
     throw error;
   }
 }

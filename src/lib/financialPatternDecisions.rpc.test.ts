@@ -100,8 +100,8 @@ describe("phase 2 keeps planning math and the detector untouched", () => {
     const screen = readFileSync(join(migrationDir, "../../app/(app)/financial-plan.tsx"), "utf8");
     const inbox = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../ui/FinancialPatternInbox.tsx"), "utf8");
     expect(screen.match(/const referenceDate = ymd\(new Date\(\)\);/g)).toHaveLength(2);
-    expect(screen).toMatch(/loadFinancialPatternSuggestions\(\{ householdId, referenceDate \}\)\.catch\(\(\) => \[\]\)/);
-    expect(screen).toMatch(/loadObservedFinancialHabits\(\{ householdId, referenceDate \}\)\.catch\(\(\) => \[\]\)/);
+    expect(screen).toMatch(/loadPlanningObservations\(\{ householdId, referenceDate \}\)\.catch\(\(\) => EMPTY_PLANNING_OBSERVATIONS\)/);
+    expect(screen).not.toMatch(/income_fixed_cents|income_variable_avg_cents|Usar no planejamento/);
     expect(inbox).toMatch(/if \(!suggestions.length && !reviewing\) return null;/);
   });
 });

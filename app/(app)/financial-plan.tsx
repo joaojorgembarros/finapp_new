@@ -43,15 +43,17 @@ import { ymd } from "../../src/lib/date";
 import { formatBRLFromCents, formatBRLInputFromDigits, parseBRLToCents } from "../../src/lib/format";
 import {
   confirmFinancialPattern,
-  loadFinancialPatternSuggestions,
-  loadObservedFinancialHabits,
+  EMPTY_PLANNING_OBSERVATIONS,
+  loadPlanningObservations,
   rejectFinancialPattern,
   type FinancialPatternSuggestion,
   type ObservedFinancialHabitView,
 } from "../../src/lib/financialPatternSuggestions";
+import type { ObservedOtherInflows, ObservedRecurringIncome } from "../../src/lib/financialPatternDetection";
 import { useSession } from "../../src/providers/SessionProvider";
 import { FinancialPatternInbox } from "../../src/ui/FinancialPatternInbox";
 import { ObservedHabitsSection } from "../../src/ui/ObservedHabitsSection";
+import { ObservedIncomeSection } from "../../src/ui/ObservedIncomeSection";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
 import { ScreenHeaderCard } from "../../src/ui/ScreenHeaderCard";
 
@@ -139,6 +141,8 @@ export default function FinancialPlanScreen() {
   const [commitments, setCommitments] = useState<FinancialCommitment[]>([]);
   const [patternSuggestions, setPatternSuggestions] = useState<FinancialPatternSuggestion[]>([]);
   const [observedHabits, setObservedHabits] = useState<ObservedFinancialHabitView[]>([]);
+  const [recurringIncome, setRecurringIncome] = useState<ObservedRecurringIncome[]>([]);
+  const [otherInflows, setOtherInflows] = useState<ObservedOtherInflows | null>(null);
   const [busyPatternKey, setBusyPatternKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [savingSettings, setSavingSettings] = useState(false);
@@ -183,16 +187,17 @@ export default function FinancialPlanScreen() {
       setLoading(true);
       setLoadError("");
       const referenceDate = ymd(new Date());
-      const [settings, rows, suggestions, habits] = await Promise.all([
+      const [settings, rows, observations] = await Promise.all([
         getFinancialSettings(householdId),
         listCommitments(householdId),
-        loadFinancialPatternSuggestions({ householdId, referenceDate }).catch(() => []),
-        loadObservedFinancialHabits({ householdId, referenceDate }).catch(() => []),
+        loadPlanningObservations({ householdId, referenceDate }).catch(() => EMPTY_PLANNING_OBSERVATIONS),
       ]);
       applySettings(settings);
       setCommitments(rows);
-      setPatternSuggestions(suggestions);
-      setObservedHabits(habits);
+      setPatternSuggestions(observations.suggestions);
+      setObservedHabits(observations.habits);
+      setRecurringIncome(observations.recurringIncome);
+      setOtherInflows(observations.otherInflows);
       if (guided && settings.updated_by !== null) setGuidedStep(2);
     } catch (error: any) {
       setLoadError(error?.message ?? "Não foi possível carregar seu planejamento.");
@@ -391,14 +396,15 @@ export default function FinancialPlanScreen() {
   async function refreshPlanning() {
     if (!householdId) return;
     const referenceDate = ymd(new Date());
-    const [rows, suggestions, habits] = await Promise.all([
+    const [rows, observations] = await Promise.all([
       listCommitments(householdId),
-      loadFinancialPatternSuggestions({ householdId, referenceDate }).catch(() => []),
-      loadObservedFinancialHabits({ householdId, referenceDate }).catch(() => []),
+      loadPlanningObservations({ householdId, referenceDate }).catch(() => EMPTY_PLANNING_OBSERVATIONS),
     ]);
     setCommitments(rows);
-    setPatternSuggestions(suggestions);
-    setObservedHabits(habits);
+    setPatternSuggestions(observations.suggestions);
+    setObservedHabits(observations.habits);
+    setRecurringIncome(observations.recurringIncome);
+    setOtherInflows(observations.otherInflows);
   }
 
   async function handleConfirmPattern(payload: {
@@ -658,6 +664,7 @@ export default function FinancialPlanScreen() {
                     onConfirm={handleConfirmPattern}
                     onReject={handleRejectPattern}
                   />
+                  <ObservedIncomeSection recurring={recurringIncome} otherInflows={otherInflows} />
                   <ObservedHabitsSection habits={observedHabits} />
 
                   <View style={styles.commitmentHeader}>
