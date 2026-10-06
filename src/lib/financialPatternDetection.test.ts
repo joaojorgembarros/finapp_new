@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   clampConfidence,
   detectFinancialPatterns,
+  detectObservedHabits,
   isActionablePattern,
   medianCents,
   PATTERN_DETECTION,
@@ -80,7 +81,10 @@ describe("detectFinancialPatterns", () => {
   });
 
   it("classifies supermarket spend across merchants as a category habit, not a bill", () => {
-    const patterns = detectFinancialPatterns([
+    const rows = [
+      tx({ id: "s0a", occurredOn: "2026-07-08", amountCents: 7000, note: "Supermercado Extra", categoryId: "alimentacao", accountId: "nubank" }),
+      tx({ id: "s0b", occurredOn: "2026-07-03", amountCents: 7000, note: "Carrefour", categoryId: "alimentacao", accountId: "nubank" }),
+      tx({ id: "s0c", occurredOn: "2026-07-07", amountCents: 7000, note: "Assai Atacadista", categoryId: "alimentacao", accountId: "nubank" }),
       tx({ id: "s1", occurredOn: "2026-08-02", amountCents: 8200, note: "Supermercado Extra", categoryId: "alimentacao", accountId: "nubank" }),
       tx({ id: "s2", occurredOn: "2026-08-12", amountCents: 5400, note: "Carrefour", categoryId: "alimentacao", accountId: "nubank" }),
       tx({ id: "s3", occurredOn: "2026-08-18", amountCents: 6100, note: "Assai Atacadista", categoryId: "alimentacao", accountId: "nubank" }),
@@ -89,15 +93,15 @@ describe("detectFinancialPatterns", () => {
       tx({ id: "s6", occurredOn: "2026-09-20", amountCents: 6700, note: "Assai Atacadista", categoryId: "alimentacao", accountId: "nubank" }),
       tx({ id: "s7", occurredOn: "2026-10-01", amountCents: 8800, note: "Carrefour", categoryId: "alimentacao", accountId: "nubank" }),
       tx({ id: "s8", occurredOn: "2026-10-08", amountCents: 5100, note: "Assai Atacadista", categoryId: "alimentacao", accountId: "nubank" }),
-    ]);
+    ];
+    const patterns = detectFinancialPatterns(rows, { referenceDate: "2026-10-05" });
 
-    expect(patterns.some((pattern) => pattern.behaviorType === "habitual_category_spend")).toBe(true);
+    expect(patterns.some((pattern) => pattern.behaviorType === "habitual_category_spend")).toBe(false);
     expect(patterns.some((pattern) => (
       pattern.behaviorType === "fixed_recurring_expense" || pattern.behaviorType === "variable_recurring_expense"
     ))).toBe(false);
-    const habit = patterns.find((pattern) => pattern.behaviorType === "habitual_category_spend");
-    expect(habit?.categoryId).toBe("alimentacao");
-    expect(isActionablePattern(habit!)).toBe(false);
+    const habits = detectObservedHabits(rows, { referenceDate: "2026-10-05" });
+    expect(habits.map((habit) => habit.categoryId)).toEqual(["alimentacao"]);
   });
 
   it("marks a single purchase as eventual", () => {
@@ -301,7 +305,10 @@ describe("detectFinancialPatterns", () => {
   });
 
   it("classifies category habits across accounts as one household habit", () => {
-    const habit = detectFinancialPatterns([
+    const habits = detectObservedHabits([
+      tx({ id: "s0a", occurredOn: "2026-07-08", amountCents: 7000, note: "Supermercado Extra", categoryId: "alimentacao", accountId: "nubank" }),
+      tx({ id: "s0b", occurredOn: "2026-07-03", amountCents: 7000, note: "Carrefour", categoryId: "alimentacao", accountId: "inter" }),
+      tx({ id: "s0c", occurredOn: "2026-07-07", amountCents: 7000, note: "Assai Atacadista", categoryId: "alimentacao", accountId: "nubank" }),
       tx({ id: "s1", occurredOn: "2026-08-02", amountCents: 8200, note: "Supermercado Extra", categoryId: "alimentacao", accountId: "nubank" }),
       tx({ id: "s2", occurredOn: "2026-08-12", amountCents: 5400, note: "Carrefour", categoryId: "alimentacao", accountId: "inter" }),
       tx({ id: "s3", occurredOn: "2026-08-18", amountCents: 6100, note: "Assai Atacadista", categoryId: "alimentacao", accountId: "nubank" }),
@@ -310,10 +317,11 @@ describe("detectFinancialPatterns", () => {
       tx({ id: "s6", occurredOn: "2026-09-20", amountCents: 6700, note: "Assai Atacadista", categoryId: "alimentacao", accountId: "inter" }),
       tx({ id: "s7", occurredOn: "2026-10-01", amountCents: 8800, note: "Carrefour", categoryId: "alimentacao", accountId: "nubank" }),
       tx({ id: "s8", occurredOn: "2026-10-08", amountCents: 5100, note: "Assai Atacadista", categoryId: "alimentacao", accountId: "inter" }),
-    ]).find((pattern) => pattern.behaviorType === "habitual_category_spend");
+    ], { referenceDate: "2026-10-05" });
 
-    expect(habit?.categoryId).toBe("alimentacao");
-    expect(habit?.accountId).toBeUndefined();
+    expect(habits).toHaveLength(1);
+    expect(habits[0]?.categoryId).toBe("alimentacao");
+    expect(habits[0]).not.toHaveProperty("accountId");
   });
 
   it("allows a stable salary to be actionable but keeps a monthly PIX from a person conservative", () => {

@@ -13,9 +13,6 @@ export const PATTERN_DETECTION = {
   fixedRelativeVariance: 0.05,
   fixedAbsoluteCents: 200,
   variableMaxRelativeVariance: 0.35,
-  habitMinTransactions: 8,
-  habitMinMonths: 2,
-  habitMinDistinctMerchants: 3,
   recentOccurrenceLimit: 3,
   minEstimatedDay: 1,
   maxEstimatedDay: 28,
@@ -28,10 +25,6 @@ export const PATTERN_DETECTION = {
     exactlyThreeOccurrences: 5,
     weakMerchantPenalty: 20,
     excessiveVariancePenalty: 15,
-    habitBase: 10,
-    habitVolume: 15,
-    habitMonths: 10,
-    habitMerchants: 10,
   },
 } as const;
 
@@ -90,6 +83,32 @@ export type DetectFinancialPatternsOptions = {
   referenceDate?: string;
 };
 
+export const HABIT_OBSERVATION = {
+  closedMonthsReviewed: 4,
+  minActiveClosedMonths: 3,
+  minTransactions: 4,
+  minEstimatedMonthlyCents: 5_000,
+  maxPublished: 5,
+  outlierMultiple: 2,
+} as const;
+
+export type HabitMonthTotal = {
+  monthKey: string;
+  spentCents: number;
+};
+
+export type ObservedFinancialHabit = {
+  categoryId: string;
+  estimatedMonthlyCents: number;
+  currentMonthSpentCents: number;
+  monthsUsed: HabitMonthTotal[];
+  transactionCount: number;
+  firstSeen: string;
+  lastSeen: string;
+  outlierMonthDiscarded: HabitMonthTotal | null;
+  distinctMerchantCount: number;
+};
+
 export function medianCents(values: number[]): number {
   if (!values.length) return 0;
   const sorted = [...values].map(integerCents).sort((left, right) => left - right);
@@ -119,9 +138,77 @@ export function detectFinancialPatterns(
   const eligible = eligibleTransactions(transactions, options.referenceDate);
   if (!eligible.length) return [];
 
-  const merchantPatterns = detectMerchantPatterns(eligible, eligible.referenceDate);
-  const habitPatterns = detectHabitPatterns(eligible);
-  return [...merchantPatterns, ...habitPatterns].sort(comparePatterns);
+  return detectMerchantPatterns(eligible, eligible.referenceDate).sort(comparePatterns);
+}
+
+export function detectObservedHabits(
+  transactions: PatternDetectionTransaction[],
+  options: DetectFinancialPatternsOptions = {},
+): ObservedFinancialHabit[] {
+  const eligible = eligibleTransactions(transactions, options.referenceDate);
+  if (!eligible.length) return [];
+
+  const reference = eligible.referenceDate;
+  const excluded = recurringExpenseIds(detectMerchantPatterns(eligible, reference));
+  const currentKey = monthKey(reference);
+  const closedKeys = closedMonthKeys(reference, HABIT_OBSERVATION.closedMonthsReviewed);
+  const closedSet = new Set(closedKeys);
+  const groups = new Map<string, EligibleRow[]>();
+
+  for (const row of eligible) {
+    if (row.transaction.type !== "expense") continue;
+    const categoryId = row.transaction.categoryId;
+    if (!categoryId) continue;
+    if (excluded.has(row.transaction.id)) continue;
+    const current = groups.get(categoryId) ?? [];
+    current.push(row);
+    groups.set(categoryId, current);
+  }
+
+  const habits: ObservedFinancialHabit[] = [];
+  for (const [categoryId, group] of groups) {
+    const spent = spentByMonth(group);
+    const closedTotals = closedKeys.map((key) => ({
+      monthKey: key,
+      spentCents: spent.get(key) ?? 0,
+    }));
+    const activeMonths = closedTotals.filter((month) => month.spentCents > 0);
+    if (activeMonths.length < HABIT_OBSERVATION.minActiveClosedMonths) continue;
+
+    const evidence = group
+      .filter((row) => closedSet.has(monthKey(row.occurredOn)))
+      .sort(compareOccurredThenId);
+    if (evidence.length < HABIT_OBSERVATION.minTransactions) continue;
+
+    const currentMonthSpentCents = spent.get(currentKey) ?? 0;
+    const lastSeen = evidence[evidence.length - 1].occurredOn;
+    const closedHistoryIsRecent = daysBetween(lastSeen, reference) <= PATTERN_DETECTION.monthlyRecencyMaxDays;
+    if (!closedHistoryIsRecent && currentMonthSpentCents <= 0) continue;
+
+    const estimate = habitEstimate(activeMonths.slice(-3));
+    if (estimate.estimatedMonthlyCents < HABIT_OBSERVATION.minEstimatedMonthlyCents) continue;
+
+    const merchants = new Set(
+      evidence.map((row) => merchantFrom(row.transaction).key).filter(Boolean),
+    );
+    habits.push({
+      categoryId,
+      estimatedMonthlyCents: estimate.estimatedMonthlyCents,
+      currentMonthSpentCents,
+      monthsUsed: estimate.monthsUsed,
+      transactionCount: evidence.length,
+      firstSeen: formatYmd(evidence[0].occurredOn),
+      lastSeen: formatYmd(lastSeen),
+      outlierMonthDiscarded: estimate.outlierMonthDiscarded,
+      distinctMerchantCount: merchants.size,
+    });
+  }
+
+  habits.sort((left, right) => (
+    right.estimatedMonthlyCents - left.estimatedMonthlyCents
+    || left.categoryId.localeCompare(right.categoryId)
+  ));
+  return habits.slice(0, HABIT_OBSERVATION.maxPublished);
 }
 
 function eligibleTransactions(transactions: PatternDetectionTransaction[], referenceDate?: string): EligibleSet {
@@ -208,44 +295,57 @@ function detectMerchantPatterns(rows: EligibleRow[], referenceDate: Ymd): Detect
   return patterns;
 }
 
-function detectHabitPatterns(rows: EligibleRow[]): DetectedFinancialPattern[] {
-  const expenses = rows.filter((row) => row.transaction.type === "expense" && row.transaction.categoryId);
-  const groups = new Map<string, EligibleRow[]>();
-  for (const row of expenses) {
-    const categoryId = row.transaction.categoryId as string;
-    const current = groups.get(categoryId) ?? [];
-    current.push(row);
-    groups.set(categoryId, current);
-  }
-
-  const patterns: DetectedFinancialPattern[] = [];
-  for (const [categoryId, group] of groups) {
-    const merchants = new Set(group.map((row) => merchantFrom(row.transaction).key).filter(Boolean));
-    const months = new Set(group.map((row) => `${row.occurredOn.year}-${pad2(row.occurredOn.month)}`));
+function recurringExpenseIds(patterns: DetectedFinancialPattern[]) {
+  const ids = new Set<string>();
+  for (const pattern of patterns) {
     if (
-      group.length < PATTERN_DETECTION.habitMinTransactions ||
-      months.size < PATTERN_DETECTION.habitMinMonths ||
-      merchants.size < PATTERN_DETECTION.habitMinDistinctMerchants
+      pattern.behaviorType !== "fixed_recurring_expense"
+      && pattern.behaviorType !== "variable_recurring_expense"
     ) {
       continue;
     }
-
-    const sorted = [...group].sort(compareOccurredThenId);
-    patterns.push({
-      key: `habit:expense:${categoryId}`,
-      direction: "expense",
-      behaviorType: "habitual_category_spend",
-      categoryId,
-      cadence: "unknown",
-      estimatedAmountCents: medianCents(monthlyTotals(sorted)),
-      confidence: scoreHabitPattern(sorted.length, months.size, merchants.size),
-      occurrenceCount: sorted.length,
-      firstSeen: formatYmd(sorted[0].occurredOn),
-      lastSeen: formatYmd(sorted[sorted.length - 1].occurredOn),
-      transactionIds: sorted.map((row) => row.transaction.id),
-    });
+    if (!isActionablePattern(pattern)) continue;
+    for (const id of pattern.transactionIds) ids.add(id);
   }
-  return patterns;
+  return ids;
+}
+
+function habitEstimate(months: HabitMonthTotal[]) {
+  const highest = Math.max(...months.map((month) => month.spentCents));
+  const peaks = months.filter((month) => month.spentCents === highest);
+  if (peaks.length === 1 && months.length >= 2) {
+    const others = months.filter((month) => month.monthKey !== peaks[0].monthKey);
+    const othersMedian = medianCents(others.map((month) => month.spentCents));
+    if (highest > othersMedian * HABIT_OBSERVATION.outlierMultiple) {
+      return {
+        monthsUsed: others,
+        estimatedMonthlyCents: othersMedian,
+        outlierMonthDiscarded: peaks[0],
+      };
+    }
+  }
+  return {
+    monthsUsed: months,
+    estimatedMonthlyCents: medianCents(months.map((month) => month.spentCents)),
+    outlierMonthDiscarded: null,
+  };
+}
+
+function closedMonthKeys(reference: Ymd, count: number) {
+  const keys: string[] = [];
+  for (let delta = count; delta >= 1; delta -= 1) {
+    keys.push(monthKey(addMonthsYmd({ year: reference.year, month: reference.month, day: 1 }, -delta)));
+  }
+  return keys;
+}
+
+function spentByMonth(rows: EligibleRow[]) {
+  const totals = new Map<string, number>();
+  for (const row of rows) {
+    const key = monthKey(row.occurredOn);
+    totals.set(key, (totals.get(key) ?? 0) + integerCents(row.transaction.amountCents));
+  }
+  return totals;
 }
 
 function classifyMerchantBehavior(params: {
@@ -285,15 +385,6 @@ function scoreMerchantPattern(params: {
   if (params.spread.relative > PATTERN_DETECTION.variableMaxRelativeVariance) {
     total -= score.excessiveVariancePenalty;
   }
-  return clampConfidence(total);
-}
-
-function scoreHabitPattern(occurrenceCount: number, monthCount: number, merchantCount: number) {
-  const { score } = PATTERN_DETECTION;
-  let total = score.habitBase;
-  if (occurrenceCount >= PATTERN_DETECTION.habitMinTransactions) total += score.habitVolume;
-  if (monthCount >= PATTERN_DETECTION.habitMinMonths) total += score.habitMonths;
-  if (merchantCount >= PATTERN_DETECTION.habitMinDistinctMerchants) total += score.habitMerchants;
   return clampConfidence(total);
 }
 
@@ -394,15 +485,6 @@ function recentRows(rows: EligibleRow[]) {
   const inWindow = rows.filter((row) => compareYmd(row.occurredOn, cutoff) >= 0);
   if (inWindow.length >= PATTERN_DETECTION.minRecurringOccurrences) return inWindow;
   return rows.slice(-PATTERN_DETECTION.recentOccurrenceLimit);
-}
-
-function monthlyTotals(rows: EligibleRow[]) {
-  const totals = new Map<string, number>();
-  for (const row of rows) {
-    const month = `${row.occurredOn.year}-${pad2(row.occurredOn.month)}`;
-    totals.set(month, (totals.get(month) ?? 0) + integerCents(row.transaction.amountCents));
-  }
-  return [...totals.values()];
 }
 
 function uniqueCategoryId(rows: EligibleRow[]) {

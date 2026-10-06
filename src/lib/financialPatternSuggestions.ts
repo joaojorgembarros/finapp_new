@@ -1,8 +1,11 @@
+import { listCategories } from "./categories";
 import {
   detectFinancialPatterns,
+  detectObservedHabits,
   isActionablePattern,
   PATTERN_DETECTION,
   type DetectedFinancialPattern,
+  type ObservedFinancialHabit,
   type PatternBehaviorType,
   type PatternDetectionTransaction,
   type PatternDirection,
@@ -176,6 +179,32 @@ export async function loadFinancialPatternSuggestions(params: {
       decisions,
       commitments,
     });
+  } catch (error: any) {
+    if (isMissingSchema(error)) return [];
+    throw error;
+  }
+}
+
+export type ObservedFinancialHabitView = ObservedFinancialHabit & {
+  categoryName: string;
+};
+
+export async function loadObservedFinancialHabits(params: {
+  householdId: string;
+  referenceDate: string;
+}): Promise<ObservedFinancialHabitView[]> {
+  const referenceDate = requirePatternReferenceDate(params.referenceDate);
+  const windowStart = patternDetectionWindowStart(referenceDate);
+  try {
+    const [transactions, categories] = await Promise.all([
+      loadPatternTransactions(params.householdId, windowStart, referenceDate),
+      listCategories(params.householdId, "expense"),
+    ]);
+    const names = new Map(categories.map((category) => [category.id, category.name]));
+    return detectObservedHabits(transactions, { referenceDate }).map((habit) => ({
+      ...habit,
+      categoryName: names.get(habit.categoryId) ?? "",
+    }));
   } catch (error: any) {
     if (isMissingSchema(error)) return [];
     throw error;

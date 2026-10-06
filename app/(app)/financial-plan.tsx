@@ -44,11 +44,14 @@ import { formatBRLFromCents, formatBRLInputFromDigits, parseBRLToCents } from ".
 import {
   confirmFinancialPattern,
   loadFinancialPatternSuggestions,
+  loadObservedFinancialHabits,
   rejectFinancialPattern,
   type FinancialPatternSuggestion,
+  type ObservedFinancialHabitView,
 } from "../../src/lib/financialPatternSuggestions";
 import { useSession } from "../../src/providers/SessionProvider";
 import { FinancialPatternInbox } from "../../src/ui/FinancialPatternInbox";
+import { ObservedHabitsSection } from "../../src/ui/ObservedHabitsSection";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
 import { ScreenHeaderCard } from "../../src/ui/ScreenHeaderCard";
 
@@ -135,6 +138,7 @@ export default function FinancialPlanScreen() {
   const [minimumReserve, setMinimumReserve] = useState("");
   const [commitments, setCommitments] = useState<FinancialCommitment[]>([]);
   const [patternSuggestions, setPatternSuggestions] = useState<FinancialPatternSuggestion[]>([]);
+  const [observedHabits, setObservedHabits] = useState<ObservedFinancialHabitView[]>([]);
   const [busyPatternKey, setBusyPatternKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [savingSettings, setSavingSettings] = useState(false);
@@ -179,14 +183,16 @@ export default function FinancialPlanScreen() {
       setLoading(true);
       setLoadError("");
       const referenceDate = ymd(new Date());
-      const [settings, rows, suggestions] = await Promise.all([
+      const [settings, rows, suggestions, habits] = await Promise.all([
         getFinancialSettings(householdId),
         listCommitments(householdId),
         loadFinancialPatternSuggestions({ householdId, referenceDate }).catch(() => []),
+        loadObservedFinancialHabits({ householdId, referenceDate }).catch(() => []),
       ]);
       applySettings(settings);
       setCommitments(rows);
       setPatternSuggestions(suggestions);
+      setObservedHabits(habits);
       if (guided && settings.updated_by !== null) setGuidedStep(2);
     } catch (error: any) {
       setLoadError(error?.message ?? "Não foi possível carregar seu planejamento.");
@@ -384,12 +390,15 @@ export default function FinancialPlanScreen() {
 
   async function refreshPlanning() {
     if (!householdId) return;
-    const [rows, suggestions] = await Promise.all([
+    const referenceDate = ymd(new Date());
+    const [rows, suggestions, habits] = await Promise.all([
       listCommitments(householdId),
-      loadFinancialPatternSuggestions({ householdId, referenceDate: ymd(new Date()) }).catch(() => []),
+      loadFinancialPatternSuggestions({ householdId, referenceDate }).catch(() => []),
+      loadObservedFinancialHabits({ householdId, referenceDate }).catch(() => []),
     ]);
     setCommitments(rows);
     setPatternSuggestions(suggestions);
+    setObservedHabits(habits);
   }
 
   async function handleConfirmPattern(payload: {
@@ -649,6 +658,7 @@ export default function FinancialPlanScreen() {
                     onConfirm={handleConfirmPattern}
                     onReject={handleRejectPattern}
                   />
+                  <ObservedHabitsSection habits={observedHabits} />
 
                   <View style={styles.commitmentHeader}>
                     <View style={styles.flex}>
