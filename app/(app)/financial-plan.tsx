@@ -50,10 +50,20 @@ import {
   type ObservedFinancialHabitView,
 } from "../../src/lib/financialPatternSuggestions";
 import type { ObservedOtherInflows, ObservedRecurringIncome } from "../../src/lib/financialPatternDetection";
+import { getProfile } from "../../src/lib/profile";
+import { acknowledgeIncomePattern } from "../../src/lib/incomeAcknowledgement";
+import {
+  incomeAcknowledgementKey,
+  incomeTargetField,
+  isStaleIncomeAcknowledgementError,
+  similarIncomeAccountWarning,
+  type IncomeAcknowledgement,
+} from "../../src/lib/incomeAcknowledgementPlan";
 import { useSession } from "../../src/providers/SessionProvider";
 import { FinancialPatternInbox } from "../../src/ui/FinancialPatternInbox";
 import { ObservedHabitsSection } from "../../src/ui/ObservedHabitsSection";
 import { ObservedIncomeSection } from "../../src/ui/ObservedIncomeSection";
+import { ObservedIncomePlanSheet } from "../../src/ui/ObservedIncomePlanSheet";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
 import { ScreenHeaderCard } from "../../src/ui/ScreenHeaderCard";
 
@@ -143,6 +153,10 @@ export default function FinancialPlanScreen() {
   const [observedHabits, setObservedHabits] = useState<ObservedFinancialHabitView[]>([]);
   const [recurringIncome, setRecurringIncome] = useState<ObservedRecurringIncome[]>([]);
   const [otherInflows, setOtherInflows] = useState<ObservedOtherInflows | null>(null);
+  const [incomeAcknowledgements, setIncomeAcknowledgements] = useState<IncomeAcknowledgement[]>([]);
+  const [incomeAcknowledgementsUnavailable, setIncomeAcknowledgementsUnavailable] = useState(true);
+  const [incomePlan, setIncomePlan] = useState<{ income: ObservedRecurringIncome; currentCents: number } | null>(null);
+  const [savingIncomePlan, setSavingIncomePlan] = useState(false);
   const [busyPatternKey, setBusyPatternKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [savingSettings, setSavingSettings] = useState(false);
@@ -190,7 +204,7 @@ export default function FinancialPlanScreen() {
       const [settings, rows, observations] = await Promise.all([
         getFinancialSettings(householdId),
         listCommitments(householdId),
-        loadPlanningObservations({ householdId, referenceDate }).catch(() => EMPTY_PLANNING_OBSERVATIONS),
+        loadPlanningObservations({ householdId, userId: userId ?? "", referenceDate }).catch(() => EMPTY_PLANNING_OBSERVATIONS),
       ]);
       applySettings(settings);
       setCommitments(rows);
@@ -198,13 +212,15 @@ export default function FinancialPlanScreen() {
       setObservedHabits(observations.habits);
       setRecurringIncome(observations.recurringIncome);
       setOtherInflows(observations.otherInflows);
+      setIncomeAcknowledgements(observations.incomeAcknowledgements);
+      setIncomeAcknowledgementsUnavailable(observations.incomeAcknowledgementsUnavailable);
       if (guided && settings.updated_by !== null) setGuidedStep(2);
     } catch (error: any) {
       setLoadError(error?.message ?? "Não foi possível carregar seu planejamento.");
     } finally {
       setLoading(false);
     }
-  }, [applySettings, guided, householdId, householdLoading]);
+  }, [applySettings, guided, householdId, householdLoading, userId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -398,13 +414,94 @@ export default function FinancialPlanScreen() {
     const referenceDate = ymd(new Date());
     const [rows, observations] = await Promise.all([
       listCommitments(householdId),
-      loadPlanningObservations({ householdId, referenceDate }).catch(() => EMPTY_PLANNING_OBSERVATIONS),
+      loadPlanningObservations({ householdId, userId: userId ?? "", referenceDate }).catch(() => EMPTY_PLANNING_OBSERVATIONS),
     ]);
     setCommitments(rows);
     setPatternSuggestions(observations.suggestions);
     setObservedHabits(observations.habits);
     setRecurringIncome(observations.recurringIncome);
     setOtherInflows(observations.otherInflows);
+    setIncomeAcknowledgements(observations.incomeAcknowledgements);
+    setIncomeAcknowledgementsUnavailable(observations.incomeAcknowledgementsUnavailable);
+  }
+
+  async function openIncomePlan(income: ObservedRecurringIncome) {
+    if (!userId || savingIncomePlan) return;
+    try {
+      const profile = await getProfile(userId);
+      if (!profile) {
+        Alert.alert("Renda", "Seu perfil ainda não está pronto.");
+        return;
+      }
+      const currentCents = incomeTargetField(income.behaviorType) === "income_fixed_cents"
+        ? profile.income_fixed_cents
+        : profile.income_variable_avg_cents;
+      setIncomePlan({ income, currentCents });
+    } catch (error: any) {
+      Alert.alert("Renda", error?.message ?? "Não foi possível abrir a renda agora.");
+    }
+  }
+
+  async function saveIncomePlan(desiredTotalCents: number) {
+    if (!householdId || !incomePlan || savingIncomePlan) return;
+    try {
+      setSavingIncomePlan(true);
+      await acknowledgeIncomePattern({
+        householdId,
+        patternKey: incomeAcknowledgementKey(incomePlan.income),
+        targetField: incomeTargetField(incomePlan.income.behaviorType),
+        decision: "incorporated",
+        suggestedCents: incomePlan.income.estimatedMonthlyCents,
+        desiredTotalCents,
+        expectedCurrentCents: incomePlan.currentCents,
+        accountId: incomePlan.income.accountId,
+        normalizedMerchant: incomePlan.income.normalizedMerchant,
+        behaviorType: incomePlan.income.behaviorType,
+      });
+      setIncomePlan(null);
+      await refreshPlanning();
+    } catch (error: any) {
+      if (isStaleIncomeAcknowledgementError(error)) {
+        setIncomePlan(null);
+        await refreshPlanning();
+        Alert.alert("Renda", "Renda alterada em outro lugar. Atualize os valores e tente novamente.");
+        return;
+      }
+      Alert.alert("Renda", error?.message ?? "Não foi possível salvar a renda.");
+    } finally {
+      setSavingIncomePlan(false);
+    }
+  }
+
+  async function declineIncomePlan() {
+    if (!householdId || !incomePlan || savingIncomePlan) return;
+    try {
+      setSavingIncomePlan(true);
+      await acknowledgeIncomePattern({
+        householdId,
+        patternKey: incomeAcknowledgementKey(incomePlan.income),
+        targetField: incomeTargetField(incomePlan.income.behaviorType),
+        decision: "declined",
+        suggestedCents: incomePlan.income.estimatedMonthlyCents,
+        desiredTotalCents: incomePlan.currentCents,
+        expectedCurrentCents: incomePlan.currentCents,
+        accountId: incomePlan.income.accountId,
+        normalizedMerchant: incomePlan.income.normalizedMerchant,
+        behaviorType: incomePlan.income.behaviorType,
+      });
+      setIncomePlan(null);
+      await refreshPlanning();
+    } catch (error: any) {
+      if (isStaleIncomeAcknowledgementError(error)) {
+        setIncomePlan(null);
+        await refreshPlanning();
+        Alert.alert("Renda", "Renda alterada em outro lugar. Atualize os valores e tente novamente.");
+        return;
+      }
+      Alert.alert("Renda", error?.message ?? "Não foi possível registrar a decisão.");
+    } finally {
+      setSavingIncomePlan(false);
+    }
   }
 
   async function handleConfirmPattern(payload: {
@@ -664,7 +761,14 @@ export default function FinancialPlanScreen() {
                     onConfirm={handleConfirmPattern}
                     onReject={handleRejectPattern}
                   />
-                  <ObservedIncomeSection recurring={recurringIncome} otherInflows={otherInflows} />
+                  <ObservedIncomeSection
+                    recurring={recurringIncome}
+                    otherInflows={otherInflows}
+                    acknowledgements={incomeAcknowledgements}
+                    acknowledgementsUnavailable={incomeAcknowledgementsUnavailable}
+                    onUseIncome={(income) => void openIncomePlan(income)}
+                    onReviewIncome={(income) => void openIncomePlan(income)}
+                  />
                   <ObservedHabitsSection habits={observedHabits} />
 
                   <View style={styles.commitmentHeader}>
@@ -809,6 +913,44 @@ export default function FinancialPlanScreen() {
           )}
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <Modal
+        visible={incomePlan != null}
+        animationType="fade"
+        transparent
+        statusBarTranslucent
+        navigationBarTranslucent={Platform.OS === "android"}
+        presentationStyle="overFullScreen"
+        onRequestClose={() => {
+          if (!savingIncomePlan) setIncomePlan(null);
+        }}
+      >
+        <View style={styles.scrimRoot}>
+          <Pressable
+            style={styles.scrim}
+            onPress={() => {
+              if (!savingIncomePlan) setIncomePlan(null);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Fechar"
+          />
+          <View style={styles.scrimStage} pointerEvents="box-none">
+            {incomePlan ? (
+              <ObservedIncomePlanSheet
+                income={incomePlan.income}
+                currentCents={incomePlan.currentCents}
+                accountWarning={similarIncomeAccountWarning(incomePlan.income, recurringIncome.filter((item) => item.patternKey !== incomePlan.income.patternKey))}
+                busy={savingIncomePlan}
+                onClose={() => {
+                  if (!savingIncomePlan) setIncomePlan(null);
+                }}
+                onSave={(desiredTotalCents) => void saveIncomePlan(desiredTotalCents)}
+                onDecline={() => void declineIncomePlan()}
+              />
+            ) : null}
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         visible={modalVisible}

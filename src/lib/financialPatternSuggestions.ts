@@ -1,4 +1,5 @@
 import { listCategories } from "./categories";
+import { mapIncomeAcknowledgement, type IncomeAcknowledgement } from "./incomeAcknowledgement";
 import {
   detectFinancialPatterns,
   detectObservedHabits,
@@ -219,6 +220,8 @@ export type PlanningObservations = {
   habits: ObservedFinancialHabitView[];
   recurringIncome: ObservedRecurringIncome[];
   otherInflows: ObservedOtherInflows | null;
+  incomeAcknowledgements: IncomeAcknowledgement[];
+  incomeAcknowledgementsUnavailable: boolean;
 };
 
 export const EMPTY_PLANNING_OBSERVATIONS: PlanningObservations = {
@@ -226,16 +229,19 @@ export const EMPTY_PLANNING_OBSERVATIONS: PlanningObservations = {
   habits: [],
   recurringIncome: [],
   otherInflows: null,
+  incomeAcknowledgements: [],
+  incomeAcknowledgementsUnavailable: true,
 };
 
 export async function loadPlanningObservations(params: {
   householdId: string;
+  userId: string;
   referenceDate: string;
 }): Promise<PlanningObservations> {
   const referenceDate = requirePatternReferenceDate(params.referenceDate);
   const windowStart = patternDetectionWindowStart(referenceDate);
   try {
-    const [transactions, decisions, commitments, categories] = await Promise.all([
+    const [transactions, decisions, commitments, categories, incomeAcknowledgements] = await Promise.all([
       loadPatternTransactions(params.householdId, windowStart, referenceDate),
       loadPatternDecisions(params.householdId).catch((error) => {
         if (isMissingSchema(error)) return [];
@@ -246,6 +252,7 @@ export async function loadPlanningObservations(params: {
         throw error;
       }),
       listCategories(params.householdId, "expense").catch(() => []),
+      loadIncomeAcknowledgements(params.householdId, params.userId),
     ]);
     const names = new Map(categories.map((category) => [category.id, category.name]));
     const income = detectObservedIncome(transactions, { referenceDate });
@@ -262,6 +269,8 @@ export async function loadPlanningObservations(params: {
       })),
       recurringIncome: income.recurring,
       otherInflows: income.otherInflows,
+      incomeAcknowledgements: incomeAcknowledgements.rows,
+      incomeAcknowledgementsUnavailable: incomeAcknowledgements.unavailable,
     };
   } catch (error: any) {
     if (isMissingSchema(error)) return EMPTY_PLANNING_OBSERVATIONS;
@@ -422,6 +431,19 @@ function compactName(value: string) {
 function amountWithinTolerance(amountCents: number, estimatedAmountCents: number, ratio: number) {
   const allowed = Math.max(1, Math.round(estimatedAmountCents * ratio));
   return Math.abs(amountCents - estimatedAmountCents) <= allowed;
+}
+
+async function loadIncomeAcknowledgements(householdId: string, userId: string) {
+  const { data, error } = await sb
+    .from("financial_income_acknowledgements")
+    .select("pattern_key,target_field,decision,suggested_cents,profile_cents_before,profile_cents_after,account_id,normalized_merchant,behavior_type")
+    .eq("household_id", householdId)
+    .eq("user_id", userId);
+  if (error) return { rows: [] as IncomeAcknowledgement[], unavailable: true };
+  return {
+    rows: ((data ?? []) as Parameters<typeof mapIncomeAcknowledgement>[0][]).map(mapIncomeAcknowledgement),
+    unavailable: false,
+  };
 }
 
 function isMissingSchema(error: any) {
