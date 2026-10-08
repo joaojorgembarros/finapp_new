@@ -175,9 +175,19 @@ export async function paginateObservedSummaryTransactions(
 export async function loadObservedSummaryTransactions(params: {
   householdId: string;
   referenceDate: string;
+  /**
+   * Inclusive `occurred_on` lower bound.
+   * Omitted values keep the 6-month observed window used by the monthly summary.
+   */
+  occurredFrom?: string;
 }) {
   const referenceDate = requireObservedSummaryReferenceDate(params.referenceDate);
-  const windowStart = observedSummaryWindowStart(referenceDate);
+  const windowStart = params.occurredFrom
+    ? requireObservedSummaryReferenceDate(params.occurredFrom)
+    : observedSummaryWindowStart(referenceDate);
+  if (windowStart > referenceDate) {
+    throw new Error("O início do histórico observado é posterior à data de referência.");
+  }
   return paginateObservedSummaryTransactions(async (from, to) => {
     const { data, error } = await sb
       .from("transactions")

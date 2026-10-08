@@ -23,8 +23,15 @@ import {
   getFinancialSettings,
 } from "../../lib/financialPlanning";
 import {
-  loadObservedSummaryTransactions,
+  buildFinancialObservedHistory,
+  coversObservedHistoryRange,
+  loadObservedHistoryTransactions,
+  observedHistoryFetchStart,
+  type ObservedHistoryRange,
+} from "../../lib/financialObservedHistory";
+import {
   type FinancialObservedSummary,
+  type ObservedSummaryTransaction,
 } from "../../lib/financialObservedSummary";
 import { loadObservedSummaryForUi } from "../../lib/observedSummaryLoad";
 import { sortPendingCommitments } from "../../lib/financialOverviewPresentation";
@@ -38,13 +45,21 @@ import {
   buildObservedMonthHero,
 } from "../../lib/observedSummaryPresentation";
 import {
+  buildObservedHistoryMonthRows,
+  buildObservedHistoryPeriod,
+  observedHistoryGapNote,
+} from "../../lib/observedHistoryPresentation";
+import {
   JOURNEY_HEADER_HEIGHT,
   getJourneyBottomContentInset,
 } from "../../ui/journeyChrome";
 import { OB } from "../../ui/OnboardingKit";
 import { ObservedCategoryBreakdown } from "./ObservedCategoryBreakdown";
 import { ObservedComparisonCard } from "./ObservedComparisonCard";
+import { ObservedHistoryHero } from "./ObservedHistoryHero";
+import { ObservedHistoryRangeSelector } from "./ObservedHistoryRangeSelector";
 import { ObservedMonthHero } from "./ObservedMonthHero";
+import { ObservedMonthSeries } from "./ObservedMonthSeries";
 import { ObservedPlanningAccess } from "./ObservedPlanningAccess";
 
 export function SummaryTab({
@@ -68,17 +83,29 @@ export function SummaryTab({
 }) {
   const insets = useSafeAreaInsets();
   const [summary, setSummary] = useState<FinancialObservedSummary | null>(null);
+  const [range, setRange] = useState<ObservedHistoryRange>("month");
+  const [observedTransactions, setObservedTransactions] = useState<ObservedSummaryTransaction[]>([]);
+  const [observedReferenceDate, setObservedReferenceDate] = useState<string | null>(null);
+  const [coverageStart, setCoverageStart] = useState<string | null>(null);
   const [knownCategoryIds, setKnownCategoryIds] = useState<ReadonlySet<string>>(new Set());
   const [overview, setOverview] = useState<FinancialOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [setupGuideDismissed, setSetupGuideDismissed] = useState(false);
   const loadTokenRef = useRef(0);
+  const rangeRef = useRef(range);
+  const appliedRangeRef = useRef(range);
+  const observedReferenceDateRef = useRef<string | null>(null);
+  rangeRef.current = range;
 
-  const loadObserved = useCallback(async () => {
+  const loadObserved = useCallback(async (reason: "focus" | "range") => {
     const loadToken = ++loadTokenRef.current;
     if (!householdId) {
       setSummary(null);
+      setObservedTransactions([]);
+      setObservedReferenceDate(null);
+      setCoverageStart(null);
+      observedReferenceDateRef.current = null;
       setKnownCategoryIds(new Set());
       setLoadError(null);
       setLoading(false);
@@ -87,22 +114,35 @@ export function SummaryTab({
     try {
       setLoading(true);
       setLoadError(null);
-      const referenceDate = ymd(new Date());
+      const selectedRange = rangeRef.current;
+      const referenceDate = reason === "range" && observedReferenceDateRef.current
+        ? observedReferenceDateRef.current
+        : ymd(new Date());
+      const fetchStart = observedHistoryFetchStart(referenceDate, selectedRange);
+      const transactions = await loadObservedHistoryTransactions({
+        householdId,
+        referenceDate,
+        range: selectedRange,
+      });
       const loaded = await loadObservedSummaryForUi({
         referenceDate,
-        loadTransactions: () => loadObservedSummaryTransactions({ householdId, referenceDate }),
+        loadTransactions: async () => transactions,
         loadCategories: async () => {
           const categories = await listCategories(householdId);
           return categories.map((category) => ({ id: category.id, name: category.name }));
         },
       });
       if (loadToken !== loadTokenRef.current) return;
+      observedReferenceDateRef.current = referenceDate;
+      setObservedReferenceDate(referenceDate);
+      setCoverageStart(fetchStart);
+      setObservedTransactions(transactions);
       setKnownCategoryIds(new Set(loaded.knownCategoryIds));
       setSummary(loaded.summary);
     } catch (error: any) {
       if (loadToken !== loadTokenRef.current) return;
       const message = "Tente novamente em alguns instantes.";
-      setSummary(null);
+      if (reason === "focus") setSummary(null);
       setLoadError(message);
       if (Platform.OS !== "web") {
         Alert.alert("Não foi possível carregar seu resumo", error?.message ?? message);
@@ -129,10 +169,23 @@ export function SummaryTab({
 
   useFocusEffect(
     useCallback(() => {
-      void loadObserved();
+      void loadObserved("focus");
       void loadPlanning();
     }, [loadObserved, loadPlanning])
   );
+
+  useEffect(() => {
+    if (appliedRangeRef.current === range) return;
+    appliedRangeRef.current = range;
+    if (
+      observedReferenceDate
+      && coverageStart
+      && coversObservedHistoryRange(coverageStart, observedReferenceDate, range)
+    ) {
+      return;
+    }
+    void loadObserved("range");
+  }, [coverageStart, loadObserved, observedReferenceDate, range]);
 
   useEffect(() => {
     setSetupGuideDismissed(false);
@@ -159,6 +212,19 @@ export function SummaryTab({
       dreamsAllocatedCents: overview.allocatedCents ?? 0,
     });
   }, [overview]);
+
+  const history = useMemo(() => {
+    if (!observedReferenceDate || !coverageStart) return null;
+    if (!coversObservedHistoryRange(coverageStart, observedReferenceDate, range)) return null;
+    return buildFinancialObservedHistory({
+      transactions: observedTransactions,
+      referenceDate: observedReferenceDate,
+      range,
+    });
+  }, [coverageStart, observedReferenceDate, observedTransactions, range]);
+  const historyPeriod = history && range !== "month" ? buildObservedHistoryPeriod(history) : null;
+  const historyRows = history && range !== "month" ? buildObservedHistoryMonthRows(history) : [];
+  const historyGapNote = history && range !== "month" ? observedHistoryGapNote(history) : null;
 
   const hero = summary ? buildObservedMonthHero(summary) : null;
   const comparison = summary ? buildObservedComparison(summary) : null;
@@ -235,7 +301,7 @@ export function SummaryTab({
         <View style={styles.errorCard}>
           <Text style={styles.errorTitle}>Não foi possível atualizar</Text>
           <Text style={styles.errorText}>{loadError}</Text>
-          <Pressable onPress={() => void loadObserved()} style={styles.errorButton}>
+          <Pressable onPress={() => void loadObserved("focus")} style={styles.errorButton}>
             <Text style={styles.errorButtonText}>Tentar novamente</Text>
           </Pressable>
         </View>
@@ -248,17 +314,34 @@ export function SummaryTab({
         </View>
       ) : summary && hero && comparison ? (
         <>
-          <ObservedMonthHero
-            presentation={hero}
-            onAddMovement={() => router.push("/(app)/new-transaction")}
-            onImportStatement={() => router.push("/(app)/import-csv")}
-          />
-          <ObservedComparisonCard presentation={comparison} />
-          {summary.dataQuality.isCurrentPeriodEmpty ? null : (
-            <ObservedCategoryBreakdown
-              rows={categoryRows}
-              onOrganizeCategories={() => router.push("/(app)/categories")}
-            />
+          <ObservedHistoryRangeSelector range={range} onChange={setRange} />
+          {range === "month" ? (
+            <>
+              <ObservedMonthHero
+                presentation={hero}
+                onAddMovement={() => router.push("/(app)/new-transaction")}
+                onImportStatement={() => router.push("/(app)/import-csv")}
+              />
+              <ObservedComparisonCard presentation={comparison} />
+              {summary.dataQuality.isCurrentPeriodEmpty ? null : (
+                <ObservedCategoryBreakdown
+                  rows={categoryRows}
+                  onOrganizeCategories={() => router.push("/(app)/categories")}
+                />
+              )}
+            </>
+          ) : historyPeriod ? (
+            <>
+              <ObservedHistoryHero presentation={historyPeriod} />
+              {history?.dataQuality.hasAnyData ? (
+                <ObservedMonthSeries rows={historyRows} gapNote={historyGapNote} />
+              ) : null}
+            </>
+          ) : loadError ? null : (
+            <View style={styles.loadingCard}>
+              <ActivityIndicator color={OB.primary} />
+              <Text style={styles.loadingText}>Organizando o período...</Text>
+            </View>
           )}
 
           {showPlanningGuide ? (
