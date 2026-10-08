@@ -16,6 +16,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { listCategories } from "../../lib/categories";
 import { ymd } from "../../lib/date";
 import {
+  loadFinancialKnownCashPosition,
+  type FinancialKnownCashPosition,
+} from "../../lib/financialCashPosition";
+import { buildKnownCashCard } from "../../lib/knownCashPresentation";
+import {
   FinancialOverview,
   FinancialOverviewCommitment,
   getCycleForOffset,
@@ -57,6 +62,7 @@ import { OB } from "../../ui/OnboardingKit";
 import { ObservedCategoryBreakdown } from "./ObservedCategoryBreakdown";
 import { ObservedComparisonCard } from "./ObservedComparisonCard";
 import { ObservedHistoryHero } from "./ObservedHistoryHero";
+import { ObservedKnownCashCard } from "./ObservedKnownCashCard";
 import { ObservedHistoryRangeSelector } from "./ObservedHistoryRangeSelector";
 import { ObservedMonthHero } from "./ObservedMonthHero";
 import { ObservedMonthSeries } from "./ObservedMonthSeries";
@@ -91,8 +97,11 @@ export function SummaryTab({
   const [overview, setOverview] = useState<FinancialOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [cashPosition, setCashPosition] = useState<FinancialKnownCashPosition | null>(null);
+  const [cashStatus, setCashStatus] = useState<"loading" | "ready" | "error">("loading");
   const [setupGuideDismissed, setSetupGuideDismissed] = useState(false);
   const loadTokenRef = useRef(0);
+  const cashTokenRef = useRef(0);
   const rangeRef = useRef(range);
   const appliedRangeRef = useRef(range);
   const observedReferenceDateRef = useRef<string | null>(null);
@@ -152,6 +161,29 @@ export function SummaryTab({
     }
   }, [householdId]);
 
+  const loadKnownCash = useCallback(async () => {
+    const cashToken = ++cashTokenRef.current;
+    if (!householdId) {
+      setCashPosition(null);
+      setCashStatus("ready");
+      return;
+    }
+    setCashStatus((current) => (current === "ready" ? current : "loading"));
+    try {
+      const position = await loadFinancialKnownCashPosition({
+        householdId,
+        referenceDate: ymd(new Date()),
+      });
+      if (cashToken !== cashTokenRef.current) return;
+      setCashPosition(position);
+      setCashStatus("ready");
+    } catch {
+      if (cashToken !== cashTokenRef.current) return;
+      setCashPosition(null);
+      setCashStatus("error");
+    }
+  }, [householdId]);
+
   const loadPlanning = useCallback(async () => {
     if (!householdId || !userId) {
       setOverview(null);
@@ -170,8 +202,9 @@ export function SummaryTab({
   useFocusEffect(
     useCallback(() => {
       void loadObserved("focus");
+      void loadKnownCash();
       void loadPlanning();
-    }, [loadObserved, loadPlanning])
+    }, [loadKnownCash, loadObserved, loadPlanning])
   );
 
   useEffect(() => {
@@ -225,6 +258,11 @@ export function SummaryTab({
   const historyPeriod = history && range !== "month" ? buildObservedHistoryPeriod(history) : null;
   const historyRows = history && range !== "month" ? buildObservedHistoryMonthRows(history) : [];
   const historyGapNote = history && range !== "month" ? observedHistoryGapNote(history) : null;
+
+  const cashCard = buildKnownCashCard({
+    status: cashStatus,
+    position: cashPosition,
+  });
 
   const hero = summary ? buildObservedMonthHero(summary) : null;
   const comparison = summary ? buildObservedComparison(summary) : null;
@@ -316,12 +354,22 @@ export function SummaryTab({
         <>
           <ObservedHistoryRangeSelector range={range} onChange={setRange} />
           {range === "month" ? (
+            <ObservedMonthHero
+              presentation={hero}
+              onAddMovement={() => router.push("/(app)/new-transaction")}
+              onImportStatement={() => router.push("/(app)/import-csv")}
+            />
+          ) : historyPeriod ? (
+            <ObservedHistoryHero presentation={historyPeriod} />
+          ) : loadError ? null : (
+            <View style={styles.loadingCard}>
+              <ActivityIndicator color={OB.primary} />
+              <Text style={styles.loadingText}>Organizando o período...</Text>
+            </View>
+          )}
+          <ObservedKnownCashCard presentation={cashCard} onRetry={() => void loadKnownCash()} />
+          {range === "month" ? (
             <>
-              <ObservedMonthHero
-                presentation={hero}
-                onAddMovement={() => router.push("/(app)/new-transaction")}
-                onImportStatement={() => router.push("/(app)/import-csv")}
-              />
               <ObservedComparisonCard presentation={comparison} />
               {summary.dataQuality.isCurrentPeriodEmpty ? null : (
                 <ObservedCategoryBreakdown
@@ -330,19 +378,9 @@ export function SummaryTab({
                 />
               )}
             </>
-          ) : historyPeriod ? (
-            <>
-              <ObservedHistoryHero presentation={historyPeriod} />
-              {history?.dataQuality.hasAnyData ? (
-                <ObservedMonthSeries rows={historyRows} gapNote={historyGapNote} />
-              ) : null}
-            </>
-          ) : loadError ? null : (
-            <View style={styles.loadingCard}>
-              <ActivityIndicator color={OB.primary} />
-              <Text style={styles.loadingText}>Organizando o período...</Text>
-            </View>
-          )}
+          ) : history?.dataQuality.hasAnyData ? (
+            <ObservedMonthSeries rows={historyRows} gapNote={historyGapNote} />
+          ) : null}
 
           {showPlanningGuide ? (
             <View style={styles.guideCard}>
