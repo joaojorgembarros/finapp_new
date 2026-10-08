@@ -188,9 +188,8 @@ export async function addGoalContribution(opts: {
   amount_cents: number;
   note?: string;
 }) {
-  // source_kind stays unset on purpose. After the known-cash migration, the
-  // column default manual_unverified classifies this "já guardei" row.
-  // Sending the column before that migration is applied would reject the insert.
+  // "Já guardei" stays manual_unverified by database default.
+  // Known-cash distribution uses allocate_known_cash_to_goal and must not share this insert.
   const { error } = await sb.from("goal_contribution_entries").insert({
     household_id: opts.householdId,
     goal_id: opts.goalId,

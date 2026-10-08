@@ -60,6 +60,7 @@ import {
   type IncomeAcknowledgement,
 } from "../../src/lib/incomeAcknowledgementPlan";
 import { useSession } from "../../src/providers/SessionProvider";
+import { AllocatableCashSection } from "../../src/features/planning/AllocatableCashSection";
 import { FinancialPatternInbox } from "../../src/ui/FinancialPatternInbox";
 import { ObservedHabitsSection } from "../../src/ui/ObservedHabitsSection";
 import { ObservedIncomeSection } from "../../src/ui/ObservedIncomeSection";
@@ -159,6 +160,7 @@ export default function FinancialPlanScreen() {
   const [savingIncomePlan, setSavingIncomePlan] = useState(false);
   const [busyPatternKey, setBusyPatternKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [cashRefreshKey, setCashRefreshKey] = useState(0);
   const [savingSettings, setSavingSettings] = useState(false);
   const [savingCommitment, setSavingCommitment] = useState(false);
   const [loadError, setLoadError] = useState("");
@@ -272,6 +274,7 @@ export default function FinancialPlanScreen() {
         reserveCents: parseBRLToCents(minimumReserve),
       });
       applySettings(saved);
+      setCashRefreshKey((current) => current + 1);
       if (guided) {
         Keyboard.dismiss();
         setGuidedStep(2);
@@ -423,6 +426,7 @@ export default function FinancialPlanScreen() {
     setOtherInflows(observations.otherInflows);
     setIncomeAcknowledgements(observations.incomeAcknowledgements);
     setIncomeAcknowledgementsUnavailable(observations.incomeAcknowledgementsUnavailable);
+    setCashRefreshKey((current) => current + 1);
   }
 
   async function openIncomePlan(income: ObservedRecurringIncome) {
@@ -549,6 +553,7 @@ export default function FinancialPlanScreen() {
         setCommitmentSaveError("");
         await archiveCommitment(householdId, commitment.id);
         setCommitments((current) => current.filter((item) => item.id !== commitment.id));
+        setCashRefreshKey((current) => current + 1);
         const stored = ownedOnboardingDetailForCommitment(debtDetails, commitment.id);
         if (stored) {
           const nextDetails = upsertOnboardingDebtDetail(debtDetails, {
@@ -619,6 +624,10 @@ export default function FinancialPlanScreen() {
                 : "Adicione somente contas, dívidas ou parcelas que ainda precisam ser pagas."
               : "Diga quando seu dinheiro se renova e o que já está comprometido."}
           />
+
+          {!guided && householdId ? (
+            <AllocatableCashSection householdId={householdId} refreshKey={cashRefreshKey} />
+          ) : null}
 
           {busy ? (
             <View style={styles.stateCard}>
