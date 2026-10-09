@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Alert,
   Image,
-  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -19,9 +18,9 @@ import * as FileSystem from "expo-file-system/legacy";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useHouseholdId } from "../../../src/hooks/useHousehold";
 import { useKeyboardAwareScroll } from "../../../src/hooks/useKeyboardAwareScroll";
-import { formatBRLFromCents, formatBRLInputFromDigits, parseBRLToCents } from "../../../src/lib/format";
+import { formatBRLFromCents } from "../../../src/lib/format";
+import { contributionHistoryPresentation } from "../../../src/lib/goalContributionReviewPresentation";
 import {
-  addGoalContribution,
   getGoalWithProgress,
   getSignedGoalPhotoUrl,
   GoalContribution,
@@ -29,6 +28,7 @@ import {
   listGoalContributions,
   updateGoalDetails,
 } from "../../../src/lib/goals";
+import { SaveGoalMoneyCard } from "../../../src/features/journey/SaveGoalMoneyCard";
 import { imagePickerUserMessage, pickImageFromLibrary, type PickedLibraryImage } from "../../../src/lib/imagePicker";
 import { supabase } from "../../../src/lib/supabase";
 import { useSession } from "../../../src/providers/SessionProvider";
@@ -125,19 +125,16 @@ export default function DreamDetailsScreen() {
   const goalId = Array.isArray(params.goalId) ? params.goalId[0] : params.goalId;
   const { userId } = useSession();
   const { householdId, loading: householdLoading } = useHouseholdId(userId);
-  const { scrollRef, keyboardInset, registerField, focusField, cancelPendingScroll } = useKeyboardAwareScroll<"motivation" | "contribution">();
+  const { scrollRef, keyboardInset, registerField, focusField, cancelPendingScroll } = useKeyboardAwareScroll<"motivation">();
 
   const [goal, setGoal] = useState<GoalProgress | null>(null);
   const [contributions, setContributions] = useState<GoalContribution[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingDetails, setSavingDetails] = useState(false);
-  const [savingContribution, setSavingContribution] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [motivation, setMotivation] = useState("");
   const [desiredDate, setDesiredDate] = useState<string | null>(null);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
-  const [amount, setAmount] = useState("");
-  const [note, setNote] = useState("");
   const [visibleMonth, setVisibleMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
 
@@ -187,7 +184,6 @@ export default function DreamDetailsScreen() {
   const progress = goal ? clampProgress((goal.contributed_cents / Math.max(goal.target_cents, 1)) * 100) : 0;
   const completed = progress >= 100;
   const metrics = deadlineMetrics(goal, desiredDate);
-  const amountCents = parseBRLToCents(amount);
   const contributionDays = useMemo(() => new Set(contributions.map((entry) => entry.contributed_on)), [contributions]);
   const cells = useMemo(() => calendarCells(visibleMonth), [visibleMonth]);
   const selectedContributions = useMemo(
@@ -265,34 +261,6 @@ export default function DreamDetailsScreen() {
       Alert.alert("Não foi possível enviar", error?.message ?? "Tente novamente com outra foto.");
     } finally {
       setUploadingPhoto(false);
-    }
-  }
-
-  async function saveContribution() {
-    if (!householdId || !userId || !goal || savingContribution || completed) return;
-    if (!amountCents) return Alert.alert("Valor para o sonho", "Digite quanto você guardou para continuar.");
-    if (amountCents > metrics.remainingCents) {
-      return Alert.alert("Valor para o sonho", `Você pode adicionar até ${formatBRLFromCents(metrics.remainingCents)} para concluir este sonho.`);
-    }
-
-    try {
-      setSavingContribution(true);
-      await addGoalContribution({
-        householdId,
-        goalId: goal.id,
-        userId,
-        amount_cents: amountCents,
-        note,
-      });
-      setAmount("");
-      setNote("");
-      setSelectedDay(toYmd(new Date()));
-      setVisibleMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
-      await load();
-    } catch (error: any) {
-      Alert.alert("Adicionar valor", error?.message ?? "Não foi possível adicionar esse valor ao sonho.");
-    } finally {
-      setSavingContribution(false);
     }
   }
 
@@ -437,25 +405,14 @@ export default function DreamDetailsScreen() {
             </Pressable>
           </View>
 
-          {!completed ? (
-            <View style={styles.card} onLayout={registerField("contribution")}>
-              <View style={styles.sectionHeading}>
-                <View style={styles.sectionIcon}><Ionicons name="add" size={20} color={OB.primary} /></View>
-                <View style={{ flex: 1 }}><Text style={styles.sectionTitle}>Adicionar valor</Text><Text style={styles.sectionSubtitle}>Informe quanto você guardou para este sonho.</Text></View>
-              </View>
-              <View>
-                <Text style={styles.fieldLabel}>Valor</Text>
-                <View style={styles.moneyInputWrap}><Text style={styles.moneyPrefix}>R$</Text><TextInput value={amount.replace("R$", "").trim()} onChangeText={(text) => setAmount(formatBRLInputFromDigits(text))} placeholder="0,00" placeholderTextColor={OB.support} keyboardType="number-pad" returnKeyType="done" selectTextOnFocus onFocus={() => focusField("contribution")} onPressIn={() => focusField("contribution")} onSubmitEditing={Keyboard.dismiss} style={styles.moneyInput} /></View>
-              </View>
-              <View>
-                <Text style={styles.fieldLabel}>Observação <Text style={styles.optionalLabel}>(opcional)</Text></Text>
-                <TextInput value={note} onChangeText={setNote} placeholder="Ex.: reserva do salário" placeholderTextColor={OB.support} returnKeyType="done" onFocus={() => focusField("contribution")} onPressIn={() => focusField("contribution")} onSubmitEditing={Keyboard.dismiss} style={styles.noteInput} />
-              </View>
-              {amountCents > metrics.remainingCents ? <Text style={styles.amountError}>O valor ultrapassa o que falta para concluir.</Text> : null}
-              <Pressable onPress={() => void saveContribution()} disabled={!amountCents || amountCents > metrics.remainingCents || savingContribution} style={[styles.contributionButton, (!amountCents || amountCents > metrics.remainingCents || savingContribution) && styles.buttonDisabled]}>
-                {savingContribution ? <ActivityIndicator color="#fff" /> : <><Text style={styles.contributionButtonText}>Adicionar ao sonho</Text><Ionicons name="arrow-forward" size={18} color="#fff" /></>}
-              </Pressable>
-            </View>
+          {!completed && householdId ? (
+            <SaveGoalMoneyCard
+              householdId={householdId}
+              goalId={goal.id}
+              goalTitle={goal.title}
+              remainingCents={metrics.remainingCents}
+              onSaved={load}
+            />
           ) : null}
 
           <View style={styles.card}>
@@ -489,12 +446,24 @@ export default function DreamDetailsScreen() {
             {selectedDay ? (
               <View style={styles.selectedDayCard}>
                 <Text style={styles.selectedDayTitle}>{formatDate(selectedDay)}</Text>
-                {selectedContributions.length ? selectedContributions.map((entry) => (
-                  <View key={entry.id} style={styles.historyRow}>
-                    <View style={styles.historyIcon}><Ionicons name="arrow-up" size={17} color="#169B62" /></View>
-                    <View style={{ flex: 1 }}><Text style={styles.historyAmount}>{formatBRLFromCents(entry.amount_cents)}</Text><Text style={styles.historyMeta}>{entry.note || "Sem observação"}</Text></View>
-                  </View>
-                )) : <Text style={styles.emptyDayText}>Nenhum valor foi adicionado neste dia.</Text>}
+                {selectedContributions.length ? selectedContributions.map((entry) => {
+                  const history = contributionHistoryPresentation({
+                    amountCents: entry.amount_cents,
+                    effectiveCents: entry.effective_cents,
+                    sourceKind: entry.source_kind,
+                  });
+                  return (
+                    <View key={entry.id} style={styles.historyRow}>
+                      <View style={styles.historyIcon}><Ionicons name={entry.reversed ? "remove" : "arrow-up"} size={17} color={entry.reversed ? OB.support : "#169B62"} /></View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.historyAmount}>{history.headline}</Text>
+                        <Text style={styles.historyMeta}>{history.status}</Text>
+                        {history.originalCaption ? <Text style={styles.historyMeta}>{history.originalCaption}</Text> : null}
+                        {entry.note ? <Text style={styles.historyMeta}>{entry.note}</Text> : null}
+                      </View>
+                    </View>
+                  );
+                }) : <Text style={styles.emptyDayText}>Nenhum valor foi adicionado neste dia.</Text>}
               </View>
             ) : (
               <Text style={styles.calendarHint}>Toque em um dia para ver os valores guardados.</Text>

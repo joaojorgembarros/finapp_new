@@ -101,7 +101,7 @@ describe("allocatable cash presentation", () => {
     ["same_bank_risk", "Não conseguimos confirmar todas as contas deste banco.", null],
     ["missing_account_snapshot", "Há uma conta no histórico sem saldo conhecido.", null],
     ["dates_differ", "Seus saldos estão em datas diferentes.", "Atualizar extrato"],
-    ["ambiguous_goal_contributions", "Existem valores antigos guardados em sonhos que precisam ser revisados.", null],
+    ["ambiguous_goal_contributions", "Existem valores antigos guardados em sonhos que precisam ser revisados.", "Revisar valores guardados"],
   ] as const)("explains %s without enabling distribution", (reason, message, ctaLabel) => {
     const view = buildAllocatableCashView({
       status: "ready",
@@ -115,7 +115,23 @@ describe("allocatable cash presentation", () => {
     if (view.kind !== "blocked") return;
     expect(view.message).toBe(message);
     expect(view.ctaLabel).toBe(ctaLabel);
+    expect(view.ctaAction).toBe(reason === "ambiguous_goal_contributions" ? "review" : ctaLabel ? "import" : null);
     expect(view).not.toHaveProperty("amountCents");
+  });
+
+  it("offers review when old savings are an extra blocker", () => {
+    const view = buildAllocatableCashView({
+      status: "ready",
+      position: position({
+        canAllocate: false,
+        availableToOrganizeCents: null,
+        blockReasons: ["stale_snapshot", "ambiguous_goal_contributions"],
+      }),
+    });
+    expect(view.kind).toBe("blocked");
+    if (view.kind !== "blocked") return;
+    expect(view.ctaAction).toBe("import");
+    expect(view.reviewCtaLabel).toBe("Revisar valores guardados");
   });
 
   it("rejects zero, amounts above the available cash, and amounts above the goal", () => {

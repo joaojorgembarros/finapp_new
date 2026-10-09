@@ -10,12 +10,14 @@ export function AllocatableCashCard({
   notice,
   onRetry,
   onImport,
+  onReview,
   onDistribute,
 }: {
   presentation: AllocatableCashView;
   notice?: string | null;
   onRetry: () => void;
   onImport: () => void;
+  onReview: () => void;
   onDistribute: () => void;
 }) {
   return (
@@ -53,12 +55,22 @@ export function AllocatableCashCard({
           {presentation.asOf ? <Text style={styles.asOf}>{presentation.asOf}</Text> : null}
           {presentation.ctaLabel ? (
             <Pressable
-              onPress={onImport}
+              onPress={presentation.ctaAction === "review" ? onReview : onImport}
               style={styles.secondaryButton}
               accessibilityRole="button"
               accessibilityLabel={presentation.ctaLabel}
             >
               <Text style={styles.secondaryText}>{presentation.ctaLabel}</Text>
+            </Pressable>
+          ) : null}
+          {presentation.reviewCtaLabel ? (
+            <Pressable
+              onPress={onReview}
+              style={styles.secondaryButton}
+              accessibilityRole="button"
+              accessibilityLabel={presentation.reviewCtaLabel}
+            >
+              <Text style={styles.secondaryText}>{presentation.reviewCtaLabel}</Text>
             </Pressable>
           ) : null}
         </>

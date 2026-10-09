@@ -20,6 +20,7 @@ export const ALLOCATABLE_CASH_COPY = {
   goalChanged: "Esse sonho já recebeu um valor e o limite mudou.",
   conflict: "Essa destinação já foi registrada com outro valor. Escolha o valor de novo.",
   allocateError: "Não foi possível destinar agora. Tente novamente.",
+  reviewSaved: "Revisar valores guardados",
   noGoals: "Nenhum sonho em andamento para receber esse valor.",
   earmarkNotice: "Esse valor será marcado como destinado ao seu sonho. Isso não movimenta dinheiro entre contas.",
 } as const;
@@ -57,7 +58,7 @@ const BLOCKER_COPY: Record<AllocatableCashBlockReason, {
   ambiguous_goal_contributions: {
     message: "Existem valores antigos guardados em sonhos que precisam ser revisados.",
     detail: "Por segurança, não vamos contar esse dinheiro duas vezes.",
-    ctaLabel: null,
+    ctaLabel: ALLOCATABLE_CASH_COPY.reviewSaved,
   },
 };
 
@@ -77,6 +78,8 @@ export type AllocatableCashView =
     message: string;
     detail: string | null;
     ctaLabel: string | null;
+    ctaAction: "import" | "review" | null;
+    reviewCtaLabel: string | null;
     asOf: string | null;
     extraReasons: string[];
   }
@@ -164,12 +167,16 @@ export function buildAllocatableCashView(input: {
   if (!position.canAllocate || position.availableToOrganizeCents == null) {
     const [primary, ...rest] = position.blockReasons;
     const copy = primary ? BLOCKER_COPY[primary] : null;
+    const primaryIsReview = primary === "ambiguous_goal_contributions";
+    const reviewAlsoPending = rest.includes("ambiguous_goal_contributions");
     return {
       kind: "blocked",
       title: ALLOCATABLE_CASH_COPY.title,
       message: copy?.message ?? "Ainda não dá para organizar esse dinheiro com segurança.",
       detail: copy?.detail ?? null,
       ctaLabel: copy?.ctaLabel ?? null,
+      ctaAction: primaryIsReview ? "review" : copy?.ctaLabel ? "import" : null,
+      reviewCtaLabel: reviewAlsoPending ? ALLOCATABLE_CASH_COPY.reviewSaved : null,
       asOf,
       extraReasons: rest.map((reason) => BLOCKER_COPY[reason].message),
     };

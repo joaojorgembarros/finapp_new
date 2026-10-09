@@ -71,6 +71,7 @@ export function AllocatableCashSection({
           void load();
         }}
         onImport={() => router.push("/(app)/import-extract")}
+        onReview={() => router.push("/(app)/review-goal-contributions")}
         onDistribute={() => {
           if (!canOpenSheet) return;
           setNotice(null);
