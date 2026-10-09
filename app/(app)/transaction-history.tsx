@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -9,16 +9,17 @@ import {
   Platform,
   Pressable,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
-  useWindowDimensions,
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { MovementFilters } from "../../src/features/movements/MovementFilters";
+import { MovementFirstUse } from "../../src/features/movements/MovementFirstUse";
+import { MovementQuickActions } from "../../src/features/movements/MovementQuickActions";
 import { useHouseholdId } from "../../src/hooks/useHousehold";
 import { useKeyboardAwareScroll } from "../../src/hooks/useKeyboardAwareScroll";
 import { findTransactionAccountById } from "../../src/lib/banks";
@@ -26,11 +27,19 @@ import { formatBRLFromCents, formatDateBRFromYMD } from "../../src/lib/format";
 import { getEditTransactionHref } from "../../src/lib/editTransactionNavigation";
 import {
   filterMovementsForList,
-  filterMovementsForTotals,
   isInternalTransferLeg,
-  periodBalanceCaption,
-  summarizeMovementTotals,
 } from "../../src/lib/internalTransfers";
+import {
+  CLEARED_MOVEMENT_LIST_FILTERS,
+  hasActiveMovementListFilters,
+  hasFinancialHistory,
+  MANAGE_IMPORTS_HREF,
+  resolveAccountFilter,
+  type MovementFlowFilter,
+} from "../../src/lib/movementHistoryPresentation";
+import { resolveMovementListContext } from "../../src/lib/movementImportContext";
+import { onlyImportAfterStatementDeletion } from "../../src/lib/statementImportManagement";
+import { statementImportExists } from "../../src/lib/statementImports";
 import { listTransactionHistory, TxRow } from "../../src/lib/transactions";
 import { useSession } from "../../src/providers/SessionProvider";
 import { BankLogo } from "../../src/ui/BankLogo";
@@ -42,16 +51,13 @@ import {
 } from "../../src/ui/journeyChrome";
 import { ScreenHeaderCard } from "../../src/ui/ScreenHeaderCard";
 
-type FlowFilter = "all" | "income" | "expense";
 type TransactionHistoryScreenProps = {
   embedded?: boolean;
   onScroll?: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
 };
 
-function monthLabel(monthKey: string) {
-  const [year, month] = monthKey.split("-").map(Number);
-  const label = new Date(year, month - 1, 1).toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
-  return label.charAt(0).toUpperCase() + label.slice(1);
+function routeParam(value?: string | string[]) {
+  return Array.isArray(value) ? value[0] : value;
 }
 
 function accountName(accountId: string | null) {
@@ -113,11 +119,15 @@ export function TransactionHistoryScreen({
   embedded = false,
   onScroll,
 }: TransactionHistoryScreenProps = {}) {
-  const params = useLocalSearchParams<{ importId?: string | string[] }>();
-  const requestedImportId = Array.isArray(params.importId) ? params.importId[0] : params.importId;
-  const { width } = useWindowDimensions();
+  const params = useLocalSearchParams<{
+    importId?: string | string[];
+    postImport?: string | string[];
+    onlyImport?: string | string[];
+  }>();
+  const requestedImportId = routeParam(params.importId);
+  const onlyImportParam = routeParam(params.onlyImport);
+  const postImportActive = routeParam(params.postImport) === "1" && Boolean(requestedImportId);
   const insets = useSafeAreaInsets();
-  const stackActions = width < 600;
   const { userId } = useSession();
   const { householdId, loading: householdLoading } = useHouseholdId(userId);
   const { scrollRef, keyboardInset, registerField, focusField, cancelPendingScroll } = useKeyboardAwareScroll<"search">();
@@ -126,20 +136,62 @@ export function TransactionHistoryScreen({
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [search, setSearch] = useState("");
-  const [flow, setFlow] = useState<FlowFilter>("all");
+  const [flow, setFlow] = useState<MovementFlowFilter>("all");
   const [month, setMonth] = useState("all");
   const [account, setAccount] = useState("all");
-  const [statementImportId, setStatementImportId] = useState<string | null>(requestedImportId ?? null);
+  const [statementImportId, setStatementImportId] = useState<string | null>(null);
+  const [importNoticeDismissed, setImportNoticeDismissed] = useState(false);
+  const seenPostImportId = useRef<string | null>(null);
 
   useEffect(() => {
-    setStatementImportId(requestedImportId ?? null);
-    if (requestedImportId) {
+    const next = resolveMovementListContext({
+      routeImportId: requestedImportId,
+      onlyImport: onlyImportParam,
+      postImportActive,
+      seenPostImportId: seenPostImportId.current,
+    });
+    seenPostImportId.current = next.seenPostImportId;
+    if (next.resetListFilters) {
       setSearch("");
       setFlow("all");
       setMonth("all");
       setAccount("all");
+      setImportNoticeDismissed(false);
     }
+    setStatementImportId(next.statementImportId);
+    if (next.clearOnlyImportParam) {
+      router.setParams({ onlyImport: undefined });
+    }
+  }, [onlyImportParam, postImportActive, requestedImportId]);
+
+  const showAllMovements = useCallback(() => {
+    setStatementImportId(null);
+    setImportNoticeDismissed(true);
+    router.setParams({ onlyImport: undefined, postImport: undefined });
+  }, []);
+
+  const clearExplicitImport = useCallback(() => {
+    setStatementImportId(null);
+    setImportNoticeDismissed(false);
+    router.setParams({ onlyImport: undefined });
+  }, []);
+
+  const showOnlyThisImport = useCallback(() => {
+    if (!requestedImportId) return;
+    setSearch("");
+    setFlow("all");
+    setMonth("all");
+    setAccount("all");
+    setStatementImportId(requestedImportId);
+    router.setParams({ onlyImport: requestedImportId, postImport: undefined });
   }, [requestedImportId]);
+
+  const clearListFilters = useCallback(() => {
+    setSearch(CLEARED_MOVEMENT_LIST_FILTERS.search);
+    setFlow(CLEARED_MOVEMENT_LIST_FILTERS.flow);
+    setMonth(CLEARED_MOVEMENT_LIST_FILTERS.month);
+    setAccount(CLEARED_MOVEMENT_LIST_FILTERS.account);
+  }, []);
 
   const load = useCallback(async (refresh = false) => {
     if (!householdId) {
@@ -165,6 +217,23 @@ export function TransactionHistoryScreen({
     }, [load])
   );
 
+  useFocusEffect(
+    useCallback(() => {
+      if (!householdId || !onlyImportParam) return;
+      let cancelled = false;
+      void statementImportExists(householdId, onlyImportParam)
+        .then((exists) => {
+          if (cancelled || exists) return;
+          setStatementImportId(onlyImportAfterStatementDeletion(onlyImportParam, onlyImportParam));
+          router.setParams({ onlyImport: undefined });
+        })
+        .catch(() => undefined);
+      return () => {
+        cancelled = true;
+      };
+    }, [householdId, onlyImportParam])
+  );
+
   const months = useMemo(
     () => [...new Set(transactions.map((transaction) => transaction.occurred_on.slice(0, 7)))].sort((a, b) => b.localeCompare(a)),
     [transactions]
@@ -175,17 +244,15 @@ export function TransactionHistoryScreen({
       .sort((a, b) => a.name.localeCompare(b.name, "pt-BR")),
     [transactions]
   );
+  const accountIds = useMemo(() => accounts.map((item) => item.id), [accounts]);
+  const accountFilter = resolveAccountFilter(account, accountIds);
   const historyFilters = useMemo(() => ({
     month,
-    account,
+    account: accountFilter,
     statementImportId,
     flow,
     search,
-  }), [account, flow, month, search, statementImportId]);
-  const transactionsForTotals = useMemo(
-    () => filterMovementsForTotals(transactions, historyFilters),
-    [historyFilters, transactions],
-  );
+  }), [accountFilter, flow, month, search, statementImportId]);
   const filtered = useMemo(
     () => filterMovementsForList(
       transactions,
@@ -194,14 +261,11 @@ export function TransactionHistoryScreen({
     ),
     [historyFilters, transactions],
   );
-  const totals = useMemo(
-    () => summarizeMovementTotals(transactionsForTotals, { accountId: account }),
-    [account, transactionsForTotals],
-  );
-  const periodCaption = periodBalanceCaption(account);
-  const periodBalanceColor = totals.periodBalance >= 0 ? "#169B62" : "#D84C4C";
-
   const busy = loading || householdLoading;
+  const returning = !busy && !loadError && hasFinancialHistory(transactions);
+  const firstUse = !busy && !loadError && !hasFinancialHistory(transactions);
+  const showImportSuccess = postImportActive && !statementImportId && !importNoticeDismissed && !busy && !loadError;
+  const canClearFilters = hasActiveMovementListFilters({ search, flow, month, account: accountFilter });
 
   const content = (
     <>
@@ -236,129 +300,110 @@ export function TransactionHistoryScreen({
         />
         ) : null}
 
-        <View style={styles.actionPanel}>
-          <View style={styles.actionIntro}>
-            <Text style={styles.actionEyebrow}>Atualize seu financeiro</Text>
-            <Text style={styles.actionDescription}>Registre agora ou traga as movimentações do seu banco.</Text>
-          </View>
-          <View style={[styles.actionRow, stackActions && styles.actionRowStacked]}>
-            <Pressable
-              onPress={() => router.push("/(app)/new-transaction")}
-              accessibilityRole="button"
-              accessibilityLabel="Adicionar movimentação"
-              accessibilityHint="Abre o formulário para registrar uma entrada ou um gasto"
-              style={({ pressed }) => [
-                styles.actionButton,
-                styles.primaryAction,
-                !stackActions && styles.actionButtonWide,
-                pressed && styles.actionButtonPressed,
-              ]}
-            >
-              <View style={styles.primaryActionIcon}>
-                <Ionicons name="add" size={24} color="#fff" />
-              </View>
-              <View style={styles.actionText}>
-                <Text style={styles.primaryActionTitle}>Adicionar movimentação</Text>
-                <Text style={styles.primaryActionSubtitle}>Registre uma entrada ou um gasto</Text>
-              </View>
-              <Ionicons name="arrow-forward" size={19} color="#fff" />
-            </Pressable>
-
-            <Pressable
-              onPress={() => router.push("/(app)/import-csv")}
-              accessibilityRole="button"
-              accessibilityLabel="Importar extrato"
-              accessibilityHint="Abre o fluxo para importar um arquivo CSV do banco"
-              style={({ pressed }) => [
-                styles.actionButton,
-                styles.secondaryAction,
-                !stackActions && styles.actionButtonWide,
-                pressed && styles.actionButtonPressed,
-              ]}
-            >
-              <View style={styles.secondaryActionIcon}>
-                <Ionicons name="document-text-outline" size={21} color={OB.primary} />
-              </View>
-              <View style={styles.actionText}>
-                <Text style={styles.secondaryActionTitle}>Importar extrato</Text>
-                <Text style={styles.secondaryActionSubtitle}>Envie o CSV do seu banco</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={OB.support} />
-            </Pressable>
-          </View>
-        </View>
-
-        <View style={styles.searchBox} onLayout={registerField("search")}>
-          <Ionicons name="search-outline" size={19} color={OB.support} />
-          <TextInput value={search} onChangeText={setSearch} placeholder="Buscar descrição, categoria ou conta" placeholderTextColor={OB.support} returnKeyType="search" onFocus={() => focusField("search")} onPressIn={() => focusField("search")} onSubmitEditing={Keyboard.dismiss} style={styles.searchInput} />
-          {search ? <Pressable onPress={() => setSearch("")} hitSlop={10}><Ionicons name="close-circle" size={19} color={OB.support} /></Pressable> : null}
-        </View>
-
-        {statementImportId ? (
-          <View style={styles.importFilterCard}>
-            <Ionicons name="document-text-outline" size={19} color="#376EA5" />
-            <View style={styles.importFilterInfo}>
-              <Text style={styles.importFilterTitle}>Movimentações do arquivo importado</Text>
-              <Text style={styles.importFilterText}>A lista está mostrando somente os registros desta importação.</Text>
-            </View>
-            <Pressable onPress={() => setStatementImportId(null)} hitSlop={10} accessibilityRole="button" accessibilityLabel="Mostrar todas as movimentações">
-              <Ionicons name="close-circle" size={21} color={OB.support} />
-            </Pressable>
-          </View>
-        ) : null}
-
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
-          {([{"id":"all","label":"Todas"},{"id":"income","label":"Entradas"},{"id":"expense","label":"Gastos"}] as { id: FlowFilter; label: string }[]).map((item) => (
-            <Pressable key={item.id} onPress={() => setFlow(item.id)} style={[styles.filterChip, flow === item.id && styles.filterChipActive]}>
-              <Text style={[styles.filterChipText, flow === item.id && styles.filterChipTextActive]}>{item.label}</Text>
-            </Pressable>
-          ))}
-        </ScrollView>
-
-        <View style={styles.filterGroup}>
-          <Text style={styles.filterLabel}>Período</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
-            <Pressable onPress={() => setMonth("all")} style={[styles.smallChip, month === "all" && styles.smallChipActive]}><Text style={[styles.smallChipText, month === "all" && styles.smallChipTextActive]}>Todos os períodos</Text></Pressable>
-            {months.map((item) => <Pressable key={item} onPress={() => setMonth(item)} style={[styles.smallChip, month === item && styles.smallChipActive]}><Text style={[styles.smallChipText, month === item && styles.smallChipTextActive]}>{monthLabel(item)}</Text></Pressable>)}
-          </ScrollView>
-        </View>
-
-        <View style={styles.filterGroup}>
-          <Text style={styles.filterLabel}>Conta</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
-            <Pressable onPress={() => setAccount("all")} style={[styles.smallChip, account === "all" && styles.smallChipActive]}><Text style={[styles.smallChipText, account === "all" && styles.smallChipTextActive]}>Todas as contas</Text></Pressable>
-            {accounts.map((item) => <Pressable key={item.id} onPress={() => setAccount(item.id)} style={[styles.smallChip, account === item.id && styles.smallChipActive]}><Text style={[styles.smallChipText, account === item.id && styles.smallChipTextActive]}>{item.name}</Text></Pressable>)}
-          </ScrollView>
-        </View>
-
-        <View style={styles.summaryCard}>
-          <View style={styles.summaryRow}>
-            <View style={styles.summaryItem}><Text style={styles.summaryLabel}>Entradas</Text><Text style={[styles.summaryValue, { color: "#169B62" }]}>{formatBRLFromCents(totals.income)}</Text></View>
-            <View style={styles.summaryDivider} />
-            <View style={styles.summaryItem}><Text style={styles.summaryLabel}>Saídas</Text><Text style={[styles.summaryValue, { color: "#D84C4C" }]}>{formatBRLFromCents(totals.expense)}</Text></View>
-            <View style={styles.summaryDivider} />
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabel}>Saldo do período</Text>
-              <Text style={[styles.summaryValue, { color: periodBalanceColor }]}>{formatBRLFromCents(totals.periodBalance)}</Text>
-            </View>
-          </View>
-          <Text style={styles.summaryHint}>{periodCaption}</Text>
-        </View>
-
-        <View style={styles.listHeader}>
-          <Text style={styles.listTitle}>Movimentações</Text>
-          <Text style={styles.listCount}>{filtered.length} {filtered.length === 1 ? "registro" : "registros"}</Text>
-        </View>
-
         {busy ? (
           <View style={styles.stateCard}><ActivityIndicator color={OB.primary} /><Text style={styles.stateText}>Carregando movimentações...</Text></View>
         ) : loadError ? (
           <View style={styles.stateCard}><Ionicons name="cloud-offline-outline" size={32} color={OB.support} /><Text style={styles.stateTitle}>Não foi possível carregar</Text><Text style={styles.stateText}>{loadError}</Text><Pressable onPress={() => void load()} style={styles.retryButton}><Text style={styles.retryText}>Tentar novamente</Text></Pressable></View>
-        ) : filtered.length ? (
-          <View style={styles.transactionList}>{filtered.map((transaction) => <TransactionCard key={transaction.id} transaction={transaction} onPress={() => router.push(getEditTransactionHref(transaction.id))} />)}</View>
-        ) : (
-          <View style={styles.stateCard}><Ionicons name="receipt-outline" size={32} color={OB.support} /><Text style={styles.stateTitle}>Nenhuma movimentação encontrada</Text><Text style={styles.stateText}>Altere os filtros ou registre um novo lançamento.</Text></View>
-        )}
+        ) : firstUse ? (
+          <MovementFirstUse />
+        ) : returning ? (
+          <>
+            <MovementQuickActions />
+
+            <View style={styles.searchBox} onLayout={registerField("search")}>
+              <Ionicons name="search-outline" size={19} color={OB.support} />
+              <TextInput value={search} onChangeText={setSearch} placeholder="Buscar descrição, categoria ou conta" placeholderTextColor={OB.support} returnKeyType="search" onFocus={() => focusField("search")} onPressIn={() => focusField("search")} onSubmitEditing={Keyboard.dismiss} style={styles.searchInput} />
+              {search ? <Pressable onPress={() => setSearch("")} hitSlop={10}><Ionicons name="close-circle" size={19} color={OB.support} /></Pressable> : null}
+            </View>
+
+            <MovementFilters
+              flow={flow}
+              month={month}
+              account={accountFilter}
+              months={months}
+              accounts={accounts}
+              onFlowChange={setFlow}
+              onMonthChange={setMonth}
+              onAccountChange={setAccount}
+            />
+
+            {showImportSuccess ? (
+              <View style={styles.importDoneCard}>
+                <View style={styles.importDoneHeader}>
+                  <Ionicons name="checkmark-circle-outline" size={20} color="#169B62" />
+                  <View style={styles.importFilterInfo}>
+                    <Text style={styles.importFilterTitle}>Importação concluída</Text>
+                    <Text style={styles.importFilterText}>
+                      {transactions.length === 1
+                        ? "1 movimentação disponível"
+                        : `${transactions.length} movimentações disponíveis`}
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.importDoneActions}>
+                  <Pressable
+                    onPress={showAllMovements}
+                    accessibilityRole="button"
+                    accessibilityLabel="Ver todas as movimentações"
+                    style={styles.importDoneButton}
+                  >
+                    <Text style={styles.importDoneButtonText}>Ver todas as movimentações</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={showOnlyThisImport}
+                    accessibilityRole="button"
+                    accessibilityLabel="Ver somente esta importação"
+                    style={[styles.importDoneButton, styles.importDoneButtonSecondary]}
+                  >
+                    <Text style={styles.importDoneButtonTextSecondary}>Ver somente esta importação</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : null}
+
+            {statementImportId ? (
+              <View style={styles.importFilterCard}>
+                <Ionicons name="document-text-outline" size={19} color="#376EA5" />
+                <View style={styles.importFilterInfo}>
+                  <Text style={styles.importFilterTitle}>Movimentações do arquivo importado</Text>
+                  <Text style={styles.importFilterText}>A lista está mostrando somente os registros desta importação.</Text>
+                </View>
+                <Pressable onPress={clearExplicitImport} hitSlop={10} accessibilityRole="button" accessibilityLabel="Mostrar todas as movimentações">
+                  <Ionicons name="close-circle" size={21} color={OB.support} />
+                </Pressable>
+              </View>
+            ) : null}
+
+            <View style={styles.listHeader}>
+              <Text style={styles.listTitle}>Movimentações</Text>
+              <Text style={styles.listCount}>{filtered.length} {filtered.length === 1 ? "registro" : "registros"}</Text>
+            </View>
+
+            {filtered.length ? (
+              <View style={styles.transactionList}>{filtered.map((transaction) => <TransactionCard key={transaction.id} transaction={transaction} onPress={() => router.push(getEditTransactionHref(transaction.id))} />)}</View>
+            ) : (
+              <View style={styles.filterEmptyCard}>
+                <Text style={styles.stateTitle}>Nenhuma movimentação encontrada com esses filtros.</Text>
+                <Text style={styles.stateText}>Ajuste a busca ou os filtros para ver suas movimentações.</Text>
+                {canClearFilters ? (
+                  <Pressable onPress={clearListFilters} style={styles.retryButton}>
+                    <Text style={styles.retryText}>Limpar filtros</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            )}
+
+            <Pressable
+              onPress={() => router.push(MANAGE_IMPORTS_HREF)}
+              accessibilityRole="button"
+              accessibilityLabel="Gerenciar extratos importados"
+              style={({ pressed }) => [styles.importsLink, pressed && styles.pressed]}
+            >
+              <Text style={styles.importsLinkText}>Gerenciar extratos importados</Text>
+              <Ionicons name="chevron-forward" size={14} color={OB.support} />
+            </Pressable>
+          </>
+        ) : null}
         </Animated.ScrollView>
       </KeyboardAvoidingView>
     </>
@@ -377,51 +422,24 @@ export default TransactionHistoryScreen;
 
 const styles = StyleSheet.create({
   keyboard: { flex: 1 },
-  scroll: { padding: 18, gap: 14, paddingBottom: 34 },
-  scrollEmbedded: { paddingTop: JOURNEY_HEADER_HEIGHT + 18 },
-  actionPanel: { borderRadius: 20, padding: 14, gap: 12, backgroundColor: "rgba(123,160,200,0.12)", borderWidth: 1, borderColor: OB.supportSoft },
-  actionIntro: { gap: 3 },
-  actionEyebrow: { color: OB.primary, fontSize: 12, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 },
-  actionDescription: { color: OB.support, fontSize: 11, lineHeight: 16, fontWeight: "700" },
-  actionRow: { flexDirection: "row", alignItems: "stretch", gap: 10 },
-  actionRowStacked: { flexDirection: "column" },
-  actionButton: { minHeight: 74, borderRadius: 17, paddingHorizontal: 13, paddingVertical: 11, flexDirection: "row", alignItems: "center", gap: 10 },
-  actionButtonWide: { flex: 1, minWidth: 0 },
-  actionButtonPressed: { opacity: 0.84, transform: [{ scale: 0.99 }] },
-  primaryAction: { backgroundColor: OB.primary, borderWidth: 1, borderColor: OB.primary },
-  secondaryAction: { backgroundColor: "#fff", borderWidth: 1, borderColor: OB.supportSoft },
-  primaryActionIcon: { width: 38, height: 38, borderRadius: 13, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.16)" },
-  secondaryActionIcon: { width: 38, height: 38, borderRadius: 13, alignItems: "center", justifyContent: "center", backgroundColor: OB.offWhite },
-  actionText: { flex: 1, minWidth: 0 },
-  primaryActionTitle: { color: "#fff", fontSize: 13, lineHeight: 18, fontWeight: "900" },
-  primaryActionSubtitle: { color: "rgba(255,255,255,0.78)", fontSize: 9, lineHeight: 13, fontWeight: "700", marginTop: 2 },
-  secondaryActionTitle: { color: OB.primary, fontSize: 13, lineHeight: 18, fontWeight: "900" },
-  secondaryActionSubtitle: { color: OB.support, fontSize: 9, lineHeight: 13, fontWeight: "700", marginTop: 2 },
-  searchBox: { minHeight: 54, borderRadius: 17, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "#fff", borderWidth: 1, borderColor: OB.supportSoft },
+  scroll: { padding: 18, gap: 10, paddingBottom: 34 },
+  scrollEmbedded: { paddingTop: JOURNEY_HEADER_HEIGHT + 12 },
+  searchBox: { minHeight: 48, borderRadius: 16, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "#fff", borderWidth: 1, borderColor: OB.supportSoft },
   searchInput: { flex: 1, color: OB.primary, fontSize: 13, fontWeight: "700" },
+  importDoneCard: { borderRadius: 16, padding: 13, gap: 12, backgroundColor: "rgba(22,155,98,0.08)", borderWidth: 1, borderColor: "rgba(22,155,98,0.22)" },
+  importDoneHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
+  importDoneActions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  importDoneButton: { minHeight: 42, borderRadius: 14, paddingHorizontal: 14, alignItems: "center", justifyContent: "center", backgroundColor: OB.primary },
+  importDoneButtonSecondary: { backgroundColor: "#fff", borderWidth: 1, borderColor: OB.supportSoft },
+  importDoneButtonText: { color: "#fff", fontSize: 12, fontWeight: "900" },
+  importDoneButtonTextSecondary: { color: OB.primary, fontSize: 12, fontWeight: "900" },
   importFilterCard: { minHeight: 64, borderRadius: 16, padding: 13, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "rgba(55,110,165,0.10)", borderWidth: 1, borderColor: "rgba(55,110,165,0.22)" },
   importFilterInfo: { flex: 1 },
   importFilterTitle: { color: OB.primary, fontSize: 11, fontWeight: "900" },
   importFilterText: { color: OB.support, fontSize: 9, lineHeight: 14, fontWeight: "700", marginTop: 2 },
-  filterRow: { gap: 8, paddingRight: 4 },
-  filterChip: { minHeight: 42, borderRadius: 14, paddingHorizontal: 17, alignItems: "center", justifyContent: "center", backgroundColor: "#fff", borderWidth: 1, borderColor: OB.supportSoft },
-  filterChipActive: { backgroundColor: OB.primary, borderColor: OB.primary },
-  filterChipText: { color: OB.support, fontSize: 12, fontWeight: "900" },
-  filterChipTextActive: { color: "#fff" },
-  filterGroup: { gap: 8 },
-  filterLabel: { color: OB.primary, fontSize: 11, fontWeight: "900", textTransform: "uppercase", letterSpacing: 0.8 },
-  smallChip: { minHeight: 36, borderRadius: 12, paddingHorizontal: 12, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.72)", borderWidth: 1, borderColor: OB.supportSoft },
-  smallChipActive: { backgroundColor: "rgba(6,25,54,0.10)", borderColor: "rgba(6,25,54,0.30)" },
-  smallChipText: { color: OB.support, fontSize: 10, fontWeight: "800" },
-  smallChipTextActive: { color: OB.primary, fontWeight: "900" },
-  summaryCard: { borderRadius: 19, padding: 15, gap: 10, backgroundColor: "#fff", borderWidth: 1, borderColor: OB.supportSoft },
-  summaryRow: { flexDirection: "row", alignItems: "center" },
-  summaryItem: { flex: 1 },
-  summaryLabel: { color: OB.support, fontSize: 9, fontWeight: "900", textTransform: "uppercase" },
-  summaryValue: { fontSize: 13, fontWeight: "900", marginTop: 6 },
-  summaryDivider: { width: 1, alignSelf: "stretch", marginHorizontal: 8, backgroundColor: OB.supportSoft },
-  summaryHint: { color: OB.support, fontSize: 9, lineHeight: 14, fontWeight: "700" },
-  listHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 2, marginTop: 2 },
+  importsLink: { minHeight: 40, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 4, paddingVertical: 4 },
+  importsLinkText: { color: OB.support, fontSize: 13, fontWeight: "800" },
+  listHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 2 },
   listTitle: { color: OB.primary, fontSize: 17, fontWeight: "900" },
   listCount: { color: OB.support, fontSize: 10, fontWeight: "800" },
   transactionList: { borderRadius: 20, overflow: "hidden", backgroundColor: "#fff", borderWidth: 1, borderColor: OB.supportSoft },
@@ -441,8 +459,10 @@ const styles = StyleSheet.create({
   transactionAmount: { maxWidth: 105, fontSize: 12, fontWeight: "900", paddingTop: 2 },
   amountColumn: { minHeight: 42, alignItems: "flex-end", justifyContent: "space-between" },
   stateCard: { minHeight: 180, borderRadius: 20, padding: 24, alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "#fff", borderWidth: 1, borderColor: OB.supportSoft },
+  filterEmptyCard: { borderRadius: 20, padding: 20, alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "#fff", borderWidth: 1, borderColor: OB.supportSoft },
   stateTitle: { color: OB.primary, fontSize: 14, fontWeight: "900", textAlign: "center" },
   stateText: { color: OB.support, fontSize: 11, fontWeight: "700", textAlign: "center", lineHeight: 17 },
   retryButton: { minHeight: 42, borderRadius: 13, paddingHorizontal: 16, alignItems: "center", justifyContent: "center", backgroundColor: OB.primary, marginTop: 5 },
   retryText: { color: "#fff", fontSize: 11, fontWeight: "900" },
+  pressed: { opacity: 0.84 },
 });

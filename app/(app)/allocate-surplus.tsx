@@ -16,6 +16,7 @@ import {
 } from "react-native";
 import { useHouseholdId } from "../../src/hooks/useHousehold";
 import { useKeyboardAwareScroll } from "../../src/hooks/useKeyboardAwareScroll";
+import { journeyTabAfterPlanningAction, planningExitLabel } from "../../src/features/planning/planningCycleActions";
 import { allocateSurplus, FinancialCycle } from "../../src/lib/financialPlanning";
 import { formatBRLFromCents, formatBRLInputFromDigits, parseBRLToCents } from "../../src/lib/format";
 import { GoalProgress, listGoalsWithProgress } from "../../src/lib/goals";
@@ -68,11 +69,14 @@ export default function AllocateSurplusScreen() {
     cycleEnd?: string | string[];
     availableCents?: string | string[];
     cycleDate?: string | string[];
+    returnTo?: string | string[];
   }>();
   const cycleKey = firstParam(params.cycleKey) ?? "";
   const cycleStart = firstParam(params.cycleStart) ?? "";
   const cycleEnd = firstParam(params.cycleEnd) ?? "";
   const cycleDate = firstParam(params.cycleDate) ?? cycleStart;
+  const returnTo = firstParam(params.returnTo);
+  const exitLabel = planningExitLabel(returnTo);
   const availableCents = centsParam(params.availableCents);
   const { userId } = useSession();
   const { householdId, loading: householdLoading } = useHouseholdId(userId);
@@ -150,11 +154,8 @@ export default function AllocateSurplusScreen() {
   );
 
   const returnToControl = useCallback(() => {
-    router.replace({
-      pathname: "/(app)/journey",
-      params: cycleDate ? { tab: "controle", cycleDate } : { tab: "controle" },
-    });
-  }, [cycleDate]);
+    router.replace(journeyTabAfterPlanningAction(returnTo, cycleDate));
+  }, [cycleDate, returnTo]);
 
   async function confirmAllocation() {
     if (!valid || !householdId || !selectedGoal || saving) return;
@@ -233,9 +234,9 @@ export default function AllocateSurplusScreen() {
             <View style={styles.stateCard}>
               <Ionicons name="alert-circle-outline" size={28} color="#B94A4A" />
               <Text style={styles.stateTitle}>Ciclo inválido</Text>
-              <Text style={styles.stateText}>Volte ao Resumo e abra novamente o fechamento deste ciclo.</Text>
+              <Text style={styles.stateText}>Volte e abra novamente o fechamento deste ciclo.</Text>
               <Pressable onPress={returnToControl} style={styles.secondaryButton} accessibilityRole="button">
-                <Text style={styles.secondaryButtonText}>Voltar ao Resumo</Text>
+                <Text style={styles.secondaryButtonText}>{exitLabel}</Text>
               </Pressable>
             </View>
           ) : busy ? (

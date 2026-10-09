@@ -1,0 +1,1721 @@
+import { Ionicons } from "@expo/vector-icons";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import React, { useCallback, useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  Animated,
+  Keyboard,
+  KeyboardAvoidingView,
+  Modal,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  useWindowDimensions,
+  View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useHouseholdId } from "../../hooks/useHousehold";
+import { useKeyboardAwareScroll } from "../../hooks/useKeyboardAwareScroll";
+import {
+  archiveCommitment,
+  CommitmentKind,
+  createCommitment,
+  CycleMode,
+  FinancialCommitment,
+  FinancialOverview,
+  FinancialSettings,
+  getCycleForOffset,
+  getFinancialOverview,
+  getFinancialSettings,
+  listCommitments,
+  saveFinancialSettings,
+  updateCommitment,
+} from "../../lib/financialPlanning";
+import {
+  MAX_ONBOARDING_DEBT_NOTE_LENGTH,
+  onboardingDebtsPendingCommitment,
+  ownedOnboardingDetailForCommitment,
+  parseOnboardingDebtDetails,
+  saveOnboardingDebtMetadata,
+  upsertOnboardingDebtDetail,
+  type OnboardingDebtDetail,
+} from "../../lib/onboardingDebts";
+import { ymd } from "../../lib/date";
+import { formatBRLFromCents, formatBRLInputFromDigits, parseBRLToCents } from "../../lib/format";
+import {
+  confirmFinancialPattern,
+  EMPTY_PLANNING_OBSERVATIONS,
+  loadPlanningObservations,
+  rejectFinancialPattern,
+  type FinancialPatternSuggestion,
+  type ObservedFinancialHabitView,
+} from "../../lib/financialPatternSuggestions";
+import type { ObservedOtherInflows, ObservedRecurringIncome } from "../../lib/financialPatternDetection";
+import { getProfile } from "../../lib/profile";
+import { acknowledgeIncomePattern } from "../../lib/incomeAcknowledgement";
+import {
+  incomeAcknowledgementKey,
+  incomeTargetField,
+  isStaleIncomeAcknowledgementError,
+  similarIncomeAccountWarning,
+  type IncomeAcknowledgement,
+} from "../../lib/incomeAcknowledgementPlan";
+import { useSession } from "../../providers/SessionProvider";
+import { AllocatableCashSection } from "./AllocatableCashSection";
+import { PlannedIncomeNote } from "./PlannedIncomeNote";
+import { PlanningActionsSection, PlanningReviewCall } from "./PlanningActionsSection";
+import { PlanningCycleIdentity } from "./PlanningCycleIdentity";
+import { FinancialPatternInbox } from "../../ui/FinancialPatternInbox";
+import { ObservedHabitsSection } from "../../ui/ObservedHabitsSection";
+import { ObservedIncomeSection } from "../../ui/ObservedIncomeSection";
+import { ObservedIncomePlanSheet } from "../../ui/ObservedIncomePlanSheet";
+import { DisclosureSection } from "../../ui/DisclosureSection";
+import { JOURNEY_HEADER_HEIGHT } from "../../ui/journeyChrome";
+import { OB, OnboardingShell } from "../../ui/OnboardingKit";
+import { ScreenHeaderCard } from "../../ui/ScreenHeaderCard";
+import { formatCycleSpan, OBSERVED_INSIGHT_SUMMARY, planningCommitmentSummary, planningPlanSummary } from "../../lib/planningPresentation";
+import { journeyContentScrollProps, planningScrollBottomPadding, showsPlanningRouteChrome, type PlanningMode } from "./planningChrome";
+
+type SettingsField = "payday" | "reserve";
+type CommitmentField = "name" | "amount" | "due" | "start" | "installments" | "balance" | "note";
+
+type CommitmentDraft = {
+  name: string;
+  kind: CommitmentKind;
+  amount: string;
+  dueDay: string;
+  startMonth: string;
+  installmentCount: string;
+  balance: string;
+  note: string;
+  onboardingType: string | null;
+};
+
+const KIND_OPTIONS: {
+  value: CommitmentKind;
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+}[] = [
+  { value: "fixed_bill", label: "Conta fixa", icon: "receipt-outline" },
+  { value: "debt", label: "Dívida", icon: "alert-circle-outline" },
+  { value: "installment", label: "Parcela", icon: "layers-outline" },
+];
+
+function currentMonth() {
+  const today = new Date();
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function emptyDraft(): CommitmentDraft {
+  return {
+    name: "",
+    kind: "fixed_bill",
+    amount: "",
+    dueDay: "",
+    startMonth: currentMonth(),
+    installmentCount: "",
+    balance: "",
+    note: "",
+    onboardingType: null,
+  };
+}
+
+function digits(input: string, maxLength: number) {
+  return input.replace(/\D/g, "").slice(0, maxLength);
+}
+
+function formatMonthInput(input: string) {
+  const value = digits(input, 6);
+  if (value.length <= 4) return value;
+  return `${value.slice(0, 4)}-${value.slice(4)}`;
+}
+
+function isValidMonth(value: string) {
+  const match = /^(\d{4})-(\d{2})$/.exec(value);
+  if (!match) return false;
+  const month = Number(match[2]);
+  return month >= 1 && month <= 12;
+}
+
+function kindLabel(kind: CommitmentKind) {
+  return KIND_OPTIONS.find((option) => option.value === kind)?.label ?? "Compromisso";
+}
+
+export function FinancialPlanScreen({
+  mode = "standalone",
+  onScroll,
+}: {
+  mode?: PlanningMode;
+  onScroll?: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
+}) {
+  const insets = useSafeAreaInsets();
+  const params = useLocalSearchParams<{ guided?: string }>();
+  const requestedGuided = Array.isArray(params.guided) ? params.guided[0] : params.guided;
+  const routeChrome = showsPlanningRouteChrome(mode);
+  const guided = routeChrome && requestedGuided === "1";
+  const { height: viewportHeight } = useWindowDimensions();
+  const { session, userId } = useSession();
+  const { householdId, loading: householdLoading } = useHouseholdId(userId);
+  const settingsKeyboard = useKeyboardAwareScroll<SettingsField>(18);
+  const modalKeyboard = useKeyboardAwareScroll<CommitmentField>(18, {
+    ensureFieldRunway: true,
+    keyboardClearance: 72,
+  });
+
+  const [cycleType, setCycleType] = useState<CycleMode>("calendar");
+  const [paydayDay, setPaydayDay] = useState("5");
+  const [minimumReserve, setMinimumReserve] = useState("");
+  const [commitments, setCommitments] = useState<FinancialCommitment[]>([]);
+  const [cycleOverview, setCycleOverview] = useState<FinancialOverview | null>(null);
+  const [patternSuggestions, setPatternSuggestions] = useState<FinancialPatternSuggestion[]>([]);
+  const [observedHabits, setObservedHabits] = useState<ObservedFinancialHabitView[]>([]);
+  const [recurringIncome, setRecurringIncome] = useState<ObservedRecurringIncome[]>([]);
+  const [otherInflows, setOtherInflows] = useState<ObservedOtherInflows | null>(null);
+  const [incomeAcknowledgements, setIncomeAcknowledgements] = useState<IncomeAcknowledgement[]>([]);
+  const [incomeAcknowledgementsUnavailable, setIncomeAcknowledgementsUnavailable] = useState(true);
+  const [incomePlan, setIncomePlan] = useState<{ income: ObservedRecurringIncome; currentCents: number } | null>(null);
+  const [savingIncomePlan, setSavingIncomePlan] = useState(false);
+  const [busyPatternKey, setBusyPatternKey] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [cashRefreshKey, setCashRefreshKey] = useState(0);
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [savingCommitment, setSavingCommitment] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  const [settingsSaveError, setSettingsSaveError] = useState("");
+  const [commitmentSaveError, setCommitmentSaveError] = useState("");
+  const [guidedStep, setGuidedStep] = useState<1 | 2>(1);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [editing, setEditing] = useState<FinancialCommitment | null>(null);
+  const [draft, setDraft] = useState<CommitmentDraft>(emptyDraft);
+  const [localDebtDetails, setLocalDebtDetails] = useState<OnboardingDebtDetail[] | null>(null);
+
+  const metadataDebtDetails = useMemo(
+    () => parseOnboardingDebtDetails(session?.user.user_metadata?.finapp_debt_details),
+    [session]
+  );
+  const debtDetails = localDebtDetails ?? metadataDebtDetails;
+  const orphanDebts = useMemo(
+    () => onboardingDebtsPendingCommitment(debtDetails, commitments.map((item) => item.id)),
+    [commitments, debtDetails]
+  );
+
+  const applySettings = useCallback((settings: FinancialSettings | null) => {
+    if (!settings) return;
+    setCycleType(settings.cycle_mode);
+    setPaydayDay(String(settings.payday_day ?? 5));
+    setMinimumReserve(
+      settings.reserve_cents > 0
+        ? formatBRLFromCents(settings.reserve_cents)
+        : ""
+    );
+  }, []);
+
+  const load = useCallback(async () => {
+    if (!householdId) {
+      setCycleOverview(null);
+      if (!householdLoading) setLoading(false);
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setLoadError("");
+      const referenceDate = ymd(new Date());
+      const [settings, rows, observations] = await Promise.all([
+        getFinancialSettings(householdId),
+        listCommitments(householdId),
+        loadPlanningObservations({ householdId, userId: userId ?? "", referenceDate }).catch(() => EMPTY_PLANNING_OBSERVATIONS),
+      ]);
+      applySettings(settings);
+      setCommitments(rows);
+      if (userId && settings) {
+        try {
+          const cycle = getCycleForOffset(settings, 0, new Date());
+          setCycleOverview(await getFinancialOverview({ householdId, userId, cycle }));
+        } catch {
+          setCycleOverview(null);
+        }
+      } else {
+        setCycleOverview(null);
+      }
+      setPatternSuggestions(observations.suggestions);
+      setObservedHabits(observations.habits);
+      setRecurringIncome(observations.recurringIncome);
+      setOtherInflows(observations.otherInflows);
+      setIncomeAcknowledgements(observations.incomeAcknowledgements);
+      setIncomeAcknowledgementsUnavailable(observations.incomeAcknowledgementsUnavailable);
+      if (guided && settings.updated_by !== null) setGuidedStep(2);
+    } catch (error: any) {
+      setLoadError(error?.message ?? "Não foi possível carregar seu planejamento.");
+    } finally {
+      setLoading(false);
+    }
+  }, [applySettings, guided, householdId, householdLoading, userId]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load])
+  );
+
+  const settingsValid = useMemo(() => {
+    if (cycleType === "calendar") return true;
+    const day = Number(paydayDay);
+    return Number.isInteger(day) && day >= 1 && day <= 28;
+  }, [cycleType, paydayDay]);
+
+  const commitmentValid = useMemo(() => {
+    const amountCents = parseBRLToCents(draft.amount);
+    const balanceCents = parseBRLToCents(draft.balance);
+    const dueDay = Number(draft.dueDay);
+    const installments = draft.installmentCount ? Number(draft.installmentCount) : null;
+    const dueValid = Number.isInteger(dueDay) && dueDay >= 1 && dueDay <= 28;
+    const monthValid = isValidMonth(draft.startMonth);
+    const installmentValid = draft.kind !== "installment"
+      || (installments !== null && Number.isInteger(installments) && installments > 0 && installments <= 600);
+    if (draft.onboardingType) {
+      return Boolean(
+        draft.name.trim()
+        && balanceCents > 0
+        && (amountCents === 0 || (amountCents > 0 && dueValid && monthValid && installmentValid))
+      );
+    }
+    return Boolean(
+      draft.name.trim() &&
+        amountCents > 0 &&
+        dueValid &&
+        monthValid &&
+        installmentValid
+    );
+  }, [draft]);
+
+  async function saveSettings() {
+    if (!householdId || !userId || !settingsValid || savingSettings) return;
+    try {
+      setSavingSettings(true);
+      setSettingsSaveError("");
+      const saved = await saveFinancialSettings({
+        householdId,
+        userId,
+        cycleMode: cycleType,
+        paydayDay: cycleType === "payday" ? Number(paydayDay) : null,
+        reserveCents: parseBRLToCents(minimumReserve),
+      });
+      applySettings(saved);
+      setCashRefreshKey((current) => current + 1);
+      if (guided) {
+        Keyboard.dismiss();
+        setGuidedStep(2);
+        requestAnimationFrame(() => settingsKeyboard.scrollRef.current?.scrollTo({ y: 0, animated: true }));
+      } else {
+        Alert.alert("Planejamento salvo", "Seu ciclo e sua reserva mínima foram atualizados.");
+      }
+    } catch (error: any) {
+      const message = error?.message ?? "Tente novamente.";
+      setSettingsSaveError(message);
+      if (!guided && Platform.OS !== "web") Alert.alert("Não foi possível salvar", message);
+    } finally {
+      setSavingSettings(false);
+    }
+  }
+
+  function openNewCommitment() {
+    Keyboard.dismiss();
+    setCommitmentSaveError("");
+    setEditing(null);
+    setDraft(emptyDraft());
+    setModalVisible(true);
+  }
+
+  function openEditCommitment(commitment: FinancialCommitment) {
+    Keyboard.dismiss();
+    setCommitmentSaveError("");
+    setEditing(commitment);
+    const stored = ownedOnboardingDetailForCommitment(debtDetails, commitment.id);
+    const onboardingType = stored?.name ?? null;
+    setDraft({
+      name: commitment.name,
+      kind: commitment.kind,
+      amount: formatBRLFromCents(commitment.amount_cents),
+      dueDay: String(commitment.due_day),
+      startMonth: commitment.starts_on.slice(0, 7),
+      installmentCount: commitment.installments_total
+        ? String(commitment.installments_total)
+        : "",
+      balance: stored?.balanceCents ? formatBRLFromCents(stored.balanceCents) : "",
+      note: stored?.note ?? "",
+      onboardingType,
+    });
+    setModalVisible(true);
+  }
+
+  function openEditOnboardingDebt(detail: OnboardingDebtDetail) {
+    Keyboard.dismiss();
+    setCommitmentSaveError("");
+    setEditing(null);
+    setDraft({
+      ...emptyDraft(),
+      name: detail.name,
+      kind: "debt",
+      amount: detail.amountCents > 0 ? formatBRLFromCents(detail.amountCents) : "",
+      dueDay: String(detail.dueDay || 10),
+      balance: detail.balanceCents ? formatBRLFromCents(detail.balanceCents) : "",
+      note: detail.note ?? "",
+      onboardingType: detail.name,
+    });
+    setModalVisible(true);
+  }
+
+  function closeModal() {
+    Keyboard.dismiss();
+    setCommitmentSaveError("");
+    setModalVisible(false);
+    setEditing(null);
+  }
+
+  async function saveCommitment() {
+    if (!householdId || !userId || !commitmentValid || savingCommitment) return;
+    const onboardingType = draft.onboardingType;
+    const values = {
+      householdId,
+      name: onboardingType || draft.name.trim(),
+      kind: draft.kind,
+      amountCents: parseBRLToCents(draft.amount),
+      dueDay: Number(draft.dueDay),
+      startsOn: `${draft.startMonth}-01`,
+      installmentsTotal: draft.kind === "installment" && draft.installmentCount
+        ? Number(draft.installmentCount)
+        : null,
+    };
+
+    try {
+      setSavingCommitment(true);
+      setCommitmentSaveError("");
+      let nextCommitmentId: string | null = editing?.id ?? (
+        onboardingType
+          ? debtDetails.find((detail) => detail.name === onboardingType)?.commitmentId ?? null
+          : null
+      );
+      if (values.amountCents > 0) {
+        if (editing) {
+          await updateCommitment({ ...values, commitmentId: editing.id });
+          nextCommitmentId = editing.id;
+        } else {
+          const created = await createCommitment({ ...values, userId });
+          nextCommitmentId = created.id;
+        }
+      } else if (editing) {
+        await archiveCommitment(householdId, editing.id);
+        nextCommitmentId = null;
+      }
+      if (onboardingType) {
+        const nextDetails = upsertOnboardingDebtDetail(debtDetails, {
+          name: onboardingType,
+          balanceCents: parseBRLToCents(draft.balance),
+          amountCents: values.amountCents,
+          dueDay: Number.isInteger(values.dueDay) && values.dueDay >= 1 && values.dueDay <= 28
+            ? values.dueDay
+            : 10,
+          installmentsRemaining: values.installmentsTotal,
+          note: draft.note.trim() || null,
+          commitmentId: nextCommitmentId,
+        });
+        const debts = [...new Set([
+          ...(Array.isArray(session?.user.user_metadata?.finapp_debts)
+            ? session.user.user_metadata.finapp_debts.map(String)
+            : debtDetails.map((detail) => detail.name)),
+          onboardingType,
+        ])];
+        await saveOnboardingDebtMetadata({ debts, debtDetails: nextDetails });
+        setLocalDebtDetails(nextDetails);
+      }
+      await refreshPlanning();
+      closeModal();
+    } catch (error: any) {
+      const message = error?.message ?? "Confira os dados e tente novamente.";
+      setCommitmentSaveError(message);
+      if (Platform.OS !== "web") Alert.alert("Não foi possível salvar", message);
+    } finally {
+      setSavingCommitment(false);
+    }
+  }
+
+  async function refreshPlanning() {
+    if (!householdId) return;
+    const referenceDate = ymd(new Date());
+    const [rows, observations] = await Promise.all([
+      listCommitments(householdId),
+      loadPlanningObservations({ householdId, userId: userId ?? "", referenceDate }).catch(() => EMPTY_PLANNING_OBSERVATIONS),
+    ]);
+    setCommitments(rows);
+    setPatternSuggestions(observations.suggestions);
+    setObservedHabits(observations.habits);
+    setRecurringIncome(observations.recurringIncome);
+    setOtherInflows(observations.otherInflows);
+    setIncomeAcknowledgements(observations.incomeAcknowledgements);
+    setIncomeAcknowledgementsUnavailable(observations.incomeAcknowledgementsUnavailable);
+    setCashRefreshKey((current) => current + 1);
+  }
+
+  async function openIncomePlan(income: ObservedRecurringIncome) {
+    if (!userId || savingIncomePlan) return;
+    try {
+      const profile = await getProfile(userId);
+      if (!profile) {
+        Alert.alert("Renda", "Seu perfil ainda não está pronto.");
+        return;
+      }
+      const currentCents = incomeTargetField(income.behaviorType) === "income_fixed_cents"
+        ? profile.income_fixed_cents
+        : profile.income_variable_avg_cents;
+      setIncomePlan({ income, currentCents });
+    } catch (error: any) {
+      Alert.alert("Renda", error?.message ?? "Não foi possível abrir a renda agora.");
+    }
+  }
+
+  async function saveIncomePlan(desiredTotalCents: number) {
+    if (!householdId || !incomePlan || savingIncomePlan) return;
+    try {
+      setSavingIncomePlan(true);
+      await acknowledgeIncomePattern({
+        householdId,
+        patternKey: incomeAcknowledgementKey(incomePlan.income),
+        targetField: incomeTargetField(incomePlan.income.behaviorType),
+        decision: "incorporated",
+        suggestedCents: incomePlan.income.estimatedMonthlyCents,
+        desiredTotalCents,
+        expectedCurrentCents: incomePlan.currentCents,
+        accountId: incomePlan.income.accountId,
+        normalizedMerchant: incomePlan.income.normalizedMerchant,
+        behaviorType: incomePlan.income.behaviorType,
+      });
+      setIncomePlan(null);
+      await refreshPlanning();
+    } catch (error: any) {
+      if (isStaleIncomeAcknowledgementError(error)) {
+        setIncomePlan(null);
+        await refreshPlanning();
+        Alert.alert("Renda", "Renda alterada em outro lugar. Atualize os valores e tente novamente.");
+        return;
+      }
+      Alert.alert("Renda", error?.message ?? "Não foi possível salvar a renda.");
+    } finally {
+      setSavingIncomePlan(false);
+    }
+  }
+
+  async function declineIncomePlan() {
+    if (!householdId || !incomePlan || savingIncomePlan) return;
+    try {
+      setSavingIncomePlan(true);
+      await acknowledgeIncomePattern({
+        householdId,
+        patternKey: incomeAcknowledgementKey(incomePlan.income),
+        targetField: incomeTargetField(incomePlan.income.behaviorType),
+        decision: "declined",
+        suggestedCents: incomePlan.income.estimatedMonthlyCents,
+        desiredTotalCents: incomePlan.currentCents,
+        expectedCurrentCents: incomePlan.currentCents,
+        accountId: incomePlan.income.accountId,
+        normalizedMerchant: incomePlan.income.normalizedMerchant,
+        behaviorType: incomePlan.income.behaviorType,
+      });
+      setIncomePlan(null);
+      await refreshPlanning();
+    } catch (error: any) {
+      if (isStaleIncomeAcknowledgementError(error)) {
+        setIncomePlan(null);
+        await refreshPlanning();
+        Alert.alert("Renda", "Renda alterada em outro lugar. Atualize os valores e tente novamente.");
+        return;
+      }
+      Alert.alert("Renda", error?.message ?? "Não foi possível registrar a decisão.");
+    } finally {
+      setSavingIncomePlan(false);
+    }
+  }
+
+  async function handleConfirmPattern(payload: {
+    suggestion: FinancialPatternSuggestion;
+    name: string;
+    amountCents: number;
+    dueDay: number;
+    existingCommitmentId?: string | null;
+  }) {
+    if (!householdId) return;
+    try {
+      setBusyPatternKey(payload.suggestion.decisionKey);
+      setCommitmentSaveError("");
+      await confirmFinancialPattern({ householdId, ...payload });
+      await refreshPlanning();
+    } catch (error: any) {
+      const message = error?.message ?? "Não foi possível adicionar este padrão.";
+      setCommitmentSaveError(message);
+      throw error;
+    } finally {
+      setBusyPatternKey(null);
+    }
+  }
+
+  async function handleRejectPattern(suggestion: FinancialPatternSuggestion) {
+    if (!householdId) return;
+    try {
+      setBusyPatternKey(suggestion.decisionKey);
+      setCommitmentSaveError("");
+      await rejectFinancialPattern({ householdId, suggestion });
+      setPatternSuggestions((current) => current.filter((item) => item.decisionKey !== suggestion.decisionKey));
+    } catch (error: any) {
+      const message = error?.message ?? "Não foi possível ignorar este padrão.";
+      setCommitmentSaveError(message);
+      if (Platform.OS !== "web") Alert.alert("Não foi possível salvar", message);
+    } finally {
+      setBusyPatternKey(null);
+    }
+  }
+
+  function confirmArchive(commitment: FinancialCommitment) {
+    const persist = async () => {
+      if (!householdId) return;
+      try {
+        setCommitmentSaveError("");
+        await archiveCommitment(householdId, commitment.id);
+        setCommitments((current) => current.filter((item) => item.id !== commitment.id));
+        setCashRefreshKey((current) => current + 1);
+        const stored = ownedOnboardingDetailForCommitment(debtDetails, commitment.id);
+        if (stored) {
+          const nextDetails = upsertOnboardingDebtDetail(debtDetails, {
+            ...stored,
+            amountCents: 0,
+            commitmentId: null,
+          });
+          const debts = Array.isArray(session?.user.user_metadata?.finapp_debts)
+            ? session.user.user_metadata.finapp_debts.map(String)
+            : debtDetails.map((detail) => detail.name);
+          await saveOnboardingDebtMetadata({ debts, debtDetails: nextDetails });
+          setLocalDebtDetails(nextDetails);
+        }
+      } catch (error: any) {
+        const message = error?.message ?? "Tente novamente.";
+        if (Platform.OS === "web") setCommitmentSaveError(message);
+        else Alert.alert("Não foi possível arquivar", message);
+      }
+    };
+
+    if (Platform.OS === "web") {
+      const confirmed = typeof globalThis.confirm === "function"
+        ? globalThis.confirm(`Arquivar ${commitment.name}? Esse compromisso deixará de entrar nos próximos cálculos.`)
+        : false;
+      if (confirmed) void persist();
+      return;
+    }
+
+    Alert.alert(
+      "Arquivar compromisso?",
+      `${commitment.name} deixará de entrar nos próximos cálculos.`,
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Arquivar",
+          style: "destructive",
+          onPress: () => void persist(),
+        },
+      ]
+    );
+  }
+
+  const busy = loading || householdLoading;
+  const planSummary = planningPlanSummary({
+    span: cycleOverview ? formatCycleSpan(cycleOverview.cycle.start, cycleOverview.cycle.end) : null,
+    reserveCents: cycleOverview ? cycleOverview.reserveCents : null,
+  });
+  const commitmentSummary = planningCommitmentSummary(
+    commitments.length + orphanDebts.length,
+    commitments.reduce((sum, item) => sum + item.amount_cents, 0)
+      + orphanDebts.reduce((sum, item) => sum + item.balanceCents, 0),
+  );
+  const hasObservedInsights = patternSuggestions.length > 0
+    || recurringIncome.length > 0
+    || otherInflows != null
+    || observedHabits.length > 0;
+  const journeyScroll = journeyContentScrollProps(onScroll);
+  const PlanScroll = journeyScroll ? Animated.ScrollView : ScrollView;
+
+  const plan = (
+    <>
+      <KeyboardAvoidingView enabled={Platform.OS === "ios"} behavior="padding" style={styles.screen}>
+        <PlanScroll
+          ref={settingsKeyboard.scrollRef}
+          contentContainerStyle={[
+            styles.content,
+            routeChrome ? null : styles.contentEmbedded,
+            { paddingBottom: planningScrollBottomPadding(mode, insets.bottom, settingsKeyboard.keyboardInset) },
+          ]}
+          keyboardDismissMode="none"
+          keyboardShouldPersistTaps="handled"
+          onScrollBeginDrag={settingsKeyboard.cancelPendingScroll}
+          showsVerticalScrollIndicator={false}
+          {...(journeyScroll ?? {})}
+        >
+          <PlanningActionsSection overview={cycleOverview} enabled={!guided}>
+          {routeChrome ? (
+            <ScreenHeaderCard
+              onBack={() => router.back()}
+              eyebrow={guided ? `Etapa ${guidedStep} de 2` : "Planejamento"}
+              title={guided
+                ? guidedStep === 1 ? "Defina seu período e proteção" : "Informe o que ainda falta pagar"
+                : "Organize o seu ciclo"}
+              subtitle={guided
+                ? guidedStep === 1
+                  ? "Escolha como seu período funciona e quanto deseja manter na conta."
+                  : "Adicione somente contas, dívidas ou parcelas que ainda precisam ser pagas."
+                : "Diga quando seu dinheiro se renova e o que já está comprometido."}
+            />
+          ) : (
+            <View style={styles.embeddedHeader}>
+              <Text style={styles.embeddedTitle} accessibilityRole="header">Planejamento</Text>
+              <Text style={styles.embeddedSubtitle}>Organize o seu ciclo</Text>
+            </View>
+          )}
+
+          {!guided && householdId ? (
+            <AllocatableCashSection
+              householdId={householdId}
+              refreshKey={cashRefreshKey}
+              reviewReturn={mode === "embedded" ? "planejamento" : "financial-plan"}
+            />
+          ) : null}
+          {!guided ? <PlanningReviewCall /> : null}
+
+          {busy ? (
+            <View style={styles.stateCard}>
+              <ActivityIndicator color={OB.primary} />
+              <Text style={styles.stateTitle}>Carregando planejamento...</Text>
+            </View>
+          ) : loadError ? (
+            <View style={styles.stateCard}>
+              <Ionicons name="alert-circle-outline" size={28} color="#B94A4A" />
+              <Text style={styles.stateTitle}>Não foi possível carregar</Text>
+              <Text style={styles.stateText}>{loadError}</Text>
+              <Pressable onPress={() => void load()} style={styles.retryButton} accessibilityRole="button">
+                <Text style={styles.retryText}>Tentar novamente</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <>
+              {(!guided || guidedStep === 1) ? (
+                <DisclosureSection title="Seu plano" summary={planSummary} collapsed={!guided}>
+                <View style={styles.card}>
+                {cycleOverview ? (
+                  <PlanningCycleIdentity cycle={cycleOverview.cycle} referenceDate={ymd(new Date())} />
+                ) : null}
+                <View style={styles.sectionHeading}>
+                  <View style={styles.sectionIcon}>
+                    <Ionicons name="calendar-outline" size={20} color={OB.primary} />
+                  </View>
+                  <View style={styles.flex}>
+                    <Text style={styles.cardTitle}>Como é o seu ciclo?</Text>
+                  </View>
+                </View>
+
+                <View style={styles.cycleOptions} accessibilityRole="radiogroup">
+                  <Pressable
+                    onPress={() => setCycleType("calendar")}
+                    style={[styles.cycleOption, cycleType === "calendar" && styles.optionActive]}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: cycleType === "calendar" }}
+                    accessibilityLabel="Mês calendário"
+                  >
+                    <Ionicons
+                      name="calendar-number-outline"
+                      size={22}
+                      color={cycleType === "calendar" ? "#fff" : OB.primary}
+                    />
+                    <Text style={[styles.optionTitle, cycleType === "calendar" && styles.optionTextActive]}>
+                      Mês calendário
+                    </Text>
+                    <Text style={[styles.optionText, cycleType === "calendar" && styles.optionTextActive]}>
+                      Do dia 1 ao último dia do mês
+                    </Text>
+                  </Pressable>
+
+                  <Pressable
+                    onPress={() => setCycleType("payday")}
+                    style={[styles.cycleOption, cycleType === "payday" && styles.optionActive]}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: cycleType === "payday" }}
+                    accessibilityLabel="De salário a salário"
+                  >
+                    <Ionicons
+                      name="cash-outline"
+                      size={22}
+                      color={cycleType === "payday" ? "#fff" : OB.primary}
+                    />
+                    <Text style={[styles.optionTitle, cycleType === "payday" && styles.optionTextActive]}>
+                      De salário a salário
+                    </Text>
+                    <Text style={[styles.optionText, cycleType === "payday" && styles.optionTextActive]}>
+                      O ciclo começa no dia em que você recebe
+                    </Text>
+                  </Pressable>
+                </View>
+
+                {cycleType === "payday" ? (
+                  <View onLayout={settingsKeyboard.registerField("payday")}>
+                    <Text style={styles.label}>Dia do salário</Text>
+                    <TextInput
+                      value={paydayDay}
+                      onChangeText={(value) => setPaydayDay(digits(value, 2))}
+                      onFocus={() => settingsKeyboard.focusField("payday")}
+                      onPressIn={() => settingsKeyboard.focusField("payday")}
+                      keyboardType="number-pad"
+                      returnKeyType="done"
+                      onSubmitEditing={Keyboard.dismiss}
+                      placeholder="Ex: 5"
+                      placeholderTextColor={OB.support}
+                      style={[styles.input, paydayDay && !settingsValid && styles.inputError]}
+                      accessibilityLabel="Dia do salário, entre 1 e 28"
+                    />
+                    <Text style={styles.helper}>Use um dia entre 1 e 28.</Text>
+                  </View>
+                ) : null}
+
+                {!guided && cycleOverview ? (
+                  <PlannedIncomeNote cents={cycleOverview.expectedIncomeCents} />
+                ) : null}
+
+                <View onLayout={settingsKeyboard.registerField("reserve")}>
+                  <View style={styles.reserveHeading}>
+                    <Ionicons name="shield-checkmark-outline" size={16} color={OB.primary} />
+                    <Text style={styles.reserveLabel}>{guided ? "Quanto quer manter na conta?" : "Reserva protegida"}</Text>
+                  </View>
+                  <TextInput
+                    value={minimumReserve}
+                    onChangeText={(value) => setMinimumReserve(formatBRLInputFromDigits(value))}
+                    onFocus={() => settingsKeyboard.focusField("reserve")}
+                    onPressIn={() => settingsKeyboard.focusField("reserve")}
+                    keyboardType="number-pad"
+                    returnKeyType="done"
+                    onSubmitEditing={Keyboard.dismiss}
+                    placeholder="R$ 0,00"
+                    placeholderTextColor={OB.support}
+                    style={styles.input}
+                    accessibilityLabel="Valor da reserva mínima"
+                  />
+                  <Text style={styles.helper}>
+                    Esse valor fica fora do dinheiro para organizar.
+                  </Text>
+                </View>
+
+                {settingsSaveError ? (
+                  <View style={styles.inlineError} accessibilityRole="alert">
+                    <Ionicons name="alert-circle-outline" size={18} color="#A33F3F" />
+                    <Text style={styles.inlineErrorText}>{settingsSaveError}</Text>
+                  </View>
+                ) : null}
+
+                <Pressable
+                  onPress={() => void saveSettings()}
+                  disabled={!settingsValid || savingSettings}
+                  style={[styles.primaryButton, (!settingsValid || savingSettings) && styles.disabled]}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: !settingsValid || savingSettings }}
+                >
+                  {savingSettings ? <ActivityIndicator color="#fff" /> : (
+                    <Text style={styles.primaryButtonText}>
+                      {guided ? "Salvar e continuar" : "Salvar configurações"}
+                    </Text>
+                  )}
+                </Pressable>
+                </View>
+                </DisclosureSection>
+              ) : null}
+
+              {(!guided || guidedStep === 2) ? (
+                <DisclosureSection title="Compromissos" summary={commitmentSummary} collapsed={!guided}>
+                  <View style={styles.commitmentHeader}>
+                    {guided ? (
+                    <View style={styles.flex}>
+                      <Text style={styles.sectionTitle}>O que ainda falta pagar?</Text>
+                      <Text style={styles.sectionSubtitle}>
+                        Adicione somente contas, dívidas ou parcelas que não aparecem como pagas no extrato.
+                      </Text>
+                    </View>
+                    ) : <View style={styles.flex} />}
+                    <Pressable
+                      onPress={openNewCommitment}
+                      style={styles.addButton}
+                      accessibilityRole="button"
+                      accessibilityLabel="Adicionar compromisso"
+                    >
+                      <Ionicons name="add" size={22} color="#fff" />
+                    </Pressable>
+                  </View>
+
+                  {commitmentSaveError && !modalVisible ? (
+                    <View style={styles.inlineError} accessibilityRole="alert">
+                      <Ionicons name="alert-circle-outline" size={18} color="#A33F3F" />
+                      <Text style={styles.inlineErrorText}>{commitmentSaveError}</Text>
+                    </View>
+                  ) : null}
+
+                  {commitments.length ? commitments.map((commitment) => {
+                    const stored = ownedOnboardingDetailForCommitment(debtDetails, commitment.id);
+                    const onboardingType = stored?.name ?? null;
+                    return (
+                    <View key={commitment.id} style={styles.commitmentCard}>
+                      <View style={styles.commitmentIcon}>
+                        <Ionicons
+                          name={KIND_OPTIONS.find((option) => option.value === commitment.kind)?.icon ?? "receipt-outline"}
+                          size={20}
+                          color={OB.primary}
+                        />
+                      </View>
+                      <View style={styles.flex}>
+                        <Text style={styles.commitmentName} numberOfLines={2}>{commitment.name}</Text>
+                        <Text style={styles.commitmentMeta}>
+                          {kindLabel(commitment.kind)} · vence dia {commitment.due_day}
+                        </Text>
+                        {stored?.note ? (
+                          <Text style={styles.installmentText}>{stored.note}</Text>
+                        ) : null}
+                        {stored?.balanceCents ? (
+                          <Text style={styles.installmentText}>
+                            Saldo {formatBRLFromCents(stored.balanceCents)}
+                          </Text>
+                        ) : null}
+                        {commitment.installments_total ? (
+                          <Text style={styles.installmentText}>{commitment.installments_total} parcelas no planejamento</Text>
+                        ) : null}
+                        <Text style={styles.commitmentAmount}>{formatBRLFromCents(commitment.amount_cents)}</Text>
+                      </View>
+                      <View style={styles.cardActions}>
+                        <Pressable
+                          onPress={() => openEditCommitment(commitment)}
+                          hitSlop={8}
+                          style={onboardingType ? styles.editDebtButton : styles.iconButton}
+                          accessibilityRole="button"
+                          accessibilityLabel={onboardingType
+                            ? `Editar dívida ${commitment.name}`
+                            : `Editar ${commitment.name}`}
+                        >
+                          {onboardingType ? (
+                            <Text style={styles.editDebtButtonText}>Editar dívida</Text>
+                          ) : (
+                            <Ionicons name="pencil-outline" size={17} color={OB.primary} />
+                          )}
+                        </Pressable>
+                        <Pressable
+                          onPress={() => confirmArchive(commitment)}
+                          hitSlop={8}
+                          style={styles.iconButton}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Arquivar ${commitment.name}`}
+                        >
+                          <Ionicons name="archive-outline" size={17} color="#B94A4A" />
+                        </Pressable>
+                      </View>
+                    </View>
+                    );
+                  }) : null}
+
+                  {orphanDebts.map((detail) => (
+                    <View key={`debt-${detail.name}`} style={styles.commitmentCard}>
+                      <View style={styles.commitmentIcon}>
+                        <Ionicons name="alert-circle-outline" size={20} color={OB.primary} />
+                      </View>
+                      <View style={styles.flex}>
+                        <Text style={styles.commitmentName} numberOfLines={2}>{detail.name}</Text>
+                        <Text style={styles.commitmentMeta}>Dívida · sem parcela mensal</Text>
+                        {detail.note ? (
+                          <Text style={styles.installmentText}>{detail.note}</Text>
+                        ) : null}
+                        <Text style={styles.commitmentAmount}>{formatBRLFromCents(detail.balanceCents)}</Text>
+                      </View>
+                      <View style={styles.cardActions}>
+                        <Pressable
+                          onPress={() => openEditOnboardingDebt(detail)}
+                          hitSlop={8}
+                          style={styles.editDebtButton}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Editar dívida ${detail.name}`}
+                        >
+                          <Text style={styles.editDebtButtonText}>Editar dívida</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  ))}
+
+                  {!commitments.length && !orphanDebts.length ? (
+                    <View style={styles.emptyCard}>
+                      <View style={styles.emptyIcon}>
+                        <Ionicons name="shield-checkmark-outline" size={26} color={OB.primary} />
+                      </View>
+                      <Text style={styles.emptyTitle}>Nenhuma conta futura cadastrada</Text>
+                      <Text style={styles.emptyText}>
+                        Se não há mais nada para pagar neste período, pode concluir agora.
+                      </Text>
+                      <Pressable onPress={openNewCommitment} style={styles.secondaryButton} accessibilityRole="button">
+                        <Text style={styles.secondaryButtonText}>Adicionar uma conta</Text>
+                      </Pressable>
+                    </View>
+                  ) : null}
+
+                  <PlanningReviewCall nested />
+                </DisclosureSection>
+              ) : null}
+
+              {hasObservedInsights && (!guided || guidedStep === 2) ? (
+                <DisclosureSection
+                  title="Observado no seu histórico"
+                  summary={OBSERVED_INSIGHT_SUMMARY}
+                  collapsed={!guided}
+                >
+                  <View style={styles.insightGroup}>
+                    <FinancialPatternInbox
+                      suggestions={patternSuggestions}
+                      busyKey={busyPatternKey}
+                      onConfirm={handleConfirmPattern}
+                      onReject={handleRejectPattern}
+                    />
+                    <ObservedIncomeSection
+                      recurring={recurringIncome}
+                      otherInflows={otherInflows}
+                      acknowledgements={incomeAcknowledgements}
+                      acknowledgementsUnavailable={incomeAcknowledgementsUnavailable}
+                      onUseIncome={(income) => void openIncomePlan(income)}
+                      onReviewIncome={(income) => void openIncomePlan(income)}
+                    />
+                    <ObservedHabitsSection habits={observedHabits} />
+                  </View>
+                </DisclosureSection>
+              ) : null}
+
+              {guided && guidedStep === 2 ? (
+                <Pressable
+                  onPress={() => router.dismissTo({ pathname: "/(app)/journey", params: { tab: "controle" } })}
+                  style={styles.primaryButton}
+                  accessibilityRole="button"
+                  accessibilityLabel="Concluir e voltar ao Resumo"
+                >
+                  <Text style={styles.primaryButtonText}>Concluir e voltar ao Resumo</Text>
+                </Pressable>
+              ) : null}
+            </>
+          )}
+          </PlanningActionsSection>
+        </PlanScroll>
+      </KeyboardAvoidingView>
+
+      <Modal
+        visible={incomePlan != null}
+        animationType="fade"
+        transparent
+        statusBarTranslucent
+        navigationBarTranslucent={Platform.OS === "android"}
+        presentationStyle="overFullScreen"
+        onRequestClose={() => {
+          if (!savingIncomePlan) setIncomePlan(null);
+        }}
+      >
+        <View style={styles.scrimRoot}>
+          <Pressable
+            style={styles.scrim}
+            onPress={() => {
+              if (!savingIncomePlan) setIncomePlan(null);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Fechar"
+          />
+          <View style={styles.scrimStage} pointerEvents="box-none">
+            {incomePlan ? (
+              <ObservedIncomePlanSheet
+                income={incomePlan.income}
+                currentCents={incomePlan.currentCents}
+                accountWarning={similarIncomeAccountWarning(incomePlan.income, recurringIncome.filter((item) => item.patternKey !== incomePlan.income.patternKey))}
+                busy={savingIncomePlan}
+                onClose={() => {
+                  if (!savingIncomePlan) setIncomePlan(null);
+                }}
+                onSave={(desiredTotalCents) => void saveIncomePlan(desiredTotalCents)}
+                onDecline={() => void declineIncomePlan()}
+              />
+            ) : null}
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={modalVisible}
+        animationType="fade"
+        transparent
+        statusBarTranslucent
+        navigationBarTranslucent={Platform.OS === "android"}
+        presentationStyle="overFullScreen"
+        onRequestClose={closeModal}
+      >
+        <View style={styles.scrimRoot}>
+          <Pressable
+            style={styles.scrim}
+            onPress={closeModal}
+            accessibilityRole="button"
+            accessibilityLabel="Fechar"
+          />
+          <KeyboardAvoidingView
+            enabled={Platform.OS === "ios"}
+            behavior="padding"
+            style={styles.scrimStage}
+            pointerEvents="box-none"
+          >
+            <View style={[styles.overlayCard, { maxHeight: Math.min(viewportHeight * 0.88, 720) }]}>
+              <View style={styles.modalHeader}>
+                <View style={styles.flex}>
+                  <Text style={styles.modalTitle}>
+                    {draft.onboardingType
+                      ? "Editar dívida"
+                      : editing
+                        ? "Editar conta"
+                        : "Nova conta"}
+                  </Text>
+                  <Text style={styles.modalSubtitle}>
+                    {draft.onboardingType
+                      ? "Ajuste o valor e o vencimento desta dívida."
+                      : "Algo que se repete todo mês no seu ciclo."}
+                  </Text>
+                </View>
+                <Pressable
+                  onPress={closeModal}
+                  style={styles.modalClose}
+                  accessibilityRole="button"
+                  accessibilityLabel="Fechar"
+                >
+                  <Ionicons name="close" size={20} color={OB.support} />
+                </Pressable>
+              </View>
+
+              <ScrollView
+                ref={modalKeyboard.scrollRef}
+                style={styles.modalScroll}
+                contentContainerStyle={[
+                  styles.modalContent,
+                  { paddingBottom: 8 + modalKeyboard.keyboardInset },
+                ]}
+                keyboardDismissMode="none"
+                keyboardShouldPersistTaps="always"
+                onScrollBeginDrag={modalKeyboard.cancelPendingScroll}
+                onScroll={modalKeyboard.handleScroll}
+                scrollEventThrottle={16}
+                onContentSizeChange={modalKeyboard.handleContentSizeChange}
+                removeClippedSubviews={false}
+                showsVerticalScrollIndicator={false}
+              >
+                <View
+                  ref={modalKeyboard.registerFieldNode("name")}
+                  onLayout={modalKeyboard.registerField("name")}
+                  collapsable={false}
+                  style={styles.fieldBlock}
+                >
+                  <Text style={styles.fieldLabel}>Como se chama?</Text>
+                  <TextInput
+                    value={draft.name}
+                    onChangeText={(name) => setDraft((current) => ({ ...current, name }))}
+                    onFocus={() => modalKeyboard.focusField("name")}
+                    onPressIn={() => modalKeyboard.focusField("name")}
+                    placeholder="Ex.: Aluguel, luz, faculdade"
+                    placeholderTextColor={OB.support}
+                    returnKeyType="next"
+                    editable={!draft.onboardingType}
+                    style={[styles.input, draft.onboardingType && styles.inputReadonly]}
+                    accessibilityLabel="Nome do compromisso"
+                  />
+                </View>
+
+                <View style={styles.fieldBlock}>
+                  <Text style={styles.fieldLabel}>Que tipo é?</Text>
+                  <View style={styles.kindOptions} accessibilityRole="radiogroup">
+                    {KIND_OPTIONS.map((option) => {
+                      const active = draft.kind === option.value;
+                      return (
+                        <Pressable
+                          key={option.value}
+                          onPress={() => setDraft((current) => ({ ...current, kind: option.value }))}
+                          style={[styles.kindOption, active && styles.kindOptionActive]}
+                          accessibilityRole="radio"
+                          accessibilityState={{ checked: active }}
+                        >
+                          <View style={[styles.kindIcon, active && styles.kindIconActive]}>
+                            <Ionicons name={option.icon} size={18} color={active ? "#fff" : OB.primary} />
+                          </View>
+                          <Text style={[styles.kindText, active && styles.kindTextActive]}>{option.label}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                <View
+                  ref={modalKeyboard.registerFieldNode("amount")}
+                  onLayout={modalKeyboard.registerField("amount")}
+                  collapsable={false}
+                  style={styles.amountCard}
+                >
+                  <Text style={styles.fieldLabel}>
+                    {draft.onboardingType ? "Parcela do mês" : "Quanto sai por mês?"}
+                  </Text>
+                  <TextInput
+                    value={draft.amount}
+                    onChangeText={(value) => setDraft((current) => ({
+                      ...current,
+                      amount: formatBRLInputFromDigits(value),
+                    }))}
+                    onFocus={() => modalKeyboard.focusField("amount")}
+                    onPressIn={() => modalKeyboard.focusField("amount")}
+                    keyboardType="number-pad"
+                    placeholder="R$ 0,00"
+                    placeholderTextColor={OB.support}
+                    returnKeyType="done"
+                    onSubmitEditing={Keyboard.dismiss}
+                    style={styles.amountInput}
+                    accessibilityLabel={draft.onboardingType
+                      ? "Parcela mensal desta dívida"
+                      : "Valor pago por mês deste compromisso"}
+                  />
+                  <Text style={styles.helper}>
+                    {draft.onboardingType
+                      ? "Pode deixar vazio se não houver parcela mensal. Use o valor que vence no mês, não o saldo total."
+                      : "Use o valor que vence no mês — não o saldo total."}
+                  </Text>
+                </View>
+
+                {draft.onboardingType ? (
+                  <>
+                    <View
+                      ref={modalKeyboard.registerFieldNode("balance")}
+                      onLayout={modalKeyboard.registerField("balance")}
+                      collapsable={false}
+                      style={styles.fieldBlock}
+                    >
+                      <Text style={styles.fieldLabel}>Saldo da dívida</Text>
+                      <TextInput
+                        value={draft.balance}
+                        onChangeText={(value) => setDraft((current) => ({
+                          ...current,
+                          balance: formatBRLInputFromDigits(value),
+                        }))}
+                        onFocus={() => modalKeyboard.focusField("balance")}
+                        onPressIn={() => modalKeyboard.focusField("balance")}
+                        keyboardType="number-pad"
+                        placeholder="R$ 0,00"
+                        placeholderTextColor={OB.support}
+                        returnKeyType="done"
+                        onSubmitEditing={Keyboard.dismiss}
+                        style={styles.input}
+                        accessibilityLabel="Saldo da dívida"
+                      />
+                    </View>
+                    <View
+                      ref={modalKeyboard.registerFieldNode("note")}
+                      onLayout={modalKeyboard.registerField("note")}
+                      collapsable={false}
+                      style={styles.fieldBlock}
+                    >
+                      <Text style={styles.fieldLabel}>Observação</Text>
+                      <TextInput
+                        value={draft.note}
+                        onChangeText={(note) => setDraft((current) => ({
+                          ...current,
+                          note: note.slice(0, MAX_ONBOARDING_DEBT_NOTE_LENGTH),
+                        }))}
+                        onFocus={() => modalKeyboard.focusField("note")}
+                        onPressIn={() => modalKeyboard.focusField("note")}
+                        placeholder="Ex.: Nubank"
+                        placeholderTextColor={OB.support}
+                        returnKeyType="done"
+                        onSubmitEditing={Keyboard.dismiss}
+                        style={styles.input}
+                        accessibilityLabel="Observação da dívida"
+                      />
+                    </View>
+                  </>
+                ) : null}
+
+                <View style={styles.metaCard}>
+                  <View
+                    ref={modalKeyboard.registerFieldNode("due")}
+                    style={styles.column}
+                    onLayout={modalKeyboard.registerField("due")}
+                    collapsable={false}
+                  >
+                    <Text style={styles.fieldLabel}>Vence todo dia</Text>
+                    <TextInput
+                      value={draft.dueDay}
+                      onChangeText={(dueDay) => setDraft((current) => ({
+                        ...current,
+                        dueDay: digits(dueDay, 2),
+                      }))}
+                      onFocus={() => modalKeyboard.focusField("due")}
+                      onPressIn={() => modalKeyboard.focusField("due")}
+                      keyboardType="number-pad"
+                      placeholder="1–28"
+                      placeholderTextColor={OB.support}
+                      returnKeyType="done"
+                      onSubmitEditing={Keyboard.dismiss}
+                      style={styles.input}
+                      accessibilityLabel="Dia do vencimento, entre 1 e 28"
+                    />
+                  </View>
+                  <View style={styles.metaDivider} />
+                  <View
+                    ref={modalKeyboard.registerFieldNode("start")}
+                    style={styles.column}
+                    onLayout={modalKeyboard.registerField("start")}
+                    collapsable={false}
+                  >
+                    <Text style={styles.fieldLabel}>Começa em</Text>
+                    <TextInput
+                      value={draft.startMonth}
+                      onChangeText={(startMonth) => setDraft((current) => ({
+                        ...current,
+                        startMonth: formatMonthInput(startMonth),
+                      }))}
+                      onFocus={() => modalKeyboard.focusField("start")}
+                      onPressIn={() => modalKeyboard.focusField("start")}
+                      keyboardType="number-pad"
+                      placeholder="AAAA-MM"
+                      placeholderTextColor={OB.support}
+                      returnKeyType="done"
+                      onSubmitEditing={Keyboard.dismiss}
+                      style={styles.input}
+                      accessibilityLabel="Mês de início no formato ano e mês"
+                    />
+                  </View>
+                </View>
+
+                {draft.kind === "installment" ? (
+                <View
+                  ref={modalKeyboard.registerFieldNode("installments")}
+                  onLayout={modalKeyboard.registerField("installments")}
+                  collapsable={false}
+                  style={styles.fieldBlock}
+                >
+                  <Text style={styles.fieldLabel}>Quantas parcelas?</Text>
+                  <TextInput
+                    value={draft.installmentCount}
+                    onChangeText={(installmentCount) => setDraft((current) => ({
+                      ...current,
+                      installmentCount: digits(installmentCount, 3),
+                    }))}
+                    onFocus={() => modalKeyboard.focusField("installments")}
+                    onPressIn={() => modalKeyboard.focusField("installments")}
+                    keyboardType="number-pad"
+                    placeholder="Ex.: 12"
+                    placeholderTextColor={OB.support}
+                    returnKeyType="done"
+                    onSubmitEditing={Keyboard.dismiss}
+                    style={styles.input}
+                    accessibilityLabel="Quantidade de parcelas no planejamento"
+                  />
+                  <Text style={styles.helper}>A partir do mês de início, entre 1 e 600.</Text>
+                </View>
+                ) : null}
+
+                {commitmentSaveError ? (
+                  <View style={styles.inlineError} accessibilityRole="alert">
+                    <Ionicons name="alert-circle-outline" size={18} color="#A33F3F" />
+                    <Text style={styles.inlineErrorText}>{commitmentSaveError}</Text>
+                  </View>
+                ) : null}
+
+                <Pressable
+                  onPress={() => void saveCommitment()}
+                  disabled={!commitmentValid || savingCommitment}
+                  style={[styles.modalPrimaryButton, (!commitmentValid || savingCommitment) && styles.disabled]}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: !commitmentValid || savingCommitment }}
+                >
+                  {savingCommitment ? <ActivityIndicator color="#fff" /> : (
+                    <Text style={styles.primaryButtonText}>
+                      {editing || draft.onboardingType ? "Salvar alterações" : "Adicionar"}
+                    </Text>
+                  )}
+                </Pressable>
+              </ScrollView>
+            </View>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
+    </>
+  );
+
+  if (!routeChrome) return plan;
+  return <OnboardingShell light>{plan}</OnboardingShell>;
+}
+
+const styles = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: OB.offWhite },
+  content: { padding: 20, gap: 14, paddingBottom: 32 },
+  contentEmbedded: { paddingHorizontal: 16, paddingTop: JOURNEY_HEADER_HEIGHT + 12 },
+  embeddedHeader: { gap: 4, paddingHorizontal: 2 },
+  embeddedTitle: { color: OB.primary, fontSize: 28, fontWeight: "900" },
+  embeddedSubtitle: { color: OB.support, fontSize: 13, fontWeight: "700", lineHeight: 18 },
+  flex: { flex: 1 },
+  card: {
+    borderRadius: 24,
+    padding: 16,
+    gap: 14,
+    backgroundColor: "#F4F7FB",
+  },
+  reserveHeading: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 7 },
+  reserveLabel: {
+    color: OB.primary,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  insightGroup: { gap: 12, marginTop: 8 },
+  sectionHeading: { flexDirection: "row", alignItems: "center", gap: 11 },
+  sectionIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(123,160,200,0.16)",
+  },
+  cardTitle: { color: OB.primary, fontSize: 17, fontWeight: "900" },
+  cardSubtitle: { color: OB.support, fontSize: 11, fontWeight: "700", lineHeight: 16, marginTop: 3 },
+  cycleOptions: { flexDirection: "row", gap: 9 },
+  cycleOption: {
+    flex: 1,
+    minHeight: 126,
+    borderRadius: 17,
+    padding: 13,
+    justifyContent: "center",
+    backgroundColor: OB.offWhite,
+    borderWidth: 1.5,
+    borderColor: OB.supportSoft,
+  },
+  optionActive: { backgroundColor: OB.primary, borderColor: OB.primary },
+  optionTitle: { color: OB.primary, fontSize: 12, fontWeight: "900", lineHeight: 16, marginTop: 9 },
+  optionText: { color: OB.support, fontSize: 9, fontWeight: "700", lineHeight: 14, marginTop: 4 },
+  optionTextActive: { color: "#fff" },
+  label: {
+    color: OB.support,
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    marginBottom: 7,
+  },
+  input: {
+    minHeight: 52,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+    backgroundColor: "#fff",
+    paddingHorizontal: 14,
+    color: OB.primary,
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  inputReadonly: {
+    opacity: 0.72,
+    backgroundColor: OB.offWhite,
+  },
+  inputError: { borderColor: "#D46A6A" },
+  helper: { color: OB.support, fontSize: 12, fontWeight: "700", lineHeight: 17 },
+  primaryButton: {
+    minHeight: 54,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: OB.primary,
+  },
+  primaryButtonText: { color: "#fff", fontSize: 14, fontWeight: "900" },
+  disabled: { opacity: 0.45 },
+  commitmentHeader: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 2, marginTop: 4 },
+  sectionTitle: { color: OB.primary, fontSize: 18, fontWeight: "900" },
+  sectionSubtitle: { color: OB.support, fontSize: 10, fontWeight: "700", lineHeight: 15, marginTop: 4 },
+  addButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: OB.primary,
+  },
+  commitmentCard: {
+    borderRadius: 18,
+    paddingVertical: 12,
+    paddingHorizontal: 2,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 11,
+  },
+  commitmentIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(123,160,200,0.16)",
+  },
+  commitmentName: { color: OB.primary, fontSize: 14, fontWeight: "900", paddingRight: 3 },
+  commitmentMeta: { color: OB.support, fontSize: 10, fontWeight: "800", marginTop: 4 },
+  installmentText: { color: OB.support, fontSize: 9, fontWeight: "700", marginTop: 3 },
+  commitmentAmount: { color: OB.primary, fontSize: 18, fontWeight: "900", marginTop: 6 },
+  cardActions: { gap: 7, alignItems: "flex-end" },
+  iconButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  editDebtButton: {
+    minHeight: 34,
+    maxWidth: 92,
+    borderRadius: 11,
+    paddingHorizontal: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: OB.offWhite,
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  editDebtButtonText: {
+    color: OB.primary,
+    fontSize: 9,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  emptyCard: {
+    minHeight: 210,
+    borderRadius: 20,
+    padding: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  emptyIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(123,160,200,0.16)",
+  },
+  emptyTitle: { color: OB.primary, fontSize: 14, fontWeight: "900", marginTop: 12 },
+  emptyText: {
+    maxWidth: 270,
+    color: OB.support,
+    fontSize: 11,
+    fontWeight: "700",
+    lineHeight: 17,
+    textAlign: "center",
+    marginTop: 5,
+  },
+  secondaryButton: {
+    minHeight: 42,
+    borderRadius: 13,
+    paddingHorizontal: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: OB.offWhite,
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+    marginTop: 14,
+  },
+  secondaryButtonText: { color: OB.primary, fontSize: 11, fontWeight: "900" },
+  stateCard: {
+    minHeight: 210,
+    borderRadius: 20,
+    padding: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+  },
+  stateTitle: { color: OB.primary, fontSize: 14, fontWeight: "900", textAlign: "center" },
+  stateText: { color: OB.support, fontSize: 11, fontWeight: "700", lineHeight: 16, textAlign: "center" },
+  retryButton: {
+    minHeight: 40,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    justifyContent: "center",
+    backgroundColor: "rgba(123,160,200,0.16)",
+    marginTop: 6,
+  },
+  retryText: { color: OB.primary, fontSize: 11, fontWeight: "900" },
+  inlineError: {
+    minHeight: 48,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+    backgroundColor: "#FFF2F2",
+    borderWidth: 1,
+    borderColor: "rgba(163,63,63,0.22)",
+  },
+  inlineErrorText: {
+    flex: 1,
+    color: "#7F3030",
+    fontSize: 11,
+    fontWeight: "800",
+    lineHeight: 16,
+  },
+  scrimRoot: {
+    flex: 1,
+  },
+  scrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: OB.modalScrim,
+  },
+  scrimStage: {
+    flex: 1,
+    padding: 20,
+    justifyContent: "center",
+  },
+  overlayCard: {
+    width: "100%",
+    maxWidth: 440,
+    alignSelf: "center",
+    borderRadius: 22,
+    paddingTop: 18,
+    paddingHorizontal: 4,
+    paddingBottom: 14,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+    shadowColor: OB.primary,
+    shadowOpacity: 0.18,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 12,
+    overflow: "hidden",
+  },
+  modalHeader: {
+    paddingHorizontal: 14,
+    paddingBottom: 10,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  modalScroll: {
+    flexGrow: 0,
+    flexShrink: 1,
+  },
+  modalTitle: { color: OB.primary, fontSize: 20, fontWeight: "900" },
+  modalSubtitle: {
+    color: OB.support,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 18,
+    marginTop: 4,
+    paddingRight: 4,
+  },
+  modalClose: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: OB.offWhite,
+  },
+  modalContent: { paddingHorizontal: 14, paddingBottom: 8, gap: 14 },
+  fieldBlock: { gap: 8 },
+  fieldLabel: {
+    color: OB.primary,
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  amountCard: {
+    borderRadius: 18,
+    padding: 14,
+    gap: 8,
+    backgroundColor: OB.offWhite,
+  },
+  amountInput: {
+    minHeight: 56,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: OB.supportSoft,
+    backgroundColor: "#fff",
+    paddingHorizontal: 14,
+    color: OB.primary,
+    fontSize: 26,
+    fontWeight: "900",
+  },
+  metaCard: {
+    borderRadius: 18,
+    padding: 12,
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: 12,
+    backgroundColor: OB.offWhite,
+  },
+  metaDivider: {
+    width: StyleSheet.hairlineWidth,
+    backgroundColor: OB.supportSoft,
+    marginVertical: 4,
+  },
+  kindOptions: { flexDirection: "row", gap: 8 },
+  kindOption: {
+    flex: 1,
+    minHeight: 78,
+    borderRadius: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 6,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    backgroundColor: OB.offWhite,
+    borderWidth: 1.5,
+    borderColor: "transparent",
+  },
+  kindOptionActive: {
+    backgroundColor: "rgba(12,35,72,0.06)",
+    borderColor: OB.primary,
+  },
+  kindIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fff",
+  },
+  kindIconActive: {
+    backgroundColor: OB.primary,
+  },
+  kindText: {
+    color: OB.primary,
+    fontSize: 11,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  kindTextActive: {
+    color: OB.primary,
+    fontWeight: "900",
+  },
+  modalPrimaryButton: {
+    minHeight: 52,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: OB.primary,
+    marginTop: 2,
+  },
+  column: { flex: 1 },
+});

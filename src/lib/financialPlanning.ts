@@ -3,6 +3,7 @@ import {
   assertCyclePaymentFits,
   cyclePaymentAlreadyPaidCents,
 } from "./commitmentPaymentPersistence";
+import { getGoalContributionEffectiveCents } from "./goalContributionEffect";
 import { summarizeMovementTotals } from "./internalTransfers";
 import { supabase } from "./supabase";
 
@@ -672,6 +673,7 @@ async function getExpectedIncomeBreakdown(userId: string) {
 type ContributionRow = {
   goal_id: string;
   amount_cents: number;
+  effective_cents: number;
   contributed_on: string;
   cycle_key: string | null;
 };
@@ -679,8 +681,14 @@ type ContributionRow = {
 async function listContributionRows(householdId: string): Promise<ContributionRow[]> {
   let result = await sb
     .from("goal_contribution_entries")
-    .select("goal_id,amount_cents,contributed_on,cycle_key")
+    .select("goal_id,amount_cents,effective_amount_cents,source_kind,contributed_on,cycle_key")
     .eq("household_id", householdId);
+  if (result.error?.code === "42703") {
+    result = await sb
+      .from("goal_contribution_entries")
+      .select("goal_id,amount_cents,contributed_on,cycle_key")
+      .eq("household_id", householdId);
+  }
   if (result.error?.code === "42703") {
     result = await sb
       .from("goal_contribution_entries")
@@ -688,11 +696,20 @@ async function listContributionRows(householdId: string): Promise<ContributionRo
       .eq("household_id", householdId);
   }
   if (result.error) throw result.error;
-  return (result.data ?? []).map((row: any): ContributionRow => ({
-    ...row,
-    amount_cents: Math.max(0, integerCents(row.amount_cents)),
-    cycle_key: row.cycle_key ?? null,
-  }));
+  return (result.data ?? []).map((row: any): ContributionRow => {
+    const amountCents = Math.max(0, integerCents(row.amount_cents));
+    return {
+      goal_id: row.goal_id,
+      amount_cents: amountCents,
+      effective_cents: getGoalContributionEffectiveCents({
+        sourceKind: typeof row.source_kind === "string" ? row.source_kind : null,
+        amountCents,
+        effectiveAmountCents: row.effective_amount_cents == null ? null : integerCents(row.effective_amount_cents),
+      }),
+      contributed_on: row.contributed_on,
+      cycle_key: row.cycle_key ?? null,
+    };
+  });
 }
 
 async function listOverviewGoals(householdId: string) {
@@ -796,10 +813,10 @@ export async function getFinancialOverview(params: {
     priority: Number(goal.priority) || 1,
     contributed_cents: contributionRows
       .filter((row) => row.goal_id === goal.id)
-      .reduce((sum, row) => sum + row.amount_cents, 0),
+      .reduce((sum, row) => sum + row.effective_cents, 0),
     cycle_contributed_cents: cycleRows
       .filter((row) => row.goal_id === goal.id)
-      .reduce((sum, row) => sum + row.amount_cents, 0),
+      .reduce((sum, row) => sum + row.effective_cents, 0),
   }));
 
   const realizedFlows = summarizeMovementTotals(transactions);
@@ -807,7 +824,7 @@ export async function getFinancialOverview(params: {
   const realizedExpenseCents = realizedFlows.expense;
   const totalCommitmentsCents = overviewCommitments.reduce((sum, item) => sum + item.amount_cents, 0);
   const pendingCommitmentsCents = overviewCommitments.reduce((sum, item) => sum + item.pending_cents, 0);
-  const allocatedCents = cycleRows.reduce((sum, row) => sum + row.amount_cents, 0);
+  const allocatedCents = cycleRows.reduce((sum, row) => sum + row.effective_cents, 0);
   const trustedBalanceCents = snapshots.length
     ? snapshots.reduce((sum, snapshot) => sum + snapshot.balance_cents, 0)
     : null;

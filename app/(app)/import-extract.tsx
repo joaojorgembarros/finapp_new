@@ -81,8 +81,8 @@ export default function ImportExtractOnboarding() {
             <Ionicons name="time-outline" size={21} color={OB.primary} />
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.historyTitle}>Histórico de importações</Text>
-            <Text style={styles.historyText}>Consulte arquivos importados ou desfaça uma importação</Text>
+            <Text style={styles.historyTitle}>Extratos importados</Text>
+            <Text style={styles.historyText}>Consulte os arquivos importados ou exclua um extrato</Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color={OB.support} />
         </Pressable>

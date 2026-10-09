@@ -261,6 +261,12 @@ export const SUMMARY_MONEY_COPY = {
   splitTitle: "Do que pode sobrar",
 } as const;
 
+/** A suggested cycle after import must not hide the period controls. */
+export function summaryCycleNavigationAvailable(postImportActive: boolean) {
+  if (postImportActive) return true;
+  return true;
+}
+
 export function buildSummaryHeroPresentation(input: {
   plannedFreeCents: number;
   availableNowCents: number;

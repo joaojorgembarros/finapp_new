@@ -224,6 +224,27 @@ export function periodBalanceCaption(accountId?: string | "all" | null) {
   return "Entradas menos saídas das contas exibidas no período. Não representa o saldo atual dos seus bancos.";
 }
 
+export const PERIOD_BALANCE_FLOW_LABEL = "Entradas − saídas";
+
+export const PERIOD_BALANCE_EXPLANATION =
+  "Este valor mostra o que entrou menos o que saiu no período. Não é o saldo atual das suas contas.";
+
+export function periodMovementWindowLabel(month?: string | null) {
+  if (!month || month === "all") return "Todas as datas";
+  const match = /^(\d{4})-(\d{2})$/.exec(month);
+  if (!match) return month;
+  const year = Number(match[1]);
+  const monthNumber = Number(match[2]);
+  if (monthNumber < 1 || monthNumber > 12) return month;
+  const lastDay = new Date(year, monthNumber, 0).getDate();
+  const endDay = String(lastDay).padStart(2, "0");
+  return `01/${match[2]}/${match[1]} a ${endDay}/${match[2]}/${match[1]}`;
+}
+
+export function periodBalanceDetail(month?: string | null) {
+  return `${PERIOD_BALANCE_FLOW_LABEL} • ${periodMovementWindowLabel(month)}`;
+}
+
 export function toInternalTransferLeg(
   transaction: InternalTransferLeg,
   paymentTransactionIds: Iterable<string> = [],

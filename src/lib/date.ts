@@ -24,3 +24,13 @@ export function addMonths(ref: Date, months: number) {
   d.setMonth(d.getMonth() + months);
   return d;
 }
+
+/** Local calendar date at noon, so a YYYY-MM-DD never shifts to the previous day. */
+export function dateFromYmd(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, (month || 1) - 1, day || 1, 12);
+}
+
+export function endOfLocalDay(ref = new Date()) {
+  return new Date(ref.getFullYear(), ref.getMonth(), ref.getDate(), 23, 59, 59);
+}

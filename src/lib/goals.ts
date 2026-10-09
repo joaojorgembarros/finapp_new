@@ -1,4 +1,5 @@
 import { parseBRLToCents } from "./format";
+import { getGoalContributionEffectiveCents, isReversedGoalContribution } from "./goalContributionEffect";
 import { supabase } from "./supabase";
 
 const sb: any = supabase;
@@ -25,6 +26,9 @@ export type GoalContribution = {
   id: string;
   goal_id: string;
   amount_cents: number;
+  effective_cents: number;
+  source_kind: string | null;
+  reversed: boolean;
   contributed_on: string;
   note: string | null;
   created_at: string;
@@ -101,11 +105,7 @@ export async function listGoalsWithProgress(householdId: string): Promise<GoalPr
   }
   if (goalError) throw goalError;
 
-  const { data: entries, error: entryError } = await sb
-    .from("goal_contribution_entries")
-    .select("goal_id,amount_cents,contributed_on")
-    .eq("household_id", householdId);
-  if (entryError) throw entryError;
+  const { data: entries } = await listContributionAmounts(householdId);
 
   const currentMonth = monthStart();
   const photoUrls = new Map<string, string>();
@@ -121,16 +121,16 @@ export async function listGoalsWithProgress(householdId: string): Promise<GoalPr
     let accumulated = 0;
     let completedOn: string | null = null;
     for (const entry of [...goalEntries].sort((a: any, b: any) => a.contributed_on.localeCompare(b.contributed_on))) {
-      accumulated += Number(entry.amount_cents || 0);
+      accumulated += contributionEffectiveCents(entry);
       if (!completedOn && accumulated >= targetCents) completedOn = entry.contributed_on;
     }
     return {
       ...goal,
       target_cents: targetCents,
-      contributed_cents: goalEntries.reduce((sum: number, entry: any) => sum + Number(entry.amount_cents || 0), 0),
+      contributed_cents: goalEntries.reduce((sum: number, entry: any) => sum + contributionEffectiveCents(entry), 0),
       month_contributed_cents: goalEntries
         .filter((entry: any) => entry.contributed_on >= currentMonth)
-        .reduce((sum: number, entry: any) => sum + Number(entry.amount_cents || 0), 0),
+        .reduce((sum: number, entry: any) => sum + contributionEffectiveCents(entry), 0),
       contribution_count: goalEntries.length,
       completed_on: completedOn,
       motivation: goal.motivation ?? null,
@@ -188,6 +188,9 @@ export async function addGoalContribution(opts: {
   amount_cents: number;
   note?: string;
 }) {
+  // Legacy insert. Old clients still create manual_unverified through the
+  // database default. Outside savings and review must use the dedicated RPCs.
+  // Do not send source_kind from this path.
   const { error } = await sb.from("goal_contribution_entries").insert({
     household_id: opts.householdId,
     goal_id: opts.goalId,
@@ -199,12 +202,61 @@ export async function addGoalContribution(opts: {
 }
 
 export async function listGoalContributions(goalId: string): Promise<GoalContribution[]> {
-  const { data, error } = await sb
+  let result = await sb
     .from("goal_contribution_entries")
-    .select("id,goal_id,amount_cents,contributed_on,note,created_at")
+    .select("id,goal_id,amount_cents,effective_amount_cents,source_kind,contributed_on,note,created_at")
     .eq("goal_id", goalId)
     .order("contributed_on", { ascending: false })
     .order("created_at", { ascending: false });
-  if (error) throw error;
-  return (data ?? []).map((row: any) => ({ ...row, amount_cents: Number(row.amount_cents || 0) }));
+  if (result.error?.code === "42703") {
+    result = await sb
+      .from("goal_contribution_entries")
+      .select("id,goal_id,amount_cents,contributed_on,note,created_at")
+      .eq("goal_id", goalId)
+      .order("contributed_on", { ascending: false })
+      .order("created_at", { ascending: false });
+  }
+  if (result.error) throw result.error;
+  return (result.data ?? []).map((row: any) => {
+    const amountCents = Number(row.amount_cents || 0);
+    const sourceKind = typeof row.source_kind === "string" ? row.source_kind : null;
+    return {
+      id: row.id,
+      goal_id: row.goal_id,
+      amount_cents: amountCents,
+      effective_cents: contributionEffectiveCents(row),
+      source_kind: sourceKind,
+      reversed: isReversedGoalContribution(sourceKind),
+      contributed_on: row.contributed_on,
+      note: row.note ?? null,
+      created_at: row.created_at,
+    };
+  });
+}
+
+async function listContributionAmounts(householdId: string) {
+  let result = await sb
+    .from("goal_contribution_entries")
+    .select("goal_id,amount_cents,effective_amount_cents,source_kind,contributed_on")
+    .eq("household_id", householdId);
+  if (result.error?.code === "42703") {
+    result = await sb
+      .from("goal_contribution_entries")
+      .select("goal_id,amount_cents,contributed_on")
+      .eq("household_id", householdId);
+  }
+  if (result.error) throw result.error;
+  return result;
+}
+
+function contributionEffectiveCents(row: {
+  amount_cents?: unknown;
+  effective_amount_cents?: unknown;
+  source_kind?: unknown;
+}) {
+  return getGoalContributionEffectiveCents({
+    sourceKind: typeof row.source_kind === "string" ? row.source_kind : null,
+    amountCents: Number(row.amount_cents || 0),
+    effectiveAmountCents: row.effective_amount_cents == null ? null : Number(row.effective_amount_cents),
+  });
 }

@@ -32,7 +32,6 @@ import { FloatingTabBar, FloatingTabItem } from "../../src/ui/FloatingTabBar";
 import {
   FLOATING_TAB_BAR_VISUAL_GAP,
   JOURNEY_HEADER_HEIGHT,
-  getJourneyBottomContentInset,
   resolveSafeBottomInset,
   resolveSafeTopInset,
 } from "../../src/ui/journeyChrome";
@@ -46,7 +45,6 @@ import { useSession } from "../../src/providers/SessionProvider";
 import { useHouseholdId } from "../../src/hooks/useHousehold";
 import { useKeyboardAwareScroll } from "../../src/hooks/useKeyboardAwareScroll";
 import { Category } from "../../src/lib/categories";
-import { listTransactionsByMonth } from "../../src/lib/transactions";
 import {
   TransactionAccountId,
   TransactionAccountOption,
@@ -58,12 +56,14 @@ import {
 } from "../../src/lib/goals";
 import { DreamsTab } from "../../src/features/journey/DreamsTab";
 import { SummaryTab } from "../../src/features/summary/SummaryTab";
+import { FinancialPlanScreen } from "../../src/features/planning/FinancialPlanScreen";
 import { getAndroidBackAction, HOME_TAB } from "../../src/lib/androidBack";
+import { parseRequestedTab, type JourneyTab } from "../../src/lib/journeyTabs";
 import { runAccountLogout } from "../../src/lib/accountLogout";
 import { BankLogo } from "../../src/ui/BankLogo";
 import MovementsScreen from "./transaction-history";
 
-type Tab = "controle" | "jornada" | "movimentacoes" | "desafios";
+type Tab = JourneyTab;
 type MenuIcon = keyof typeof Ionicons.glyphMap;
 type TxType = "Receita" | "Despesa";
 type TxDraft = {
@@ -90,13 +90,12 @@ const ALL_NAVIGATION_ITEMS: readonly NavigationItem[] = [
     icon: "swap-vertical-outline",
   },
   { id: "controle", label: "Resumo", icon: "bar-chart-outline" },
-  { id: "desafios", label: "Desafios", icon: "trophy-outline" },
+  { id: "planejamento", label: "Planejamento", icon: "calendar-outline" },
 ];
 
 const MAIN_NAVIGATION_ITEMS = ALL_NAVIGATION_ITEMS.filter(
   (item) => SHOW_CONTROLE_TAB || item.id !== "controle",
 );
-
 const FLOATING_NAVIGATION_ITEMS: readonly FloatingTabItem<Tab>[] =
   MAIN_NAVIGATION_ITEMS.map((item) =>
     item.id === "jornada"
@@ -111,14 +110,6 @@ const FLOATING_NAVIGATION_ITEMS: readonly FloatingTabItem<Tab>[] =
           accessibilityLabel: `Abrir ${item.label}`,
         },
   );
-
-const DEFAULT_TAB: Tab = "jornada";
-
-function parseRequestedTab(raw: string | undefined): Tab {
-  if (raw === "controle") return SHOW_CONTROLE_TAB ? "controle" : DEFAULT_TAB;
-  const match = MAIN_NAVIGATION_ITEMS.find((item) => item.id === raw);
-  return match?.id ?? DEFAULT_TAB;
-}
 
 const WEB_DRAWER_BLUR_STYLE =
   Platform.OS === "web"
@@ -672,10 +663,6 @@ export default function JourneyScreen() {
     dreams?: string;
     values?: string;
     tab?: string;
-    cycleDate?: string;
-    postImport?: string;
-    importId?: string;
-    reconciledCommitments?: string;
   }>();
   const { session, signOut } = useSession();
   const userId = session?.user?.id ?? null;
@@ -685,35 +672,12 @@ export default function JourneyScreen() {
     Platform.OS === "android" ? (StatusBar.currentHeight ?? 0) : 0;
   const safeTop = resolveSafeTopInset(insets.top, statusBarHeight);
   const requestedTab = Array.isArray(params.tab) ? params.tab[0] : params.tab;
-  const requestedCycleDate = Array.isArray(params.cycleDate)
-    ? params.cycleDate[0]
-    : params.cycleDate;
-  const requestedPostImport = Array.isArray(params.postImport)
-    ? params.postImport[0]
-    : params.postImport;
-  const requestedImportId = Array.isArray(params.importId)
-    ? params.importId[0]
-    : params.importId;
-  const requestedReconciledCommitments = Array.isArray(
-    params.reconciledCommitments,
-  )
-    ? params.reconciledCommitments[0]
-    : params.reconciledCommitments;
-  const parsedReconciledCommitments = Number(requestedReconciledCommitments);
-  const reconciledCommitments = Number.isFinite(parsedReconciledCommitments)
-    ? Math.max(0, Math.trunc(parsedReconciledCommitments))
-    : 0;
-  const initialTab = parseRequestedTab(requestedTab);
+  const initialTab = parseRequestedTab(requestedTab, { showControle: SHOW_CONTROLE_TAB });
   const [tab, setTab] = useState<Tab>(initialTab);
-  const [controlCycleDate, setControlCycleDate] = useState(requestedCycleDate);
-  const [postImportId, setPostImportId] = useState(
-    requestedPostImport === "1" ? requestedImportId : undefined,
-  );
   const [menuOpen, setMenuOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [goals, setGoals] = useState<GoalProgress[]>([]);
   const [journeyLoading, setJourneyLoading] = useState(true);
-  const [expenseToday, setExpenseToday] = useState(false);
   const [achievementsOpen, setAchievementsOpen] = useState(true);
   const lastBackPressRef = useRef(0);
   const logoutPromptOpenRef = useRef(false);
@@ -769,38 +733,8 @@ export default function JourneyScreen() {
   useLayoutEffect(() => {
     if (!requestedTab) return;
     scrollY.setValue(0);
-    setTab(parseRequestedTab(requestedTab));
+    setTab(parseRequestedTab(requestedTab, { showControle: SHOW_CONTROLE_TAB }));
   }, [requestedTab, scrollY]);
-
-  useEffect(() => {
-    if (requestedCycleDate) setControlCycleDate(requestedCycleDate);
-  }, [requestedCycleDate]);
-
-  useEffect(() => {
-    setPostImportId(
-      requestedPostImport === "1" && requestedImportId
-        ? requestedImportId
-        : undefined,
-    );
-  }, [requestedImportId, requestedPostImport]);
-
-  const rememberControlCycle = useCallback((nextCycleDate: string) => {
-    setControlCycleDate(nextCycleDate);
-  }, []);
-
-  const finishPostImport = useCallback(() => {
-    setPostImportId(undefined);
-    router.setParams({
-      postImport: undefined,
-      importId: undefined,
-      reconciledCommitments: undefined,
-    });
-  }, []);
-
-  const activePostImportId =
-    requestedPostImport === "1" && requestedImportId === postImportId
-      ? postImportId
-      : undefined;
 
   const loadJourney = useCallback(async () => {
     if (!householdId || !userId) {
@@ -812,16 +746,7 @@ export default function JourneyScreen() {
       setJourneyLoading(true);
       if (dreams.length)
         await syncGoalsFromDreams({ householdId, userId, dreams, values });
-      const [goalRows, txRows] = await Promise.all([
-        listGoalsWithProgress(householdId),
-        listTransactionsByMonth(householdId),
-      ]);
-      setGoals(goalRows);
-      const now = new Date();
-      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-      setExpenseToday(
-        txRows.some((tx) => tx.type === "expense" && tx.occurred_on === today),
-      );
+      setGoals(await listGoalsWithProgress(householdId));
     } catch (error: any) {
       Alert.alert(
         "Seus sonhos",
@@ -834,7 +759,7 @@ export default function JourneyScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      if (tab === "jornada" || tab === "desafios") void loadJourney();
+      if (tab === "jornada") void loadJourney();
     }, [loadJourney, tab]),
   );
 
@@ -961,29 +886,6 @@ export default function JourneyScreen() {
     }, [logout, loggingOut, menuOpen, selectTab, tab]),
   );
 
-  const challengeCard = (
-    <View style={styles.challenge}>
-      <View style={{ flex: 1 }}>
-        <Text style={styles.challengeEyebrow}>Desafio de hoje</Text>
-        <Text style={styles.challengeTitle}>Registre uma despesa do dia</Text>
-        <Text style={styles.challengeText}>
-          {expenseToday
-            ? "Concluído com um lançamento real de hoje."
-            : "Adicione uma despesa na aba Movimentações para concluir."}
-        </Text>
-      </View>
-      <View
-        style={[styles.checkButton, expenseToday && styles.checkButtonDone]}
-      >
-        <Ionicons
-          name={expenseToday ? "checkmark" : "receipt-outline"}
-          size={21}
-          color={expenseToday ? "#fff" : OB.support}
-        />
-      </View>
-    </View>
-  );
-
   return (
     <OnboardingShell light edges={[]}>
       <View style={styles.root}>
@@ -998,21 +900,8 @@ export default function JourneyScreen() {
           <View style={[styles.tabBody, { paddingTop: safeTop }]}>
             {tab === "controle" ? (
               <SummaryTab
-                key={
-                  activePostImportId
-                    ? `post-import:${activePostImportId}`
-                    : "control"
-                }
                 householdId={householdId}
-                userId={userId}
                 householdLoading={householdLoading}
-                cycleDate={controlCycleDate}
-                onCycleDateChange={rememberControlCycle}
-                postImportId={activePostImportId}
-                reconciledCommitments={
-                  activePostImportId ? reconciledCommitments : 0
-                }
-                onPostImportHandled={finishPostImport}
                 onScroll={onContentScroll}
               />
             ) : tab === "movimentacoes" ? (
@@ -1042,28 +931,10 @@ export default function JourneyScreen() {
                   })
                 }
                 canAddDream={activeGoals.length < 3}
-                footer={challengeCard}
                 onScroll={onContentScroll}
               />
             ) : (
-              <Animated.ScrollView
-                contentContainerStyle={[
-                  styles.challengesPage,
-                  { paddingBottom: getJourneyBottomContentInset(insets.bottom) },
-                ]}
-                showsVerticalScrollIndicator={false}
-                scrollEventThrottle={16}
-                onScroll={onContentScroll}
-              >
-                <Ionicons name="trophy-outline" size={42} color={OB.primary} />
-                <Text style={styles.placeholderTitle} accessibilityRole="header">
-                  Seus desafios
-                </Text>
-                <Text style={styles.placeholderText}>
-                  As missões são concluídas automaticamente com seus dados reais.
-                </Text>
-                {challengeCard}
-              </Animated.ScrollView>
+              <FinancialPlanScreen mode="embedded" onScroll={onContentScroll} />
             )}
           </View>
         </View>
@@ -1317,51 +1188,6 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     marginTop: 3,
   },
-  challenge: {
-    alignSelf: "stretch",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    borderRadius: 20,
-    padding: 16,
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: OB.supportSoft,
-  },
-  challengeEyebrow: {
-    color: OB.support,
-    fontSize: 11,
-    fontWeight: "900",
-    textTransform: "uppercase",
-    letterSpacing: 1,
-  },
-  challengeTitle: {
-    color: OB.primary,
-    fontSize: 15,
-    fontWeight: "900",
-    marginTop: 6,
-  },
-  challengeText: {
-    color: OB.support,
-    fontSize: 12,
-    fontWeight: "700",
-    lineHeight: 18,
-    marginTop: 4,
-  },
-  checkButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#fff",
-    borderWidth: 1.5,
-    borderColor: OB.supportSoft,
-  },
-  checkButtonDone: {
-    backgroundColor: OB.primary,
-    borderColor: OB.primary,
-  },
   controlScroll: {
     padding: 16,
     paddingTop: JOURNEY_HEADER_HEIGHT + 12,
@@ -1513,127 +1339,6 @@ const styles = StyleSheet.create({
     color: "#7F3030",
     fontSize: 12,
     fontWeight: "900",
-  },
-  postImportCard: {
-    borderRadius: 24,
-    padding: 20,
-    alignItems: "center",
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: OB.supportSoft,
-  },
-  postImportSuccessIcon: {
-    width: 50,
-    height: 50,
-    borderRadius: 17,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#168A59",
-  },
-  postImportTitle: {
-    color: OB.primary,
-    fontSize: 19,
-    fontWeight: "900",
-    lineHeight: 25,
-    textAlign: "center",
-    marginTop: 12,
-  },
-  postImportText: {
-    color: "#5E7591",
-    fontSize: 13,
-    fontWeight: "700",
-    lineHeight: 19,
-    textAlign: "center",
-    marginTop: 6,
-  },
-  postImportReconciledNotice: {
-    alignSelf: "stretch",
-    minHeight: 44,
-    marginTop: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    borderRadius: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    backgroundColor: "rgba(22,138,89,0.09)",
-  },
-  postImportReconciledText: {
-    flexShrink: 1,
-    color: "#116D47",
-    fontSize: 12,
-    fontWeight: "800",
-    lineHeight: 17,
-    textAlign: "center",
-  },
-  postImportNextStep: {
-    alignSelf: "stretch",
-    borderRadius: 18,
-    padding: 15,
-    backgroundColor: OB.offWhite,
-    borderWidth: 1,
-    borderColor: OB.supportSoft,
-    marginTop: 18,
-  },
-  postImportNextEyebrow: {
-    color: "#5E7591",
-    fontSize: 10,
-    fontWeight: "900",
-    letterSpacing: 1.2,
-    textTransform: "uppercase",
-  },
-  postImportNextTitle: {
-    color: OB.primary,
-    fontSize: 16,
-    fontWeight: "900",
-    lineHeight: 22,
-    marginTop: 5,
-  },
-  postImportNextText: {
-    color: "#5E7591",
-    fontSize: 13,
-    fontWeight: "700",
-    lineHeight: 19,
-    marginTop: 5,
-  },
-  postImportPrimaryButton: {
-    alignSelf: "stretch",
-    minHeight: 54,
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 9,
-    backgroundColor: OB.primary,
-    marginTop: 14,
-  },
-  postImportPrimaryButtonText: {
-    flexShrink: 1,
-    color: "#fff",
-    fontSize: 14,
-    fontWeight: "900",
-    textAlign: "center",
-  },
-  postImportSecondaryButton: {
-    minHeight: 46,
-    paddingHorizontal: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 5,
-  },
-  postImportSecondaryButtonText: {
-    color: "#5E7591",
-    fontSize: 12,
-    fontWeight: "900",
-    textAlign: "center",
-  },
-  postImportLinkText: {
-    color: OB.primary,
-    fontSize: 12,
-    fontWeight: "900",
-    textAlign: "center",
   },
   emptyCycleCard: {
     borderRadius: 22,
@@ -2949,35 +2654,6 @@ const styles = StyleSheet.create({
   },
   saveButtonTextDisabled: {
     color: OB.support,
-  },
-  challengesPage: {
-    flexGrow: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 28,
-    paddingTop: JOURNEY_HEADER_HEIGHT + 28,
-    gap: 8,
-  },
-  placeholder: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 28,
-  },
-  placeholderTitle: {
-    color: OB.primary,
-    fontSize: 19,
-    fontWeight: "900",
-    marginTop: 14,
-    textAlign: "center",
-  },
-  placeholderText: {
-    color: OB.support,
-    fontSize: 14,
-    fontWeight: "700",
-    lineHeight: 21,
-    textAlign: "center",
-    marginTop: 8,
   },
   drawerLayer: {
     ...StyleSheet.absoluteFillObject,

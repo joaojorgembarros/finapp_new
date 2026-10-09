@@ -4,6 +4,7 @@ import { supabase } from "./supabase";
 import type { BankId } from "./banks";
 import type { ParsedCsvTx } from "./csvImport";
 import type { StatementCategoryRuleInput } from "./statementCategoryRules";
+import type { StatementConflictPair } from "./statementConflictReview";
 
 export type StatementBalanceConfidence = "confirmed" | "derived" | "unavailable";
 
@@ -62,10 +63,8 @@ function isMissingBalanceConfidenceColumn(error: unknown) {
   return candidate?.code === "42703" || candidate?.code === "PGRST204" || /balance_confidence/i.test(description);
 }
 
-function isMissingImportStatementV6(error: unknown) {
-  const candidate = error as { code?: string } | null;
-  return candidate?.code === "42883" || candidate?.code === "PGRST202";
-}
+export const STATEMENT_IMPORT_BACKEND_UPDATE_MESSAGE =
+  "O serviço de importação ainda não está atualizado. Tente novamente em alguns minutos.";
 
 export type CategorizedStatementRow = ParsedCsvTx & {
   categoryId?: string | null;
@@ -140,6 +139,18 @@ export async function listStatementImports(householdId: string) {
   );
 }
 
+export async function statementImportExists(householdId: string, importId: string) {
+  const { data, error } = await supabase
+    .from("statement_imports")
+    .select("id")
+    .eq("household_id", householdId)
+    .eq("id", importId)
+    .maybeSingle();
+
+  if (error) throw error;
+  return Boolean(data);
+}
+
 export async function deleteStatementImport(householdId: string, importId: string) {
   const { data, error } = await supabase
     .from("statement_imports")
@@ -153,22 +164,89 @@ export async function deleteStatementImport(householdId: string, importId: strin
   if (!data) throw new Error("Importação não encontrada ou sem permissão para excluir.");
 }
 
+function isMissingRpc(error: unknown, name: string) {
+  const candidate = error as { code?: string; message?: string } | null;
+  return candidate?.code === "42883"
+    || candidate?.code === "PGRST202"
+    || (candidate?.message ?? "").includes(name);
+}
+
 export async function findStatementImportConflicts(
   householdId: string,
-  rows: ParsedCsvTx[]
+  rows: ParsedCsvTx[],
+  accountId: string,
 ) {
   if (!rows.length) return [];
 
-  const { data, error } = await supabase.rpc("find_statement_import_conflicts", {
+  const { data, error } = await supabase.rpc("find_statement_import_conflicts_v2", {
     p_household_id: householdId,
+    p_account_id: accountId,
     p_rows: toStatementRows(rows),
   });
 
-  if (error) throw error;
+  if (error) {
+    if (isMissingRpc(error, "find_statement_import_conflicts_v2")) {
+      throw new Error(STATEMENT_IMPORT_BACKEND_UPDATE_MESSAGE);
+    }
+    throw error;
+  }
   if (!Array.isArray(data)) return [];
   return data
     .map(Number)
     .filter((line) => Number.isInteger(line) && line > 0);
+}
+
+export async function findStatementImportConflictPairs(
+  householdId: string,
+  rows: ParsedCsvTx[],
+  accountId: string,
+) {
+  if (!rows.length) return [];
+
+  const { data, error } = await supabase.rpc("find_statement_import_conflict_pairs_v2", {
+    p_household_id: householdId,
+    p_account_id: accountId,
+    p_rows: toStatementRows(rows),
+  });
+
+  if (error) {
+    if (isMissingRpc(error, "find_statement_import_conflict_pairs_v2")) {
+      throw new Error(STATEMENT_IMPORT_BACKEND_UPDATE_MESSAGE);
+    }
+    throw error;
+  }
+  return normalizeConflictPairs(data);
+}
+
+function normalizeConflictPairs(data: unknown): StatementConflictPair[] {
+  if (!Array.isArray(data)) return [];
+  return data.flatMap((item) => {
+    const row = item as Record<string, unknown>;
+    const rawLine = Number(row.raw_line);
+    const type = row.type === "income" ? "income" as const : row.type === "expense" ? "expense" as const : null;
+    if (!Number.isInteger(rawLine) || rawLine <= 0 || !type) return [];
+    const matches = Array.isArray(row.matches) ? row.matches : [];
+    return [{
+      rawLine,
+      type,
+      amountCents: Number(row.amount_cents) || 0,
+      occurredOn: String(row.occurred_on ?? "").slice(0, 10),
+      note: String(row.note ?? ""),
+      matches: matches.flatMap((match) => {
+        const candidate = match as Record<string, unknown>;
+        const transactionId = String(candidate.transaction_id ?? "");
+        if (!transactionId) return [];
+        return [{
+          transactionId,
+          note: candidate.note == null ? null : String(candidate.note),
+          categoryId: candidate.category_id == null ? null : String(candidate.category_id),
+          accountId: candidate.account_id == null ? null : String(candidate.account_id),
+          statementImportId: candidate.statement_import_id == null ? null : String(candidate.statement_import_id),
+          ignoredAt: candidate.ignored_at == null ? null : String(candidate.ignored_at),
+        }];
+      }),
+    }];
+  });
 }
 
 export type ImportStatementResult = {
@@ -194,6 +272,7 @@ export async function importStatement(params: {
   rejectedCount: number;
   rows: CategorizedStatementRow[];
   categoryRules: StatementCategoryRuleInput[];
+  forceSourceLines?: number[];
 }) {
   const rpcParams = {
     p_household_id: params.householdId,
@@ -207,16 +286,18 @@ export async function importStatement(params: {
     p_rows: toStatementRows(params.rows),
     p_category_rules: params.categoryRules,
   };
-  const currentResult = await supabase.rpc("import_statement_v6", rpcParams);
-
-  if (!currentResult.error) return currentResult.data as ImportStatementResult;
-  if (!isMissingImportStatementV6(currentResult.error)) throw currentResult.error;
-
-  const { p_balance_confidence: _balanceConfidence, ...legacyRpcParams } = rpcParams;
-  const legacyResult = await supabase.rpc("import_statement_v5", legacyRpcParams);
-
-  if (legacyResult.error) throw legacyResult.error;
-  return legacyResult.data as ImportStatementResult;
+  const forceSourceLines = params.forceSourceLines ?? [];
+  const reviewedResult = await supabase.rpc("import_statement_v8", {
+    ...rpcParams,
+    p_force_source_lines: forceSourceLines,
+  });
+  if (reviewedResult.error) {
+    if (isMissingRpc(reviewedResult.error, "import_statement_v8")) {
+      throw new Error(STATEMENT_IMPORT_BACKEND_UPDATE_MESSAGE);
+    }
+    throw reviewedResult.error;
+  }
+  return reviewedResult.data as ImportStatementResult;
 }
 
 export type StatementImportTransaction = {
