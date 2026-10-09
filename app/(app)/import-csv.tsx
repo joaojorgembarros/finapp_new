@@ -32,6 +32,7 @@ import {
   StatementBalanceConfidence,
   StatementImport,
 } from "../../src/lib/statementImports";
+import { loadTransactionsForDuplicateCheck } from "../../src/lib/duplicateCandidateLookup";
 import {
   CONFIRMED_SAME_NOTHING_NEW_MESSAGE,
   confirmedSameLeavesNothingNew,
@@ -39,7 +40,9 @@ import {
   manualReviewConflicts,
   planStatementImport,
   StatementConflictPair,
+  statementRowsAfterSameDecision,
   unresolvedManualConflictCount,
+  withManualDuplicateCandidates,
 } from "../../src/lib/statementConflictReview";
 import { reconcileImportedCommitments } from "../../src/lib/commitmentReconciliation";
 import { movementRouteAfterImport } from "../../src/lib/movementImportContext";
@@ -330,11 +333,18 @@ export default function ImportCsvOnboarding() {
       findStatementImportByHash(householdId, fileHash),
       findStatementImportConflictPairs(householdId, result.rows, selectedBankId),
       findStatementImportConflicts(householdId, result.rows, selectedBankId),
+      loadTransactionsForDuplicateCheck(householdId, result.rows.map((row) => row.occurred_on)),
     ])
-      .then(([existingImport, pairs, conflictingLines]) => {
+      .then(([existingImport, pairs, conflictingLines, stored]) => {
         if (!active) return;
         setDuplicateImport(existingImport);
-        setConflictPairs(pairs);
+        setConflictPairs(withManualDuplicateCandidates(pairs, stored, result.rows.map((row) => ({
+          rawLine: row.rawLine,
+          type: row.type,
+          amountCents: row.amount_cents,
+          occurredOn: row.occurred_on,
+          note: row.note,
+        })), selectedBankId));
         setConflictLines(conflictingLines);
       })
       .catch((error: any) => {
@@ -601,7 +611,7 @@ export default function ImportCsvOnboarding() {
         finalBalanceCents: accountBalance,
         balanceConfidence,
         rejectedCount: result.rejectedRows,
-        rows: result.rows.map((row) => ({
+        rows: statementRowsAfterSameDecision(result.rows, conflictPairs ?? [], manualDecisions).map((row) => ({
           ...row,
           categoryId: categoryAssignments[row.key] ?? null,
         })),

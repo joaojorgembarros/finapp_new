@@ -1,3 +1,5 @@
+import { formatBRLFromCents, formatDateBRFromYMD } from "./format";
+
 export type StatementConflictMatch = {
   transactionId: string;
   note: string | null;
@@ -42,6 +44,7 @@ export type StoredTransactionIdentity = {
   statementBankId?: string | null;
   statementImportId: string | null;
   ignoredAt: string | null;
+  transferGroupId?: string | null;
 };
 
 export type ManualConflictDecision = "same" | "different" | "unresolved";
@@ -268,5 +271,181 @@ export function planStatementImport(input: {
     skippedCount: skippedRawLines.length,
     unresolvedCount,
     canImport: unresolvedCount === 0 && transactionCount > 0,
+  };
+}
+
+function presentComparableAccount(value: string | null | undefined) {
+  const account = value?.trim();
+  return account ? account : null;
+}
+
+function normalizedCandidateNote(note: string | null | undefined) {
+  return (note ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/**
+ * A candidate is only a prompt. Same day and amount are not proof of a duplicate.
+ * Description can rank the match. It is not required to show it.
+ */
+export function isConservativeDuplicateCandidate(
+  existing: {
+    type: "income" | "expense";
+    amountCents: number;
+    occurredOn: string;
+    accountId?: string | null;
+    ignoredAt?: string | null;
+    transferGroupId?: string | null;
+  },
+  incoming: {
+    type: "income" | "expense";
+    amountCents: number;
+    occurredOn: string;
+    accountId?: string | null;
+  },
+) {
+  if (existing.ignoredAt || existing.transferGroupId) return false;
+  if (existing.type !== incoming.type) return false;
+  if (existing.amountCents !== incoming.amountCents) return false;
+  if (existing.occurredOn !== incoming.occurredOn) return false;
+  const existingAccount = presentComparableAccount(existing.accountId);
+  const incomingAccount = presentComparableAccount(incoming.accountId);
+  if (existingAccount && incomingAccount) return existingAccount === incomingAccount;
+  return true;
+}
+
+export function rankDuplicateCandidates<T extends {
+  note?: string | null;
+  originalNote?: string | null;
+  statementImportId?: string | null;
+}>(candidates: T[], incomingNote: string | null | undefined) {
+  const needle = normalizedCandidateNote(incomingNote);
+  return [...candidates].sort((left, right) => {
+    const leftNote = normalizedCandidateNote(left.statementImportId ? left.originalNote : left.note);
+    const rightNote = normalizedCandidateNote(right.statementImportId ? right.originalNote : right.note);
+    const leftScore = needle && leftNote === needle ? 0 : 1;
+    const rightScore = needle && rightNote === needle ? 0 : 1;
+    return leftScore - rightScore;
+  });
+}
+
+export function findDuplicateCandidates(
+  existing: StoredTransactionIdentity[],
+  incoming: {
+    type: "income" | "expense";
+    amountCents: number;
+    occurredOn: string;
+    accountId?: string | null;
+    note?: string | null;
+  },
+) {
+  return rankDuplicateCandidates(
+    existing.filter((transaction) => isConservativeDuplicateCandidate(transaction, incoming)),
+    incoming.note,
+  );
+}
+
+function toConflictMatch(transaction: StoredTransactionIdentity): StatementConflictMatch {
+  return {
+    transactionId: transaction.id,
+    note: transaction.statementImportId ? transaction.originalNote ?? null : transaction.note,
+    categoryId: transaction.categoryId,
+    accountId: transaction.accountId,
+    statementImportId: transaction.statementImportId,
+    ignoredAt: transaction.ignoredAt,
+  };
+}
+
+/** Manual rows that share type, amount, date and a compatible account. Note may differ. */
+export function findManualReviewCandidatePairs(
+  existing: StoredTransactionIdentity[],
+  incoming: StatementRowIdentity[],
+  incomingAccountId: string,
+): StatementConflictPair[] {
+  const pairs: StatementConflictPair[] = [];
+  for (const row of [...incoming].sort((left, right) => left.rawLine - right.rawLine)) {
+    const matches = existing.filter((transaction) => (
+      !transaction.statementImportId
+      && isConservativeDuplicateCandidate(transaction, {
+        type: row.type,
+        amountCents: row.amountCents,
+        occurredOn: row.occurredOn,
+        accountId: incomingAccountId,
+      })
+    ));
+    if (!matches.length) continue;
+    pairs.push({
+      rawLine: row.rawLine,
+      type: row.type,
+      amountCents: row.amountCents,
+      occurredOn: row.occurredOn,
+      note: row.note ?? "",
+      matches: rankDuplicateCandidates(matches, row.note).map(toConflictMatch),
+    });
+  }
+  return pairs;
+}
+
+/**
+ * Adds description-agnostic manual candidates to the review.
+ * An imported exact conflict from the server stays a hard conflict.
+ */
+export function withManualDuplicateCandidates(
+  serverPairs: StatementConflictPair[],
+  existing: StoredTransactionIdentity[],
+  incoming: StatementRowIdentity[],
+  incomingAccountId: string,
+) {
+  const byLine = new Map(serverPairs.map((pair) => [pair.rawLine, pair]));
+  for (const extra of findManualReviewCandidatePairs(existing, incoming, incomingAccountId)) {
+    const current = byLine.get(extra.rawLine);
+    if (!current) {
+      byLine.set(extra.rawLine, extra);
+      continue;
+    }
+    if (!isManualReviewConflict(current)) continue;
+    const seen = new Set(current.matches.map((match) => match.transactionId));
+    const added = extra.matches.filter((match) => !seen.has(match.transactionId));
+    if (!added.length) continue;
+    byLine.set(extra.rawLine, { ...current, matches: [...current.matches, ...added] });
+  }
+  return [...byLine.values()].sort((left, right) => left.rawLine - right.rawLine);
+}
+
+/**
+ * Lines the user called the same must leave the import payload.
+ * The server still requires an identical note, so it would otherwise insert them.
+ */
+export function statementRowsAfterSameDecision<T extends { rawLine: number }>(
+  rows: T[],
+  pairs: StatementConflictPair[],
+  decisions: Record<number, ManualConflictDecision | undefined> = {},
+) {
+  const omitted = new Set(
+    manualReviewConflicts(pairs)
+      .filter((pair) => decisions[pair.rawLine] === "same")
+      .map((pair) => pair.rawLine),
+  );
+  return rows.filter((row) => !omitted.has(row.rawLine));
+}
+
+export function duplicateCandidateAlertCopy(candidates: {
+  occurredOn: string;
+  amountCents: number;
+  note?: string | null;
+}[]) {
+  const primary = candidates[0];
+  if (!primary) return null;
+  const date = formatDateBRFromYMD(primary.occurredOn);
+  const amount = formatBRLFromCents(primary.amountCents);
+  const title = candidates.length > 1
+    ? "Encontramos lançamentos parecidos"
+    : "Encontramos um lançamento parecido";
+  const lead = candidates.length > 1
+    ? `Há ${candidates.length} lançamentos em ${date} de ${amount}.`
+    : `Já existe um lançamento em ${date} de ${amount}.`;
+  const note = primary.note?.trim();
+  return {
+    title,
+    message: note ? `${lead}\n${note}` : lead,
   };
 }

@@ -7,7 +7,19 @@ import { useHouseholdId } from "../../src/hooks/useHousehold";
 import { useKeyboardAwareScroll } from "../../src/hooks/useKeyboardAwareScroll";
 import { BANK_OPTIONS, CASH_ACCOUNT, OTHER_BANK, TransactionAccountId, TransactionAccountOption } from "../../src/lib/banks";
 import { Category, listCategories } from "../../src/lib/categories";
-import { ymd } from "../../src/lib/date";
+import { endOfLocalDay } from "../../src/lib/date";
+import { loadTransactionsForDuplicateCheck } from "../../src/lib/duplicateCandidateLookup";
+import { getEditTransactionHref } from "../../src/lib/editTransactionNavigation";
+import {
+  occurredOnFromPickerDate,
+  pickerDateFromOccurredOn,
+  resolveObservedOccurredOn,
+  todayOccurredOn,
+} from "../../src/lib/manualTransactionDate";
+import {
+  duplicateCandidateAlertCopy,
+  findDuplicateCandidates,
+} from "../../src/lib/statementConflictReview";
 import { setCommitmentPaid } from "../../src/lib/financialPlanning";
 import { getPaymentAmountIssue } from "../../src/lib/financialOverviewPresentation";
 import { formatBRLFromCents, formatBRLInputFromDigits, formatDateBRFromYMD, parseBRLToCents } from "../../src/lib/format";
@@ -24,11 +36,6 @@ import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
 import { ScreenHeaderCard } from "../../src/ui/ScreenHeaderCard";
 
 type EntryMode = "Receita" | "Despesa" | "Transferência";
-
-function dateFromYmd(value: string) {
-  const [year, month, day] = value.split("-").map(Number);
-  return new Date(year, (month || 1) - 1, day || 1, 12);
-}
 
 function firstParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
@@ -72,7 +79,7 @@ export default function NewTransactionScreen() {
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [accountId, setAccountId] = useState<TransactionAccountId | null>(null);
   const [toAccountId, setToAccountId] = useState<TransactionAccountId | null>(null);
-  const [occurredOn, setOccurredOn] = useState(ymd(new Date()));
+  const [occurredOn, setOccurredOn] = useState(todayOccurredOn());
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -145,7 +152,10 @@ export default function NewTransactionScreen() {
 
   function changeDate(event: DateTimePickerEvent, date?: Date) {
     if (Platform.OS === "android") setShowDatePicker(false);
-    if (event.type === "set" && date) setOccurredOn(ymd(date));
+    if (event.type !== "set" || !date) return;
+    const next = occurredOnFromPickerDate(date);
+    if (!transferMode && next > todayOccurredOn()) return;
+    setOccurredOn(next);
   }
 
   function cancelNewTransaction() {
@@ -176,7 +186,7 @@ export default function NewTransactionScreen() {
     ? getPaymentAmountIssue(paymentAmountCents, enteredAmountCents)
     : null;
 
-  async function save() {
+  async function save(acknowledgeDuplicate = false) {
     if (!householdId || !userId) return;
     const result = await withSaveGate(saveInFlightRef, async () => {
       if (transferMode) {
@@ -216,15 +226,55 @@ export default function NewTransactionScreen() {
         throw new Error("Este compromisso já está pago neste ciclo. Volte para revisar os pagamentos.");
       }
       if (!paymentTransaction) {
+        const flow = type === "Receita" ? "income" : "expense";
+        const resolvedDate = resolveObservedOccurredOn({
+          selected: paymentFlow ? paymentOccurredOn : occurredOn,
+          mode: paymentFlow ? "payment" : flow,
+        });
+        if (!resolvedDate.ok) {
+          Alert.alert("Data", resolvedDate.message);
+          return;
+        }
+        if (!acknowledgeDuplicate) {
+          try {
+            const stored = await loadTransactionsForDuplicateCheck(householdId, [resolvedDate.occurredOn]);
+            const candidates = findDuplicateCandidates(stored, {
+              type: flow,
+              amountCents: enteredAmountCents,
+              occurredOn: resolvedDate.occurredOn,
+              accountId,
+              note: description,
+            });
+            const copy = duplicateCandidateAlertCopy(candidates);
+            const candidate = candidates[0];
+            if (copy && candidate) {
+              Alert.alert(copy.title, copy.message, [
+                {
+                  text: "Ver lançamento",
+                  onPress: () => router.push(getEditTransactionHref(candidate.id)),
+                },
+                { text: "É outro lançamento", onPress: () => { void save(true); } },
+                { text: "Cancelar", style: "cancel" },
+              ]);
+              return;
+            }
+          } catch (lookupError: any) {
+            Alert.alert(
+              "Lançamento parecido",
+              lookupError?.message ?? "Não foi possível verificar se este lançamento já existe.",
+            );
+            return;
+          }
+        }
         const transaction = await addTransaction({
           householdId,
           userId,
-          type: type === "Receita" ? "income" : "expense",
+          type: flow,
           amount_cents: enteredAmountCents,
           category_id: categoryId,
           account_id: accountId,
           note: description,
-          ...(paymentFlow ? { occurred_on: paymentOccurredOn } : {}),
+          occurred_on: resolvedDate.occurredOn,
         });
         if (paymentFlow) {
           paymentTransaction = { id: transaction.id, amountCents: enteredAmountCents };
@@ -394,13 +444,29 @@ export default function NewTransactionScreen() {
               </View>
               {!toAccountId ? <Text style={styles.required}>Escolha a conta de destino.</Text> : null}
               {accountId && toAccountId && accountId === toAccountId ? <Text style={styles.required}>Origem e destino precisam ser contas diferentes.</Text> : null}
+            </>
+          ) : null}
 
+          {!paymentFlow ? (
+            <>
               <Text style={styles.label}>Data</Text>
-              <Pressable onPress={() => setShowDatePicker(true)} style={styles.dateButton}>
+              <Pressable
+                onPress={() => setShowDatePicker(true)}
+                style={styles.dateButton}
+                accessibilityRole="button"
+                accessibilityLabel={`Data ${formatDateBRFromYMD(occurredOn)}. Quando aconteceu?`}
+              >
                 <Text style={styles.dateButtonText}>{formatDateBRFromYMD(occurredOn)}</Text>
                 <Ionicons name="calendar-outline" size={19} color={OB.support} />
               </Pressable>
-              {showDatePicker ? <DateTimePicker value={dateFromYmd(occurredOn)} mode="date" onChange={changeDate} /> : null}
+              {showDatePicker ? (
+                <DateTimePicker
+                  value={pickerDateFromOccurredOn(occurredOn)}
+                  mode="date"
+                  maximumDate={transferMode ? undefined : endOfLocalDay()}
+                  onChange={changeDate}
+                />
+              ) : null}
             </>
           ) : null}
 

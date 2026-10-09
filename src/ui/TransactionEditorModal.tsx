@@ -16,7 +16,8 @@ import {
 } from "react-native";
 import { TRANSACTION_ACCOUNT_OPTIONS, TransactionAccountId, findTransactionAccountById } from "../lib/banks";
 import { Category } from "../lib/categories";
-import { ymd } from "../lib/date";
+import { endOfLocalDay } from "../lib/date";
+import { occurredOnFromPickerDate, pickerDateFromOccurredOn, todayOccurredOn } from "../lib/manualTransactionDate";
 import { formatBRLFromCents, formatBRLInputFromDigits, formatDateBRFromYMD, parseBRLToCents } from "../lib/format";
 import {
   findInternalTransferCounterparts,
@@ -57,11 +58,6 @@ type TransactionEditorBodyProps = {
   onChanged?: () => Promise<void> | void;
 };
 
-function dateFromYmd(value: string) {
-  const [year, month, day] = value.split("-").map(Number);
-  return new Date(year, (month || 1) - 1, day || 1, 12);
-}
-
 const CONTENT_BOTTOM_BREATH = 24;
 
 export function TransactionEditorBody({
@@ -80,7 +76,7 @@ export function TransactionEditorBody({
   const { scrollRef, keyboardInset, registerField, focusField, cancelPendingScroll } = useKeyboardAwareScroll<Field>();
   const [type, setType] = useState<TxType>("expense");
   const [amount, setAmount] = useState("");
-  const [occurredOn, setOccurredOn] = useState(ymd(new Date()));
+  const [occurredOn, setOccurredOn] = useState(todayOccurredOn());
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [accountId, setAccountId] = useState<TransactionAccountId | null>(null);
   const [note, setNote] = useState("");
@@ -122,7 +118,10 @@ export function TransactionEditorBody({
 
   function changeDate(event: DateTimePickerEvent, date?: Date) {
     if (Platform.OS === "android") setShowDatePicker(false);
-    if (event.type === "set" && date) setOccurredOn(ymd(date));
+    if (event.type !== "set" || !date) return;
+    const next = occurredOnFromPickerDate(date);
+    if (!imported && !linkedTransfer && next > todayOccurredOn()) return;
+    setOccurredOn(next);
   }
 
   async function confirmLink(counterpart: { id: string }) {
@@ -394,7 +393,14 @@ export function TransactionEditorBody({
                 <Text style={styles.inputButtonText}>{formatDateBRFromYMD(occurredOn)}</Text>
                 <Ionicons name="calendar-outline" size={19} color={OB.support} />
               </Pressable>
-              {showDatePicker ? <DateTimePicker value={dateFromYmd(occurredOn)} mode="date" onChange={changeDate} /> : null}
+              {showDatePicker ? (
+                <DateTimePicker
+                  value={pickerDateFromOccurredOn(occurredOn)}
+                  mode="date"
+                  maximumDate={!imported && !linkedTransfer && occurredOn <= todayOccurredOn() ? endOfLocalDay() : undefined}
+                  onChange={changeDate}
+                />
+              ) : null}
             </>
           )}
 
