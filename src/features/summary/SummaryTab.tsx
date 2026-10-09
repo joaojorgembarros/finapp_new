@@ -40,10 +40,7 @@ import {
 } from "../../lib/financialObservedSummary";
 import { loadObservedSummaryForUi } from "../../lib/observedSummaryLoad";
 import { sortPendingCommitments } from "../../lib/financialOverviewPresentation";
-import {
-  buildObligationSurplus,
-  groupCommittedMoney,
-} from "../../lib/summaryPresentation";
+import { commitmentPaymentParams } from "../planning/planningCycleActions";
 import {
   buildObservedCategoryRows,
   buildObservedComparison,
@@ -66,7 +63,6 @@ import { ObservedKnownCashCard } from "./ObservedKnownCashCard";
 import { ObservedHistoryRangeSelector } from "./ObservedHistoryRangeSelector";
 import { ObservedMonthHero } from "./ObservedMonthHero";
 import { ObservedMonthSeries } from "./ObservedMonthSeries";
-import { ObservedPlanningAccess } from "./ObservedPlanningAccess";
 
 export function SummaryTab({
   householdId,
@@ -228,23 +224,6 @@ export function SummaryTab({
     () => sortPendingCommitments(overview?.commitments ?? []),
     [overview]
   );
-  const confirmedCommitments = useMemo(
-    () => overview?.commitments.filter((item) => item.pending_cents <= 0) ?? [],
-    [overview]
-  );
-  const surplus = useMemo(() => {
-    if (!overview) return null;
-    const committed = groupCommittedMoney({
-      commitments: overview.commitments,
-      reserveCents: overview.reserveCents ?? 0,
-    });
-    return buildObligationSurplus({
-      expectedIncomeCents: overview.expectedIncomeCents ?? 0,
-      commitmentsTotalCents: committed.commitmentsTotalCents,
-      reserveCents: committed.reserveCents,
-      dreamsAllocatedCents: overview.allocatedCents ?? 0,
-    });
-  }, [overview]);
 
   const history = useMemo(() => {
     if (!observedReferenceDate || !coverageStart) return null;
@@ -279,31 +258,11 @@ export function SummaryTab({
       if (!overview) return;
       router.push({
         pathname: "/(app)/link-commitment",
-        params: {
-          commitmentId: commitment.id,
-          cycleKey: overview.cycle.key,
-          cycleStart: overview.cycle.start,
-          cycleEnd: overview.cycle.end,
-          cycleDate: overview.cycle.start,
-        },
+        params: commitmentPaymentParams(overview, commitment),
       });
     },
     [overview]
   );
-
-  const openAllocation = useCallback(() => {
-    if (!overview || !surplus || surplus.plannedFreeCents <= 0) return;
-    router.push({
-      pathname: "/(app)/allocate-surplus",
-      params: {
-        cycleKey: overview.cycle.key,
-        cycleStart: overview.cycle.start,
-        cycleEnd: overview.cycle.end,
-        availableCents: String(overview.availableCents),
-        cycleDate: overview.cycle.start,
-      },
-    });
-  }, [overview, surplus]);
 
   const finishPostImportGuide = useCallback(() => {
     setSetupGuideDismissed(true);
@@ -401,15 +360,6 @@ export function SummaryTab({
               </Pressable>
             </View>
           ) : null}
-
-          <ObservedPlanningAccess
-            overview={overview}
-            pendingCommitments={pendingCommitments}
-            confirmedCommitments={confirmedCommitments}
-            canAllocate={Boolean(surplus && surplus.plannedFreeCents > 0)}
-            onAllocate={openAllocation}
-            onOpenCommitment={openCommitmentPayment}
-          />
         </>
       ) : !householdId && !householdLoading ? (
         <Text style={styles.emptyText}>Conclua as primeiras etapas para criar sua estrutura financeira.</Text>

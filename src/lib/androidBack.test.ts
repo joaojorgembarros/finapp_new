@@ -22,11 +22,11 @@ describe("getAndroidBackAction", () => {
     ).toBe("go-home");
   });
 
-  it("volta de Desafios para Sonhos", () => {
+  it("volta de Planejamento para Sonhos", () => {
     expect(
       getAndroidBackAction({
         menuOpen: false,
-        tab: "desafios",
+        tab: "planejamento",
         isSecondPress: false,
       }),
     ).toBe("go-home");

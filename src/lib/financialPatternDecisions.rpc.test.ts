@@ -97,7 +97,7 @@ describe("phase 2 keeps planning math and the detector untouched", () => {
   });
 
   it("uses the screen's local calendar date and does not block planning when suggestions fail", () => {
-    const screen = readFileSync(join(migrationDir, "../../app/(app)/financial-plan.tsx"), "utf8");
+    const screen = readFileSync(join(migrationDir, "../../src/features/planning/FinancialPlanScreen.tsx"), "utf8");
     const inbox = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "../ui/FinancialPatternInbox.tsx"), "utf8");
     expect(screen.match(/const referenceDate = ymd\(new Date\(\)\);/g)).toHaveLength(2);
     expect(screen).toMatch(/loadPlanningObservations\(\{ householdId, userId: userId \?\? "", referenceDate \}\)\.catch\(\(\) => EMPTY_PLANNING_OBSERVATIONS\)/);

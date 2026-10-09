@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   Modal,
   Platform,
@@ -12,35 +12,49 @@ import {
   View,
 } from "react-native";
 import { formatBRLFromCents } from "../../lib/format";
-import type {
-  FinancialOverview,
-  FinancialOverviewCommitment,
-} from "../../lib/financialPlanning";
+import type { FinancialOverview, FinancialOverviewCommitment } from "../../lib/financialPlanning";
 import {
   formatShortDateFromYmd,
   getCommitmentPaymentProgress,
+  sortPendingCommitments,
 } from "../../lib/financialOverviewPresentation";
-import { OBSERVED_SUMMARY_COPY } from "../../lib/observedSummaryPresentation";
 import { OB } from "../../ui/OnboardingKit";
+import {
+  canAllocateCycleSurplus,
+  commitmentPaymentParams,
+  PLANNING_CYCLE_ACTION_COPY,
+  surplusAllocationParams,
+} from "./planningCycleActions";
 
-export function ObservedPlanningAccess({
-  overview,
-  pendingCommitments,
-  confirmedCommitments,
-  canAllocate,
-  onAllocate,
-  onOpenCommitment,
-}: {
-  overview: FinancialOverview | null;
-  pendingCommitments: FinancialOverviewCommitment[];
-  confirmedCommitments: FinancialOverviewCommitment[];
-  canAllocate: boolean;
-  onAllocate: () => void;
-  onOpenCommitment: (commitment: FinancialOverviewCommitment) => void;
-}) {
-  const [open, setOpen] = useState(false);
+export function PlanningActionsSection({ overview }: { overview: FinancialOverview | null }) {
   const [paymentsOpen, setPaymentsOpen] = useState(false);
   const { height: viewportHeight } = useWindowDimensions();
+  const canAllocate = canAllocateCycleSurplus(overview);
+  const pendingCommitments = useMemo(
+    () => sortPendingCommitments(overview?.commitments ?? []),
+    [overview],
+  );
+  const confirmedCommitments = useMemo(
+    () => overview?.commitments.filter((item) => item.pending_cents <= 0) ?? [],
+    [overview],
+  );
+
+  function openCommitment(commitment: FinancialOverviewCommitment) {
+    if (!overview) return;
+    setPaymentsOpen(false);
+    router.push({
+      pathname: "/(app)/link-commitment",
+      params: commitmentPaymentParams(overview, commitment, "planejamento"),
+    });
+  }
+
+  function openAllocation() {
+    if (!overview || !canAllocate) return;
+    router.push({
+      pathname: "/(app)/allocate-surplus",
+      params: surplusAllocationParams(overview, "planejamento"),
+    });
+  }
 
   function renderPaymentRow(commitment: FinancialOverviewCommitment) {
     const progress = getCommitmentPaymentProgress(commitment.amount_cents, commitment.paid_cents);
@@ -50,16 +64,13 @@ export function ObservedPlanningAccess({
     return (
       <View key={commitment.id} style={styles.paymentRow}>
         <Pressable
-          onPress={() => {
-            setPaymentsOpen(false);
-            onOpenCommitment(commitment);
-          }}
+          onPress={() => openCommitment(commitment)}
           style={({ pressed }) => [styles.paymentMain, pressed && styles.pressed]}
         >
           <View style={[styles.paymentCheck, isPaid && styles.paymentCheckDone]}>
             <Ionicons name={isPaid ? "checkmark" : "receipt-outline"} size={17} color={isPaid ? "#fff" : OB.primary} />
           </View>
-          <View style={{ flex: 1, minWidth: 0 }}>
+          <View style={styles.flex}>
             <Text style={styles.paymentName} numberOfLines={1}>{commitment.name}</Text>
             <Text style={styles.paymentMeta}>
               {commitment.installment_number && commitment.installments_total
@@ -74,10 +85,7 @@ export function ObservedPlanningAccess({
           <Ionicons name="chevron-forward" size={16} color={OB.support} />
         </Pressable>
         <Pressable
-          onPress={() => {
-            setPaymentsOpen(false);
-            onOpenCommitment(commitment);
-          }}
+          onPress={() => openCommitment(commitment)}
           style={({ pressed }) => [styles.paymentAction, isPaid && styles.paymentActionDone, pressed && styles.pressed]}
         >
           <Text style={[styles.paymentActionText, isPaid && styles.paymentActionTextDone]}>{actionLabel}</Text>
@@ -87,40 +95,25 @@ export function ObservedPlanningAccess({
   }
 
   return (
-    <>
+    <View style={styles.section}>
+      <Text style={styles.title}>{PLANNING_CYCLE_ACTION_COPY.title}</Text>
       <Pressable
-        onPress={() => setOpen((value) => !value)}
-        style={({ pressed }) => [styles.toggle, pressed && styles.pressed]}
+        onPress={() => setPaymentsOpen(true)}
+        style={({ pressed }) => [styles.action, pressed && styles.pressed]}
         accessibilityRole="button"
-        accessibilityState={{ expanded: open }}
+        accessibilityLabel={PLANNING_CYCLE_ACTION_COPY.reviewPayments}
       >
-        <Text style={styles.toggleText}>{OBSERVED_SUMMARY_COPY.planningTitle}</Text>
-        <Ionicons name={open ? "chevron-up" : "chevron-down"} size={18} color={OB.primary} />
+        <Text style={styles.actionText}>{PLANNING_CYCLE_ACTION_COPY.reviewPayments}</Text>
       </Pressable>
-
-      {open ? (
-        <View style={styles.actions}>
-          <Pressable
-            onPress={() => setPaymentsOpen(true)}
-            style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
-          >
-            <Text style={styles.secondaryButtonText}>{OBSERVED_SUMMARY_COPY.reviewPayments}</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => router.push("/(app)/financial-plan")}
-            style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
-          >
-            <Text style={styles.primaryButtonText}>{OBSERVED_SUMMARY_COPY.openPlanning}</Text>
-          </Pressable>
-          {canAllocate ? (
-            <Pressable
-              onPress={onAllocate}
-              style={({ pressed }) => [styles.textAction, pressed && styles.pressed]}
-            >
-              <Text style={styles.textActionText}>{OBSERVED_SUMMARY_COPY.allocateDream}</Text>
-            </Pressable>
-          ) : null}
-        </View>
+      {canAllocate ? (
+        <Pressable
+          onPress={openAllocation}
+          style={({ pressed }) => [styles.action, pressed && styles.pressed]}
+          accessibilityRole="button"
+          accessibilityLabel={PLANNING_CYCLE_ACTION_COPY.allocateDream}
+        >
+          <Text style={styles.actionText}>{PLANNING_CYCLE_ACTION_COPY.allocateDream}</Text>
+        </Pressable>
       ) : null}
 
       <Modal
@@ -142,8 +135,8 @@ export function ObservedPlanningAccess({
           <View style={styles.scrimStage} pointerEvents="box-none">
             <View style={[styles.overlayCard, { maxHeight: Math.min(viewportHeight * 0.88, 720) }]}>
               <View style={styles.modalHeader}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.modalTitle}>{OBSERVED_SUMMARY_COPY.reviewPayments}</Text>
+                <View style={styles.flex}>
+                  <Text style={styles.modalTitle}>{PLANNING_CYCLE_ACTION_COPY.reviewPayments}</Text>
                   <Text style={styles.modalSubtitle}>Contas e parcelas deste ciclo.</Text>
                 </View>
                 <Pressable
@@ -189,59 +182,28 @@ export function ObservedPlanningAccess({
           </View>
         </View>
       </Modal>
-    </>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  toggle: {
+  section: { gap: 8 },
+  title: { color: OB.primary, fontSize: 16, fontWeight: "900" },
+  action: {
     minHeight: 48,
     borderRadius: 16,
-    paddingHorizontal: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: OB.supportSoft,
-  },
-  toggleText: { color: OB.primary, fontSize: 14, fontWeight: "800" },
-  actions: { gap: 8, paddingBottom: 8 },
-  primaryButton: {
-    minHeight: 48,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: OB.primary,
-  },
-  primaryButtonText: { color: "#fff", fontSize: 14, fontWeight: "900" },
-  secondaryButton: {
-    minHeight: 44,
-    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#fff",
     borderWidth: 1,
     borderColor: OB.supportSoft,
   },
-  secondaryButtonText: { color: OB.primary, fontSize: 13, fontWeight: "800" },
-  textAction: {
-    minHeight: 40,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  textActionText: { color: OB.primary, fontSize: 13, fontWeight: "800" },
+  actionText: { color: OB.primary, fontSize: 14, fontWeight: "800" },
   pressed: { opacity: 0.82 },
+  flex: { flex: 1, minWidth: 0 },
   scrimRoot: { flex: 1 },
-  scrim: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: OB.modalScrim,
-  },
-  scrimStage: {
-    flex: 1,
-    padding: 20,
-    justifyContent: "center",
-  },
+  scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: OB.modalScrim },
+  scrimStage: { flex: 1, padding: 20, justifyContent: "center" },
   overlayCard: {
     width: "100%",
     maxWidth: 440,
@@ -253,11 +215,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderWidth: 1,
     borderColor: OB.supportSoft,
-    shadowColor: OB.primary,
-    shadowOpacity: 0.18,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 12,
     overflow: "hidden",
   },
   modalHeader: {
@@ -269,14 +226,7 @@ const styles = StyleSheet.create({
   },
   modalScroll: { flexGrow: 0, flexShrink: 1 },
   modalTitle: { color: OB.primary, fontSize: 20, fontWeight: "900" },
-  modalSubtitle: {
-    color: OB.support,
-    fontSize: 13,
-    fontWeight: "700",
-    lineHeight: 18,
-    marginTop: 4,
-    paddingRight: 4,
-  },
+  modalSubtitle: { color: OB.support, fontSize: 13, fontWeight: "700", lineHeight: 18, marginTop: 4 },
   modalClose: {
     width: 34,
     height: 34,
@@ -286,28 +236,12 @@ const styles = StyleSheet.create({
     backgroundColor: OB.offWhite,
   },
   modalContent: { paddingHorizontal: 14, paddingBottom: 8, gap: 14 },
-  modalEmpty: {
-    alignItems: "center",
-    paddingVertical: 28,
-    paddingHorizontal: 12,
-    gap: 6,
-  },
+  modalEmpty: { alignItems: "center", paddingVertical: 28, paddingHorizontal: 12, gap: 6 },
   modalEmptyTitle: { color: OB.primary, fontSize: 16, fontWeight: "900" },
-  modalEmptyText: {
-    color: OB.support,
-    fontSize: 13,
-    fontWeight: "700",
-    textAlign: "center",
-    lineHeight: 19,
-  },
+  modalEmptyText: { color: OB.support, fontSize: 13, fontWeight: "700", textAlign: "center", lineHeight: 19 },
   modalSection: { gap: 10 },
   modalSectionTitle: { color: OB.primary, fontSize: 14, fontWeight: "900" },
-  paymentRow: {
-    borderRadius: 16,
-    padding: 12,
-    gap: 10,
-    backgroundColor: OB.offWhite,
-  },
+  paymentRow: { borderRadius: 16, padding: 12, gap: 10, backgroundColor: OB.offWhite },
   paymentMain: { flexDirection: "row", alignItems: "center", gap: 10 },
   paymentCheck: {
     width: 34,

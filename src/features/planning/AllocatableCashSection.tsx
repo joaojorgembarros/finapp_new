@@ -15,9 +15,11 @@ import { GoalAllocationSheet } from "./GoalAllocationSheet";
 export function AllocatableCashSection({
   householdId,
   refreshKey,
+  reviewReturn = "financial-plan",
 }: {
   householdId: string;
   refreshKey: number;
+  reviewReturn?: "financial-plan" | "planejamento";
 }) {
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [position, setPosition] = useState<AllocatableCashPosition | null>(null);
@@ -71,7 +73,10 @@ export function AllocatableCashSection({
           void load();
         }}
         onImport={() => router.push("/(app)/import-extract")}
-        onReview={() => router.push("/(app)/review-goal-contributions")}
+        onReview={() => router.push({
+          pathname: "/(app)/review-goal-contributions",
+          params: reviewReturn === "planejamento" ? { returnTo: "planejamento" } : {},
+        })}
         onDistribute={() => {
           if (!canOpenSheet) return;
           setNotice(null);

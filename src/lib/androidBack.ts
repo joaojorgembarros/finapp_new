@@ -1,4 +1,6 @@
-export type MainTab = "controle" | "jornada" | "movimentacoes" | "desafios";
+import type { JourneyTab } from "./journeyTabs";
+
+export type MainTab = JourneyTab;
 export type AndroidBackAction = "close-menu" | "go-home" | "warn-exit" | "confirm-exit";
 
 /** Home tab for Android back and cold start. */

@@ -30,6 +30,7 @@ import {
   getCommitmentPaymentProgress,
   getPaymentAmountIssue,
 } from "../../src/lib/financialOverviewPresentation";
+import { journeyTabAfterPlanningAction, planningExitLabel } from "../../src/features/planning/planningCycleActions";
 import { useSession } from "../../src/providers/SessionProvider";
 import { OB, OnboardingShell } from "../../src/ui/OnboardingKit";
 import { ScreenHeaderCard } from "../../src/ui/ScreenHeaderCard";
@@ -90,12 +91,15 @@ export default function LinkCommitmentScreen() {
     cycleStart?: string | string[];
     cycleEnd?: string | string[];
     cycleDate?: string | string[];
+    returnTo?: string | string[];
   }>();
   const commitmentId = firstParam(params.commitmentId) ?? "";
   const cycleKey = firstParam(params.cycleKey) ?? "";
   const cycleStart = firstParam(params.cycleStart) ?? "";
   const cycleEnd = firstParam(params.cycleEnd) ?? "";
   const cycleDate = firstParam(params.cycleDate) ?? cycleStart;
+  const returnTo = firstParam(params.returnTo);
+  const exitLabel = planningExitLabel(returnTo);
   const { width } = useWindowDimensions();
   const compact = width < 360;
   const { userId } = useSession();
@@ -126,11 +130,8 @@ export default function LinkCommitmentScreen() {
   );
 
   const returnToControl = useCallback(() => {
-    router.replace({
-      pathname: "/(app)/journey",
-      params: cycleDate ? { tab: "controle", cycleDate } : { tab: "controle" },
-    });
-  }, [cycleDate]);
+    router.replace(journeyTabAfterPlanningAction(returnTo, cycleDate));
+  }, [cycleDate, returnTo]);
 
   const goBack = useCallback(() => {
     if (router.canGoBack()) {
@@ -422,8 +423,8 @@ export default function LinkCommitmentScreen() {
                 icon="alert-circle-outline"
                 iconColor="#B94A4A"
                 title="Dados do ciclo incompletos"
-                text="Volte ao Resumo e abra este compromisso novamente."
-                actionLabel="Voltar ao Resumo"
+                text="Volte e abra este compromisso novamente."
+                actionLabel={exitLabel}
                 onAction={returnToControl}
               />
             ) : busy ? (
@@ -436,7 +437,7 @@ export default function LinkCommitmentScreen() {
                 icon="people-outline"
                 title="Estrutura financeira indisponível"
                 text="Conclua a configuração inicial antes de vincular um pagamento."
-                actionLabel="Voltar ao Resumo"
+                actionLabel={exitLabel}
                 onAction={returnToControl}
               />
             ) : error ? (

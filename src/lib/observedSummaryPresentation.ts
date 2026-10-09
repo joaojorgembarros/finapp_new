@@ -23,10 +23,6 @@ export const OBSERVED_SUMMARY_COPY = {
   categoriesTitle: "Para onde foi",
   categoriesEmpty: "Nenhuma saída neste mês.",
   organizeCategories: "Organizar categorias",
-  planningTitle: "Seu planejamento",
-  reviewPayments: "Revisar pagamentos",
-  openPlanning: "Ver planejamento",
-  allocateDream: "Guardar para um sonho",
 } as const;
 
 const MONTHS_PT = [

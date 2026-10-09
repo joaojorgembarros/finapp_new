@@ -8,7 +8,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { router, useFocusEffect } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useHouseholdId } from "../../src/hooks/useHousehold";
 import { createAllocationRequestId } from "../../src/lib/allocatableCashPresentation";
 import { formatBRLFromCents, formatBRLInputFromDigits, parseBRLToCents } from "../../src/lib/format";
@@ -40,6 +40,8 @@ import { ScreenHeaderCard } from "../../src/ui/ScreenHeaderCard";
 
 export default function ReviewGoalContributionsScreen() {
   const { userId } = useSession();
+  const params = useLocalSearchParams<{ returnTo?: string }>();
+  const returnTo = Array.isArray(params.returnTo) ? params.returnTo[0] : params.returnTo;
   const { householdId, loading: householdLoading } = useHouseholdId(userId);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [items, setItems] = useState<PendingManualContribution[]>([]);
@@ -170,6 +172,10 @@ export default function ReviewGoalContributionsScreen() {
   }
 
   function goToPlan() {
+    if (returnTo === "planejamento") {
+      router.dismissTo({ pathname: "/(app)/journey", params: { tab: "planejamento" } });
+      return;
+    }
     router.replace("/(app)/financial-plan");
   }
 

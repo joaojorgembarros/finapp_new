@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 const root = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const migration = readFileSync(join(root, "supabase/migrations/20261005223000_financial_income_acknowledgements.sql"), "utf8");
 const decisions = readFileSync(join(root, "supabase/migrations/20261005165211_financial_pattern_decisions.sql"), "utf8");
-const screen = readFileSync(join(root, "app/(app)/financial-plan.tsx"), "utf8");
+const screen = readFileSync(join(root, "src/features/planning/FinancialPlanScreen.tsx"), "utf8");
 const section = readFileSync(join(root, "src/ui/ObservedIncomeSection.tsx"), "utf8");
 
 describe("financial income acknowledgement schema", () => {
