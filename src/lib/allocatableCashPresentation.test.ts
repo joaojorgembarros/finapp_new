@@ -9,6 +9,7 @@ import {
   allocationSuccessCopy,
   buildAllocatableBreakdown,
   buildAllocatableCashView,
+  buildAllocatableComposition,
   canSubmitAllocation,
   classifyAllocationError,
   createAllocationRequestId,
@@ -81,6 +82,25 @@ describe("allocatable cash presentation", () => {
       ["Para organizar", 400],
     ]);
     expect(lines.find((line) => line.key === "available")?.cents).toBe(400);
+    const composition = buildAllocatableComposition(lines);
+    expect(composition.knownCents).toBe(1_000);
+    expect(composition.segments).toEqual([
+      { key: "available", label: "Para organizar", cents: 400, share: 0.4 },
+    ]);
+  });
+
+  it("draws composition from the received amounts when they exceed known cash", () => {
+    const composition = buildAllocatableComposition([
+      { key: "known", label: "Saldo conhecido", cents: 100, tone: "base" },
+      { key: "earmarked", label: "Já destinado", cents: 80, tone: "minus" },
+      { key: "pending", label: "Contas a vencer", cents: 80, tone: "minus" },
+      { key: "reserve", label: "Reserva protegida", cents: 0, tone: "minus" },
+      { key: "available", label: "Para organizar", cents: 40, tone: "total" },
+    ]);
+    expect(composition.segments.map((segment) => segment.cents)).toEqual([80, 80, 40]);
+    const share = composition.segments.reduce((sum, segment) => sum + segment.share, 0);
+    expect(share).toBeCloseTo(1, 5);
+    expect(composition.segments.find((segment) => segment.key === "available")?.cents).toBe(40);
   });
 
   it("explains a valid position with nothing left to organize", () => {
@@ -114,6 +134,7 @@ describe("allocatable cash presentation", () => {
     expect(view.kind).toBe("blocked");
     if (view.kind !== "blocked") return;
     expect(view.message).toBe(message);
+    expect(view.heading.length).toBeGreaterThan(0);
     expect(view.ctaLabel).toBe(ctaLabel);
     expect(view.ctaAction).toBe(reason === "ambiguous_goal_contributions" ? "review" : ctaLabel ? "import" : null);
     expect(view).not.toHaveProperty("amountCents");

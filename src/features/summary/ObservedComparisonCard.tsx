@@ -13,16 +13,20 @@ import { OB } from "../../ui/OnboardingKit";
 function ComparisonRow({
   label,
   delta,
+  emphasis,
 }: {
   label: string;
   delta: ObservedAmountDelta;
+  emphasis?: boolean;
 }) {
   const percent = formatObservedPercent(delta.percent);
   return (
-    <View style={styles.row}>
-      <Text style={styles.rowLabel}>{label}</Text>
+    <View style={[styles.row, emphasis && styles.emphasis]}>
+      <Text style={[styles.rowLabel, emphasis && styles.emphasisLabel]}>{label}</Text>
       <View style={styles.rowValues}>
-        <Text style={styles.rowAmount}>{formatBRLFromCents(delta.currentCents)}</Text>
+        <Text style={[styles.rowAmount, emphasis && styles.emphasisAmount]}>
+          {formatBRLFromCents(delta.currentCents)}
+        </Text>
         <Text style={styles.rowDelta}>
           {formatObservedSignedCents(delta.deltaCents)}
           {percent ? ` · ${percent}` : ""}
@@ -38,16 +42,16 @@ export function ObservedComparisonCard({
   presentation: ObservedComparisonPresentation;
 }) {
   return (
-    <View style={styles.card}>
-      <Text style={styles.title}>{presentation.title}</Text>
+    <View style={styles.section}>
+      <Text style={styles.eyebrow}>{presentation.title}</Text>
       <Text style={styles.caption}>{presentation.caption}</Text>
       {presentation.kind === "insufficient" ? (
         <Text style={styles.empty}>{presentation.message}</Text>
       ) : (
         <View style={styles.rows}>
+          <ComparisonRow label={OBSERVED_SUMMARY_COPY.heroResult} delta={presentation.net} emphasis />
           <ComparisonRow label={OBSERVED_SUMMARY_COPY.heroInflow} delta={presentation.inflow} />
           <ComparisonRow label={OBSERVED_SUMMARY_COPY.heroOutflow} delta={presentation.outflow} />
-          <ComparisonRow label={OBSERVED_SUMMARY_COPY.heroResult} delta={presentation.net} />
         </View>
       )}
     </View>
@@ -55,23 +59,16 @@ export function ObservedComparisonCard({
 }
 
 const styles = StyleSheet.create({
-  card: {
-    borderRadius: 22,
-    padding: 16,
-    gap: 8,
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: OB.supportSoft,
+  section: { gap: 6, paddingHorizontal: 2 },
+  eyebrow: {
+    color: OB.primary,
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
   },
-  title: { color: OB.primary, fontSize: 16, fontWeight: "900" },
   caption: { color: OB.support, fontSize: 12, fontWeight: "700" },
-  empty: {
-    color: OB.support,
-    fontSize: 14,
-    fontWeight: "700",
-    lineHeight: 20,
-    marginTop: 4,
-  },
+  empty: { color: OB.support, fontSize: 14, fontWeight: "700", lineHeight: 20, marginTop: 4 },
   rows: { gap: 10, marginTop: 6 },
   row: {
     flexDirection: "row",
@@ -79,8 +76,15 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 12,
   },
+  emphasis: {
+    paddingBottom: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "rgba(12,35,72,0.08)",
+  },
   rowLabel: { color: OB.support, fontSize: 13, fontWeight: "800" },
-  rowValues: { alignItems: "flex-end", gap: 2 },
-  rowAmount: { color: OB.primary, fontSize: 15, fontWeight: "900" },
+  emphasisLabel: { color: OB.primary },
+  rowValues: { alignItems: "flex-end", gap: 2, flexShrink: 1 },
+  rowAmount: { color: OB.primary, fontSize: 14, fontWeight: "800" },
+  emphasisAmount: { fontSize: 18, fontWeight: "900" },
   rowDelta: { color: OB.support, fontSize: 12, fontWeight: "700" },
 });

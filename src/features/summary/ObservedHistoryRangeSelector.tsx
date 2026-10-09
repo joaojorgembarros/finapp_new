@@ -1,9 +1,7 @@
 import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import {
-  OBSERVED_HISTORY_RANGE_OPTIONS,
-} from "../../lib/observedHistoryPresentation";
 import type { ObservedHistoryRange } from "../../lib/financialObservedHistory";
+import { OBSERVED_HISTORY_RANGE_OPTIONS } from "../../lib/observedHistoryPresentation";
 import { OB } from "../../ui/OnboardingKit";
 
 export function ObservedHistoryRangeSelector({
@@ -14,7 +12,7 @@ export function ObservedHistoryRangeSelector({
   onChange: (range: ObservedHistoryRange) => void;
 }) {
   return (
-    <View style={styles.row} accessibilityRole="tablist">
+    <View style={styles.track} accessibilityRole="tablist">
       {OBSERVED_HISTORY_RANGE_OPTIONS.map((option) => {
         const selected = option.id === range;
         return (
@@ -24,8 +22,8 @@ export function ObservedHistoryRangeSelector({
             accessibilityState={{ selected }}
             onPress={() => onChange(option.id)}
             style={({ pressed }) => [
-              styles.chip,
-              selected && styles.chipSelected,
+              styles.segment,
+              selected && styles.segmentSelected,
               pressed && styles.pressed,
             ]}
           >
@@ -33,7 +31,7 @@ export function ObservedHistoryRangeSelector({
               style={[styles.label, selected && styles.labelSelected]}
               numberOfLines={1}
               adjustsFontSizeToFit
-              minimumFontScale={0.8}
+              minimumFontScale={0.75}
             >
               {option.label}
             </Text>
@@ -45,24 +43,23 @@ export function ObservedHistoryRangeSelector({
 }
 
 const styles = StyleSheet.create({
-  row: {
+  track: {
     flexDirection: "row",
-    gap: 6,
+    gap: 4,
+    padding: 4,
+    borderRadius: 999,
+    backgroundColor: "rgba(12,35,72,0.06)",
   },
-  chip: {
+  segment: {
     flex: 1,
-    minHeight: 36,
-    borderRadius: 12,
+    minHeight: 40,
+    borderRadius: 999,
     paddingHorizontal: 6,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: OB.supportSoft,
   },
-  chipSelected: {
+  segmentSelected: {
     backgroundColor: OB.primary,
-    borderColor: OB.primary,
   },
   label: {
     color: OB.support,

@@ -6,6 +6,7 @@ import type {
 } from "./financialObservedSummary";
 
 export const OBSERVED_CATEGORY_LIMIT = 4;
+export const OBSERVED_CATEGORY_PREVIEW = 3;
 export const OBSERVED_UNRESOLVED_CATEGORY_LABEL = "Categoria indisponível";
 export const OBSERVED_UNCATEGORIZED_LABEL = "Sem categoria";
 
@@ -53,6 +54,7 @@ export type ObservedMonthHeroPresentation =
     outflowCents: number;
     netCents: number;
     resultLabel: string;
+    narrative: string;
   };
 
 export type ObservedComparisonPresentation =
@@ -119,11 +121,43 @@ export function formatObservedSignedCents(cents: number) {
   return formatBRLFromCents(amount);
 }
 
+export function splitObservedCategoryPreview<T>(rows: readonly T[], preview = OBSERVED_CATEGORY_PREVIEW) {
+  const count = Math.max(0, Math.trunc(preview));
+  return {
+    visible: rows.slice(0, count),
+    hidden: rows.slice(count),
+  };
+}
+
+/** One line from the comparison that already exists. No new money math. */
+export function observedComparisonGlance(comparison: ObservedComparisonPresentation) {
+  if (comparison.kind !== "ready") return null;
+  const delta = comparison.net.deltaCents;
+  if (delta === 0) return "Igual ao período anterior";
+  const amount = formatBRLFromCents(Math.abs(delta));
+  return delta > 0
+    ? `${amount} acima do período anterior`
+    : `${amount} abaixo do período anterior`;
+}
+
 export function formatObservedPercent(percent: number | null) {
   if (percent === null || !Number.isFinite(percent)) return null;
   const rounded = Math.round(percent);
   if (rounded === 0) return "0%";
   return `${rounded > 0 ? "+" : ""}${rounded}%`;
+}
+
+/** Presentation only. Does not judge spending or invent a balance. */
+export function observedResultNarrative(netCents: number, scope: "month" | "period") {
+  const amount = integerCents(netCents);
+  if (scope === "period") {
+    if (amount > 0) return "Neste período, o resultado está positivo.";
+    if (amount < 0) return "Neste período, as saídas estão acima das entradas.";
+    return "Entradas e saídas estão equilibradas neste período.";
+  }
+  if (amount > 0) return "Até agora, seu mês está positivo.";
+  if (amount < 0) return "Até agora, suas saídas estão acima das entradas.";
+  return "Entradas e saídas estão equilibradas até aqui.";
 }
 
 export function buildObservedMonthHero(summary: FinancialObservedSummary): ObservedMonthHeroPresentation {
@@ -145,6 +179,7 @@ export function buildObservedMonthHero(summary: FinancialObservedSummary): Obser
     outflowCents: summary.currentPeriod.outflowCents,
     netCents: summary.currentPeriod.netCents,
     resultLabel: OBSERVED_SUMMARY_COPY.heroResult,
+    narrative: observedResultNarrative(summary.currentPeriod.netCents, "month"),
   };
 }
 

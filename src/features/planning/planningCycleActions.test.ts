@@ -56,14 +56,17 @@ describe("planning cycle actions", () => {
   it("moves the old summary actions into planning and keeps guided focused", () => {
     const screen = readFileSync(join(root, "FinancialPlanScreen.tsx"), "utf8");
     const actions = readFileSync(join(root, "PlanningActionsSection.tsx"), "utf8");
+    const cash = readFileSync(join(root, "AllocatableCashSection.tsx"), "utf8");
     const copy = readFileSync(join(root, "planningCycleActions.ts"), "utf8");
     const summary = readFileSync(join(root, "../summary/SummaryTab.tsx"), "utf8");
     const journey = readFileSync(join(root, "../../../app/(app)/journey.tsx"), "utf8");
-    expect(screen).toContain("{!guided ? <PlanningActionsSection overview={cycleOverview} /> : null}");
+    expect(screen).toContain("<PlanningActionsSection");
+    expect(screen).toContain("overview={cycleOverview}");
+    expect(screen).toContain("enabled={!guided}");
     expect(copy).toContain("Revisar pagamentos");
     expect(copy).toContain("Guardar para um sonho");
     expect(actions).toContain("PLANNING_CYCLE_ACTION_COPY.reviewPayments");
-    expect(actions).toContain("PLANNING_CYCLE_ACTION_COPY.allocateDream");
+    expect(cash).toContain("PLANNING_CYCLE_ACTION_COPY.allocateDream");
     expect(actions).toContain('"/(app)/link-commitment"');
     expect(actions).toContain('"/(app)/allocate-surplus"');
     expect(actions).toContain("canAllocateCycleSurplus");

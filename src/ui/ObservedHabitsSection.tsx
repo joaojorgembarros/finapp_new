@@ -10,6 +10,7 @@ export function ObservedHabitsSection({ habits }: { habits: ObservedFinancialHab
 
   return (
     <View style={styles.section} accessibilityRole="summary">
+      <Text style={styles.kicker}>Observado no seu histórico</Text>
       <Text style={styles.title}>Hábitos observados</Text>
       <Text style={styles.subtitle}>Observação do histórico. Não entra no planejamento.</Text>
       <View style={styles.list}>
@@ -39,13 +40,18 @@ export function ObservedHabitsSection({ habits }: { habits: ObservedFinancialHab
 
 const styles = StyleSheet.create({
   section: { gap: 8, marginTop: 8 },
+  kicker: {
+    color: OB.support,
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+  },
   title: { color: OB.primary, fontSize: 18, fontWeight: "900" },
   subtitle: { color: OB.support, fontSize: 10, fontWeight: "700", lineHeight: 15 },
   list: {
     borderRadius: 16,
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: OB.supportSoft,
+    backgroundColor: "#F7F5F1",
     overflow: "hidden",
   },
   row: {

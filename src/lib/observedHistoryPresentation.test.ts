@@ -6,6 +6,7 @@ import {
   OBSERVED_HISTORY_RANGE_OPTIONS,
   buildObservedHistoryMonthRows,
   buildObservedHistoryPeriod,
+  buildObservedHistoryTrend,
   formatObservedHistoryNet,
   observedHistoryGapNote,
 } from "./observedHistoryPresentation";
@@ -113,16 +114,47 @@ describe("observed history presentation", () => {
       resultLabel: "Resultado acumulado",
     });
     expect(rows).toEqual([
-      { key: "2026-08", label: "Agosto", netLabel: formatObservedHistoryNet(378598), note: null, tone: "positive" },
-      { key: "2026-09", label: "Setembro", netLabel: formatObservedHistoryNet(379745), note: null, tone: "positive" },
+      {
+        key: "2026-08",
+        label: "Agosto",
+        shortLabel: "AGO",
+        inflowCents: 506284,
+        outflowCents: 127686,
+        netCents: 378598,
+        netLabel: formatObservedHistoryNet(378598),
+        note: null,
+        tone: "positive",
+      },
+      {
+        key: "2026-09",
+        label: "Setembro",
+        shortLabel: "SET",
+        inflowCents: 511420,
+        outflowCents: 131675,
+        netCents: 379745,
+        netLabel: formatObservedHistoryNet(379745),
+        note: null,
+        tone: "positive",
+      },
       {
         key: "2026-10",
         label: "Outubro",
+        shortLabel: "OUT",
+        inflowCents: 515000,
+        outflowCents: 65350,
+        netCents: 449650,
         netLabel: formatObservedHistoryNet(449650),
         note: "até dia 8",
         tone: "positive",
       },
     ]);
+    const trend = buildObservedHistoryTrend(rows);
+    expect(trend.map((bar) => bar.share)).toEqual([
+      378598 / 449650,
+      379745 / 449650,
+      1,
+    ]);
+    expect(trend.every((bar) => bar.share <= 1)).toBe(true);
     expect(formatObservedHistoryNet(378598)).toBe(`+ ${formatBRLFromCents(378598)}`);
     expect(formatObservedHistoryNet(-100)).toBe(`- ${formatBRLFromCents(100)}`);
     expect(formatObservedHistoryNet(0)).toBe(formatBRLFromCents(0));

@@ -9,6 +9,7 @@ import {
 export const ALLOCATABLE_CASH_COPY = {
   title: "Dinheiro para organizar",
   readyDetail: "Esse é o valor que você pode destinar agora sem usar sua reserva nem o que já está comprometido.",
+  readyGlance: "Já considera compromissos e reserva.",
   empty: "Não há dinheiro para organizar agora.",
   distribute: "Distribuir para um sonho",
   loading: "Consultando quanto você pode organizar...",
@@ -26,36 +27,57 @@ export const ALLOCATABLE_CASH_COPY = {
 } as const;
 
 const BLOCKER_COPY: Record<AllocatableCashBlockReason, {
+  heading: string;
+  glance: string;
+  guide: "statement" | "review" | "caution";
   message: string;
   detail: string | null;
   ctaLabel: string | null;
 }> = {
   no_snapshot: {
+    heading: "Sem fotografia do caixa",
+    glance: "Importe um extrato com saldo para continuar.",
+    guide: "statement",
     message: "Precisamos de um extrato com saldo para calcular quanto você pode organizar.",
     detail: null,
     ctaLabel: ALLOCATABLE_CASH_COPY.importStatement,
   },
   stale_snapshot: {
+    heading: "Saldo desatualizado",
+    glance: "Atualize o extrato para continuar.",
+    guide: "statement",
     message: "Seu saldo conhecido está desatualizado.",
     detail: "Importe um extrato mais recente para liberar a distribuição.",
     ctaLabel: ALLOCATABLE_CASH_COPY.updateStatement,
   },
   same_bank_risk: {
+    heading: "Contas do mesmo banco",
+    glance: "Não dá para confirmar todas as contas.",
+    guide: "caution",
     message: "Não conseguimos confirmar todas as contas deste banco.",
     detail: null,
     ctaLabel: null,
   },
   missing_account_snapshot: {
+    heading: "Falta o saldo de uma conta",
+    glance: "Falta o saldo de uma conta no histórico.",
+    guide: "caution",
     message: "Há uma conta no histórico sem saldo conhecido.",
     detail: null,
     ctaLabel: null,
   },
   dates_differ: {
+    heading: "Datas diferentes",
+    glance: "Atualize os extratos para continuar.",
+    guide: "statement",
     message: "Seus saldos estão em datas diferentes.",
     detail: "Atualize os extratos para calcular um valor seguro.",
     ctaLabel: ALLOCATABLE_CASH_COPY.updateStatement,
   },
   ambiguous_goal_contributions: {
+    heading: "Valores para revisar",
+    glance: "Revise os valores guardados para continuar.",
+    guide: "review",
     message: "Existem valores antigos guardados em sonhos que precisam ser revisados.",
     detail: "Por segurança, não vamos contar esse dinheiro duas vezes.",
     ctaLabel: ALLOCATABLE_CASH_COPY.reviewSaved,
@@ -75,6 +97,9 @@ export type AllocatableCashView =
   | {
     kind: "blocked";
     title: string;
+    heading: string;
+    glance: string;
+    guide: "statement" | "review" | "caution";
     message: string;
     detail: string | null;
     ctaLabel: string | null;
@@ -137,6 +162,38 @@ export function buildAllocatableBreakdown(position: AllocatableCashPosition): Br
   ];
 }
 
+export type AllocatableCompositionSegment = {
+  key: Exclude<BreakdownLine["key"], "known">;
+  label: string;
+  cents: number;
+  /** Width inside the track. Visual only; cents stay the server amounts. */
+  share: number;
+};
+
+const COMPOSITION_KEYS = ["earmarked", "pending", "reserve", "available"] as const;
+
+export function buildAllocatableComposition(lines: BreakdownLine[]) {
+  const byKey = new Map(lines.map((line) => [line.key, line]));
+  const knownCents = Math.max(0, byKey.get("known")?.cents ?? 0);
+  const parts = COMPOSITION_KEYS.map((key) => ({
+    key,
+    label: byKey.get(key)?.label ?? key,
+    cents: Math.max(0, byKey.get(key)?.cents ?? 0),
+  }));
+  const rawScale = knownCents > 0 ? knownCents : parts.reduce((sum, part) => sum + part.cents, 0);
+  const rawShares = parts.map((part) => (rawScale > 0 ? part.cents / rawScale : 0));
+  const rawSum = rawShares.reduce((sum, share) => sum + share, 0);
+  const fit = rawSum > 1 ? 1 / rawSum : 1;
+  return {
+    knownCents,
+    segments: parts.flatMap((part, index) => (
+      part.cents > 0
+        ? [{ ...part, share: rawShares[index] * fit }]
+        : []
+    )),
+  };
+}
+
 export function formatBreakdownAmount(line: BreakdownLine) {
   if (line.tone === "minus") return `- ${formatBRLFromCents(line.cents)}`;
   return formatBRLFromCents(line.cents);
@@ -172,6 +229,9 @@ export function buildAllocatableCashView(input: {
     return {
       kind: "blocked",
       title: ALLOCATABLE_CASH_COPY.title,
+      heading: copy?.heading ?? "Ainda não dá para organizar",
+      glance: copy?.glance ?? "Ainda não dá para organizar esse dinheiro com segurança.",
+      guide: copy?.guide ?? "caution",
       message: copy?.message ?? "Ainda não dá para organizar esse dinheiro com segurança.",
       detail: copy?.detail ?? null,
       ctaLabel: copy?.ctaLabel ?? null,

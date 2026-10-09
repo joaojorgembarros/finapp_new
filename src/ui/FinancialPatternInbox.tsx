@@ -372,9 +372,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 11,
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: OB.supportSoft,
+    backgroundColor: "#F7F5F1",
   },
   cardIcon: {
     width: 42,

@@ -45,6 +45,7 @@ export function ObservedIncomeSection({
     <View style={styles.section}>
       {visibleIncome.length ? (
         <View style={styles.block}>
+          <Text style={styles.kicker}>Observado no seu histórico</Text>
           <Text style={styles.title}>Renda identificada</Text>
           <View style={styles.list}>
             {visibleIncome.map((income, index) => {
@@ -92,6 +93,7 @@ export function ObservedIncomeSection({
 
       {otherInflows ? (
         <View style={styles.block}>
+          <Text style={styles.kicker}>Observado no seu histórico</Text>
           <Text style={styles.title}>Outras entradas observadas</Text>
           <Text style={styles.subtitle}>{OBSERVED_OTHER_INFLOWS_NOTE}</Text>
           <View style={styles.list}>
@@ -114,13 +116,18 @@ export function ObservedIncomeSection({
 const styles = StyleSheet.create({
   section: { gap: 12, marginTop: 8 },
   block: { gap: 8 },
+  kicker: {
+    color: OB.support,
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+  },
   title: { color: OB.primary, fontSize: 18, fontWeight: "900" },
   subtitle: { color: OB.support, fontSize: 10, fontWeight: "700", lineHeight: 15 },
   list: {
     borderRadius: 16,
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: OB.supportSoft,
+    backgroundColor: "#F7F5F1",
     overflow: "hidden",
   },
   row: {

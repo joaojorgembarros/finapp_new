@@ -36,6 +36,7 @@ import {
   buildObservedCategoryRows,
   buildObservedComparison,
   buildObservedMonthHero,
+  observedComparisonGlance,
 } from "../../lib/observedSummaryPresentation";
 import {
   buildObservedHistoryMonthRows,
@@ -47,8 +48,8 @@ import {
   getJourneyBottomContentInset,
 } from "../../ui/journeyChrome";
 import { OB } from "../../ui/OnboardingKit";
+import { SoftEntrance } from "../../ui/SoftEntrance";
 import { ObservedCategoryBreakdown } from "./ObservedCategoryBreakdown";
-import { ObservedComparisonCard } from "./ObservedComparisonCard";
 import { ObservedHistoryHero } from "./ObservedHistoryHero";
 import { ObservedKnownCashCard } from "./ObservedKnownCashCard";
 import { ObservedHistoryRangeSelector } from "./ObservedHistoryRangeSelector";
@@ -200,8 +201,9 @@ export function SummaryTab({
   const hero = summary ? buildObservedMonthHero(summary) : null;
   const comparison = summary ? buildObservedComparison(summary) : null;
   const categoryRows = summary
-    ? buildObservedCategoryRows(summary, { knownCategoryIds })
+    ? buildObservedCategoryRows(summary, { knownCategoryIds, limit: 12 })
     : [];
+  const comparisonLine = comparison && range === "month" ? observedComparisonGlance(comparison) : null;
 
   const busy = loading || householdLoading;
 
@@ -234,33 +236,33 @@ export function SummaryTab({
       ) : summary && hero && comparison ? (
         <>
           <ObservedHistoryRangeSelector range={range} onChange={setRange} />
-          {range === "month" ? (
-            <ObservedMonthHero
-              presentation={hero}
-              onAddMovement={() => router.push("/(app)/new-transaction")}
-            />
-          ) : historyPeriod ? (
-            <ObservedHistoryHero presentation={historyPeriod} />
-          ) : loadError ? null : (
-            <View style={styles.loadingCard}>
-              <ActivityIndicator color={OB.primary} />
-              <Text style={styles.loadingText}>Organizando o período...</Text>
-            </View>
-          )}
-          <ObservedKnownCashCard presentation={cashCard} onRetry={() => void loadKnownCash()} />
-          {range === "month" ? (
-            <>
-              <ObservedComparisonCard presentation={comparison} />
-              {summary.dataQuality.isCurrentPeriodEmpty ? null : (
+          <SoftEntrance activeKey={range}>
+            {range === "month" ? (
+              <ObservedMonthHero
+                presentation={hero}
+                comparisonLine={comparisonLine}
+                onAddMovement={() => router.push("/(app)/new-transaction")}
+              />
+            ) : historyPeriod ? (
+              <ObservedHistoryHero presentation={historyPeriod} />
+            ) : loadError ? null : (
+              <View style={styles.loadingCard}>
+                <ActivityIndicator color={OB.primary} />
+                <Text style={styles.loadingText}>Organizando o período...</Text>
+              </View>
+            )}
+            {range === "month" ? (
+              summary.dataQuality.isCurrentPeriodEmpty ? null : (
                 <ObservedCategoryBreakdown
                   rows={categoryRows}
                   onOrganizeCategories={() => router.push("/(app)/categories")}
                 />
-              )}
-            </>
-          ) : history?.dataQuality.hasAnyData ? (
-            <ObservedMonthSeries rows={historyRows} gapNote={historyGapNote} />
-          ) : null}
+              )
+            ) : history?.dataQuality.hasAnyData ? (
+              <ObservedMonthSeries rows={historyRows} gapNote={historyGapNote} />
+            ) : null}
+            <ObservedKnownCashCard presentation={cashCard} onRetry={() => void loadKnownCash()} />
+          </SoftEntrance>
         </>
       ) : !householdId && !householdLoading ? (
         <Text style={styles.emptyText}>Conclua as primeiras etapas para criar sua estrutura financeira.</Text>
@@ -282,7 +284,7 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingHorizontal: 2,
   },
-  title: { color: OB.primary, fontSize: 28, fontWeight: "900", flexShrink: 1 },
+  title: { color: OB.primary, fontSize: 13, fontWeight: "800", letterSpacing: 0.8, textTransform: "uppercase", flexShrink: 1 },
   loadingCard: {
     borderRadius: 22,
     padding: 28,

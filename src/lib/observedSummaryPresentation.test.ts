@@ -9,6 +9,9 @@ import {
   buildObservedMonthHero,
   formatObservedPercent,
   observedAmountDelta,
+  observedComparisonGlance,
+  observedResultNarrative,
+  splitObservedCategoryPreview,
   observedCategoryLabel,
   observedComparisonCaption,
 } from "./observedSummaryPresentation";
@@ -136,6 +139,49 @@ describe("observed month hero", () => {
     expect(hero.kind).toBe("empty");
     if (hero.kind !== "empty") return;
     expect(hero.historyNote).toBe(OBSERVED_SUMMARY_COPY.heroHistoryNote);
+  });
+
+  it("describes the month result without judging the person", () => {
+    expect(observedResultNarrative(100, "month")).toBe("Até agora, seu mês está positivo.");
+    expect(observedResultNarrative(0, "month")).toBe("Entradas e saídas estão equilibradas até aqui.");
+    expect(observedResultNarrative(-100, "month")).toBe("Até agora, suas saídas estão acima das entradas.");
+    expect(observedResultNarrative(100, "period")).toBe("Neste período, o resultado está positivo.");
+    const copy = [
+      observedResultNarrative(100, "month"),
+      observedResultNarrative(0, "month"),
+      observedResultNarrative(-100, "month"),
+    ].join(" ");
+    expect(copy).not.toMatch(/gastou demais|saldo|disponível|pode gastar/i);
+  });
+});
+
+describe("progressive summary disclosure", () => {
+  it("keeps three categories in view and the rest behind the list", () => {
+    const rows = [{ name: "A" }, { name: "B" }, { name: "C" }, { name: "D" }];
+    expect(splitObservedCategoryPreview(rows)).toEqual({
+      visible: [{ name: "A" }, { name: "B" }, { name: "C" }],
+      hidden: [{ name: "D" }],
+    });
+    expect(splitObservedCategoryPreview(rows.slice(0, 2)).hidden).toEqual([]);
+  });
+
+  it("turns the existing result delta into one comparison line", () => {
+    const glance = observedComparisonGlance({
+      kind: "ready",
+      title: "Comparado com o mês passado",
+      caption: "Até o dia 8",
+      inflow: { currentCents: 1, previousCents: 1, deltaCents: 0, percent: 0 },
+      outflow: { currentCents: 1, previousCents: 1, deltaCents: 0, percent: 0 },
+      net: { currentCents: 32000, previousCents: 0, deltaCents: 32000, percent: null },
+    });
+    expect(glance).toContain("acima do período anterior");
+    expect(glance).not.toMatch(/gastou demais|saldo|disponível/i);
+    expect(observedComparisonGlance({
+      kind: "insufficient",
+      title: "Comparado com o mês passado",
+      caption: "Até o dia 8",
+      message: "Ainda não há histórico suficiente para comparar.",
+    })).toBeNull();
   });
 });
 

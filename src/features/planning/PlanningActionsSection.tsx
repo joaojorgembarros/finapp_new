@@ -23,10 +23,52 @@ import {
   canAllocateCycleSurplus,
   commitmentPaymentParams,
   PLANNING_CYCLE_ACTION_COPY,
+  planningReviewNeedsAttention,
   surplusAllocationParams,
 } from "./planningCycleActions";
 
-export function PlanningActionsSection({ overview }: { overview: FinancialOverview | null }) {
+type PlanningActionsApi = {
+  openReview: () => void;
+  openSurplus: () => void;
+  canSaveForDream: boolean;
+  reviewNeedsAttention: boolean;
+};
+
+const PlanningActionsContext = React.createContext<PlanningActionsApi | null>(null);
+
+export function usePlanningActions() {
+  return React.useContext(PlanningActionsContext);
+}
+
+export function PlanningReviewCall({ nested = false }: { nested?: boolean }) {
+  const actions = usePlanningActions();
+  if (!actions) return null;
+  if (nested ? actions.reviewNeedsAttention : !actions.reviewNeedsAttention) return null;
+  return (
+    <Pressable
+      onPress={actions.openReview}
+      style={({ pressed }) => [nested ? styles.nestedReview : styles.attention, pressed && styles.pressed]}
+      accessibilityRole="button"
+      accessibilityLabel={PLANNING_CYCLE_ACTION_COPY.reviewPayments}
+    >
+      <View style={styles.flex}>
+        <Text style={styles.attentionTitle}>{PLANNING_CYCLE_ACTION_COPY.reviewPayments}</Text>
+        {nested ? null : <Text style={styles.attentionHint}>Há pagamentos deste ciclo.</Text>}
+      </View>
+      {nested ? null : <Ionicons name="chevron-forward" size={16} color={OB.support} />}
+    </Pressable>
+  );
+}
+
+export function PlanningActionsSection({
+  overview,
+  enabled = true,
+  children,
+}: {
+  overview: FinancialOverview | null;
+  enabled?: boolean;
+  children?: React.ReactNode;
+}) {
   const [paymentsOpen, setPaymentsOpen] = useState(false);
   const { height: viewportHeight } = useWindowDimensions();
   const canAllocate = canAllocateCycleSurplus(overview);
@@ -94,28 +136,18 @@ export function PlanningActionsSection({ overview }: { overview: FinancialOvervi
     );
   }
 
-  return (
-    <View style={styles.section}>
-      <Text style={styles.title}>{PLANNING_CYCLE_ACTION_COPY.title}</Text>
-      <Pressable
-        onPress={() => setPaymentsOpen(true)}
-        style={({ pressed }) => [styles.action, pressed && styles.pressed]}
-        accessibilityRole="button"
-        accessibilityLabel={PLANNING_CYCLE_ACTION_COPY.reviewPayments}
-      >
-        <Text style={styles.actionText}>{PLANNING_CYCLE_ACTION_COPY.reviewPayments}</Text>
-      </Pressable>
-      {canAllocate ? (
-        <Pressable
-          onPress={openAllocation}
-          style={({ pressed }) => [styles.action, pressed && styles.pressed]}
-          accessibilityRole="button"
-          accessibilityLabel={PLANNING_CYCLE_ACTION_COPY.allocateDream}
-        >
-          <Text style={styles.actionText}>{PLANNING_CYCLE_ACTION_COPY.allocateDream}</Text>
-        </Pressable>
-      ) : null}
+  const api: PlanningActionsApi = {
+    openReview: () => setPaymentsOpen(true),
+    openSurplus: openAllocation,
+    canSaveForDream: canAllocate,
+    reviewNeedsAttention: planningReviewNeedsAttention(pendingCommitments.length),
+  };
 
+  if (!enabled) return <>{children}</>;
+
+  return (
+    <PlanningActionsContext.Provider value={api}>
+      {children}
       <Modal
         visible={paymentsOpen}
         animationType="fade"
@@ -182,23 +214,24 @@ export function PlanningActionsSection({ overview }: { overview: FinancialOvervi
           </View>
         </View>
       </Modal>
-    </View>
+    </PlanningActionsContext.Provider>
   );
 }
 
 const styles = StyleSheet.create({
-  section: { gap: 8 },
-  title: { color: OB.primary, fontSize: 16, fontWeight: "900" },
-  action: {
-    minHeight: 48,
-    borderRadius: 16,
+  attention: {
+    minHeight: 56,
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: OB.supportSoft,
+    gap: 8,
+    backgroundColor: "#F6F3EC",
   },
-  actionText: { color: OB.primary, fontSize: 14, fontWeight: "800" },
+  nestedReview: { alignSelf: "flex-start", minHeight: 36, justifyContent: "center" },
+  attentionTitle: { color: OB.primary, fontSize: 14, fontWeight: "900" },
+  attentionHint: { color: OB.support, fontSize: 12, fontWeight: "700", marginTop: 2 },
   pressed: { opacity: 0.82 },
   flex: { flex: 1, minWidth: 0 },
   scrimRoot: { flex: 1 },

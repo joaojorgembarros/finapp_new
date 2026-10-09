@@ -68,14 +68,18 @@ import {
 } from "../../lib/incomeAcknowledgementPlan";
 import { useSession } from "../../providers/SessionProvider";
 import { AllocatableCashSection } from "./AllocatableCashSection";
-import { PlanningActionsSection } from "./PlanningActionsSection";
+import { PlannedIncomeNote } from "./PlannedIncomeNote";
+import { PlanningActionsSection, PlanningReviewCall } from "./PlanningActionsSection";
+import { PlanningCycleIdentity } from "./PlanningCycleIdentity";
 import { FinancialPatternInbox } from "../../ui/FinancialPatternInbox";
 import { ObservedHabitsSection } from "../../ui/ObservedHabitsSection";
 import { ObservedIncomeSection } from "../../ui/ObservedIncomeSection";
 import { ObservedIncomePlanSheet } from "../../ui/ObservedIncomePlanSheet";
+import { DisclosureSection } from "../../ui/DisclosureSection";
 import { JOURNEY_HEADER_HEIGHT } from "../../ui/journeyChrome";
 import { OB, OnboardingShell } from "../../ui/OnboardingKit";
 import { ScreenHeaderCard } from "../../ui/ScreenHeaderCard";
+import { formatCycleSpan, OBSERVED_INSIGHT_SUMMARY, planningCommitmentSummary, planningPlanSummary } from "../../lib/planningPresentation";
 import { journeyContentScrollProps, planningScrollBottomPadding, showsPlanningRouteChrome, type PlanningMode } from "./planningChrome";
 
 type SettingsField = "payday" | "reserve";
@@ -627,6 +631,19 @@ export function FinancialPlanScreen({
   }
 
   const busy = loading || householdLoading;
+  const planSummary = planningPlanSummary({
+    span: cycleOverview ? formatCycleSpan(cycleOverview.cycle.start, cycleOverview.cycle.end) : null,
+    reserveCents: cycleOverview ? cycleOverview.reserveCents : null,
+  });
+  const commitmentSummary = planningCommitmentSummary(
+    commitments.length + orphanDebts.length,
+    commitments.reduce((sum, item) => sum + item.amount_cents, 0)
+      + orphanDebts.reduce((sum, item) => sum + item.balanceCents, 0),
+  );
+  const hasObservedInsights = patternSuggestions.length > 0
+    || recurringIncome.length > 0
+    || otherInflows != null
+    || observedHabits.length > 0;
   const journeyScroll = journeyContentScrollProps(onScroll);
   const PlanScroll = journeyScroll ? Animated.ScrollView : ScrollView;
 
@@ -646,6 +663,7 @@ export function FinancialPlanScreen({
           showsVerticalScrollIndicator={false}
           {...(journeyScroll ?? {})}
         >
+          <PlanningActionsSection overview={cycleOverview} enabled={!guided}>
           {routeChrome ? (
             <ScreenHeaderCard
               onBack={() => router.back()}
@@ -673,6 +691,7 @@ export function FinancialPlanScreen({
               reviewReturn={mode === "embedded" ? "planejamento" : "financial-plan"}
             />
           ) : null}
+          {!guided ? <PlanningReviewCall /> : null}
 
           {busy ? (
             <View style={styles.stateCard}>
@@ -690,15 +709,18 @@ export function FinancialPlanScreen({
             </View>
           ) : (
             <>
-              {!guided || guidedStep === 1 ? (
+              {(!guided || guidedStep === 1) ? (
+                <DisclosureSection title="Seu plano" summary={planSummary} collapsed={!guided}>
                 <View style={styles.card}>
+                {cycleOverview ? (
+                  <PlanningCycleIdentity cycle={cycleOverview.cycle} referenceDate={ymd(new Date())} />
+                ) : null}
                 <View style={styles.sectionHeading}>
                   <View style={styles.sectionIcon}>
                     <Ionicons name="calendar-outline" size={20} color={OB.primary} />
                   </View>
                   <View style={styles.flex}>
                     <Text style={styles.cardTitle}>Como é o seu ciclo?</Text>
-                    <Text style={styles.cardSubtitle}>Você poderá mudar essa escolha depois.</Text>
                   </View>
                 </View>
 
@@ -764,8 +786,15 @@ export function FinancialPlanScreen({
                   </View>
                 ) : null}
 
+                {!guided && cycleOverview ? (
+                  <PlannedIncomeNote cents={cycleOverview.expectedIncomeCents} />
+                ) : null}
+
                 <View onLayout={settingsKeyboard.registerField("reserve")}>
-                  <Text style={styles.label}>{guided ? "Quanto quer manter na conta?" : "Reserva mínima"}</Text>
+                  <View style={styles.reserveHeading}>
+                    <Ionicons name="shield-checkmark-outline" size={16} color={OB.primary} />
+                    <Text style={styles.reserveLabel}>{guided ? "Quanto quer manter na conta?" : "Reserva protegida"}</Text>
+                  </View>
                   <TextInput
                     value={minimumReserve}
                     onChangeText={(value) => setMinimumReserve(formatBRLInputFromDigits(value))}
@@ -780,7 +809,7 @@ export function FinancialPlanScreen({
                     accessibilityLabel="Valor da reserva mínima"
                   />
                   <Text style={styles.helper}>
-                    Esse valor será descontado antes de mostrarmos o que pode ir para seus sonhos.
+                    Esse valor fica fora do dinheiro para organizar.
                   </Text>
                 </View>
 
@@ -805,33 +834,20 @@ export function FinancialPlanScreen({
                   )}
                 </Pressable>
                 </View>
+                </DisclosureSection>
               ) : null}
 
-              {!guided || guidedStep === 2 ? (
-                <>
-                  <FinancialPatternInbox
-                    suggestions={patternSuggestions}
-                    busyKey={busyPatternKey}
-                    onConfirm={handleConfirmPattern}
-                    onReject={handleRejectPattern}
-                  />
-                  <ObservedIncomeSection
-                    recurring={recurringIncome}
-                    otherInflows={otherInflows}
-                    acknowledgements={incomeAcknowledgements}
-                    acknowledgementsUnavailable={incomeAcknowledgementsUnavailable}
-                    onUseIncome={(income) => void openIncomePlan(income)}
-                    onReviewIncome={(income) => void openIncomePlan(income)}
-                  />
-                  <ObservedHabitsSection habits={observedHabits} />
-
+              {(!guided || guidedStep === 2) ? (
+                <DisclosureSection title="Compromissos" summary={commitmentSummary} collapsed={!guided}>
                   <View style={styles.commitmentHeader}>
+                    {guided ? (
                     <View style={styles.flex}>
                       <Text style={styles.sectionTitle}>O que ainda falta pagar?</Text>
                       <Text style={styles.sectionSubtitle}>
                         Adicione somente contas, dívidas ou parcelas que não aparecem como pagas no extrato.
                       </Text>
                     </View>
+                    ) : <View style={styles.flex} />}
                     <Pressable
                       onPress={openNewCommitment}
                       style={styles.addButton}
@@ -951,22 +967,49 @@ export function FinancialPlanScreen({
                     </View>
                   ) : null}
 
-                  {!guided ? <PlanningActionsSection overview={cycleOverview} /> : null}
+                  <PlanningReviewCall nested />
+                </DisclosureSection>
+              ) : null}
 
-                  {guided ? (
-                    <Pressable
-                      onPress={() => router.dismissTo({ pathname: "/(app)/journey", params: { tab: "controle" } })}
-                      style={styles.primaryButton}
-                      accessibilityRole="button"
-                      accessibilityLabel="Concluir e voltar ao Resumo"
-                    >
-                      <Text style={styles.primaryButtonText}>Concluir e voltar ao Resumo</Text>
-                    </Pressable>
-                  ) : null}
-                </>
+              {hasObservedInsights && (!guided || guidedStep === 2) ? (
+                <DisclosureSection
+                  title="Observado no seu histórico"
+                  summary={OBSERVED_INSIGHT_SUMMARY}
+                  collapsed={!guided}
+                >
+                  <View style={styles.insightGroup}>
+                    <FinancialPatternInbox
+                      suggestions={patternSuggestions}
+                      busyKey={busyPatternKey}
+                      onConfirm={handleConfirmPattern}
+                      onReject={handleRejectPattern}
+                    />
+                    <ObservedIncomeSection
+                      recurring={recurringIncome}
+                      otherInflows={otherInflows}
+                      acknowledgements={incomeAcknowledgements}
+                      acknowledgementsUnavailable={incomeAcknowledgementsUnavailable}
+                      onUseIncome={(income) => void openIncomePlan(income)}
+                      onReviewIncome={(income) => void openIncomePlan(income)}
+                    />
+                    <ObservedHabitsSection habits={observedHabits} />
+                  </View>
+                </DisclosureSection>
+              ) : null}
+
+              {guided && guidedStep === 2 ? (
+                <Pressable
+                  onPress={() => router.dismissTo({ pathname: "/(app)/journey", params: { tab: "controle" } })}
+                  style={styles.primaryButton}
+                  accessibilityRole="button"
+                  accessibilityLabel="Concluir e voltar ao Resumo"
+                >
+                  <Text style={styles.primaryButtonText}>Concluir e voltar ao Resumo</Text>
+                </Pressable>
               ) : null}
             </>
           )}
+          </PlanningActionsSection>
         </PlanScroll>
       </KeyboardAvoidingView>
 
@@ -1323,13 +1366,18 @@ const styles = StyleSheet.create({
   embeddedSubtitle: { color: OB.support, fontSize: 13, fontWeight: "700", lineHeight: 18 },
   flex: { flex: 1 },
   card: {
-    borderRadius: 20,
+    borderRadius: 24,
     padding: 16,
     gap: 14,
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: OB.supportSoft,
+    backgroundColor: "#F4F7FB",
   },
+  reserveHeading: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 7 },
+  reserveLabel: {
+    color: OB.primary,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  insightGroup: { gap: 12, marginTop: 8 },
   sectionHeading: { flexDirection: "row", alignItems: "center", gap: 11 },
   sectionIcon: {
     width: 44,
@@ -1403,13 +1451,11 @@ const styles = StyleSheet.create({
   },
   commitmentCard: {
     borderRadius: 18,
-    padding: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 2,
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 11,
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: OB.supportSoft,
   },
   commitmentIcon: {
     width: 42,
@@ -1422,17 +1468,14 @@ const styles = StyleSheet.create({
   commitmentName: { color: OB.primary, fontSize: 14, fontWeight: "900", paddingRight: 3 },
   commitmentMeta: { color: OB.support, fontSize: 10, fontWeight: "800", marginTop: 4 },
   installmentText: { color: OB.support, fontSize: 9, fontWeight: "700", marginTop: 3 },
-  commitmentAmount: { color: OB.primary, fontSize: 16, fontWeight: "900", marginTop: 8 },
+  commitmentAmount: { color: OB.primary, fontSize: 18, fontWeight: "900", marginTop: 6 },
   cardActions: { gap: 7, alignItems: "flex-end" },
   iconButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 11,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: OB.offWhite,
-    borderWidth: 1,
-    borderColor: OB.supportSoft,
   },
   editDebtButton: {
     minHeight: 34,

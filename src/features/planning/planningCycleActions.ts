@@ -19,6 +19,10 @@ type SurplusSource = {
   }[];
 };
 
+export function planningReviewNeedsAttention(pendingCount: number) {
+  return pendingCount > 0;
+}
+
 export function canAllocateCycleSurplus(overview: SurplusSource | null) {
   if (!overview) return false;
   const committed = groupCommittedMoney({

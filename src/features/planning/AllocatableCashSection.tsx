@@ -1,9 +1,16 @@
 import { router, useFocusEffect } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
+import { StyleSheet, Text } from "react-native";
 import {
   allocationSuccessCopy,
   buildAllocatableCashView,
 } from "../../lib/allocatableCashPresentation";
+import { DisclosureSection } from "../../ui/DisclosureSection";
+import { OB } from "../../ui/OnboardingKit";
+import { AllocatableCashBreakdown } from "./AllocatableCashBreakdown";
+import { AllocatableCashComposition } from "./AllocatableCashComposition";
+import { PLANNING_CYCLE_ACTION_COPY } from "./planningCycleActions";
+import { usePlanningActions } from "./PlanningActionsSection";
 import {
   getAllocatableCashPosition,
   type AllocatableCashPosition,
@@ -59,9 +66,13 @@ export function AllocatableCashSection({
   }
 
   const presentation = buildAllocatableCashView({ status, position });
+  const actions = usePlanningActions();
   const canOpenSheet = Boolean(
     position?.canAllocate && (position.availableToOrganizeCents ?? 0) > 0
   );
+  const calculation = presentation.kind === "ready" || presentation.kind === "none"
+    ? presentation
+    : null;
 
   return (
     <>
@@ -82,7 +93,17 @@ export function AllocatableCashSection({
           setNotice(null);
           setSheetOpen(true);
         }}
+        onSaveForDream={actions?.canSaveForDream ? actions.openSurplus : null}
+        saveForDreamLabel={PLANNING_CYCLE_ACTION_COPY.allocateDream}
       />
+      {calculation && calculation.breakdown.length ? (
+        <DisclosureSection title="Como chegamos nesse valor?" summary="Entenda o cálculo">
+          <AllocatableCashComposition lines={calculation.breakdown} />
+          <AllocatableCashBreakdown lines={calculation.breakdown} />
+          {calculation.asOf ? <Text style={styles.note}>{calculation.asOf}</Text> : null}
+          {calculation.kind === "ready" ? <Text style={styles.note}>{calculation.message}</Text> : null}
+        </DisclosureSection>
+      ) : null}
       {sheetOpen && position && canOpenSheet ? (
         <GoalAllocationSheet
           visible
@@ -97,3 +118,7 @@ export function AllocatableCashSection({
     </>
   );
 }
+
+const styles = StyleSheet.create({
+  note: { color: OB.support, fontSize: 12, fontWeight: "700", lineHeight: 17 },
+});

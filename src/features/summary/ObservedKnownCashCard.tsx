@@ -2,6 +2,7 @@ import React from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { formatBRLFromCents } from "../../lib/format";
 import type { KnownCashCardPresentation } from "../../lib/knownCashPresentation";
+import { DisclosureSection } from "../../ui/DisclosureSection";
 import { OB } from "../../ui/OnboardingKit";
 
 export function ObservedKnownCashCard({
@@ -13,104 +14,64 @@ export function ObservedKnownCashCard({
 }) {
   if (presentation.kind === "loading") {
     return (
-      <View style={styles.card}>
+      <View style={styles.row}>
         <Text style={styles.title}>{presentation.title}</Text>
-        <View style={styles.loadingRow}>
-          <ActivityIndicator color={OB.support} size="small" />
-          <Text style={styles.detail}>{presentation.message}</Text>
-        </View>
+        <ActivityIndicator color={OB.support} size="small" />
       </View>
     );
   }
 
   if (presentation.kind === "error") {
     return (
-      <View style={styles.card}>
+      <View style={styles.stack}>
         <Text style={styles.title}>{presentation.title}</Text>
         <Text style={styles.detail}>{presentation.message}</Text>
-        <Pressable onPress={onRetry} style={styles.retry}>
+        <Pressable onPress={onRetry} style={styles.retry} accessibilityRole="button">
           <Text style={styles.retryText}>{presentation.retryLabel}</Text>
         </Pressable>
       </View>
     );
   }
 
-  if (presentation.kind === "unavailable") {
-    return (
-      <View style={styles.card}>
-        <Text style={styles.title}>{presentation.title}</Text>
-        <Text style={styles.detail}>{presentation.detail}</Text>
-      </View>
-    );
-  }
+  const summary = presentation.kind === "ready"
+    ? formatBRLFromCents(presentation.amountCents)
+    : "Indisponível";
 
   return (
-    <View style={styles.card}>
-      <Text style={styles.title}>{presentation.title}</Text>
-      <Text style={[styles.amount, presentation.amountCents < 0 && styles.negative]}>
-        {formatBRLFromCents(presentation.amountCents)}
-      </Text>
-      <Text style={styles.caption}>{presentation.caption}</Text>
-      {presentation.notes.map((note) => (
-        <Text key={note} style={styles.note}>{note}</Text>
-      ))}
-    </View>
+    <DisclosureSection title={presentation.kind === "ready" ? presentation.title : "Saldo conhecido"} summary={summary} layout="inline">
+      {presentation.kind === "unavailable" ? (
+        <Text style={styles.detail}>{presentation.detail}</Text>
+      ) : (
+        <>
+          <Text style={styles.caption}>{presentation.caption}</Text>
+          {presentation.notes.map((note) => (
+            <Text key={note} style={styles.detail}>{note}</Text>
+          ))}
+        </>
+      )}
+    </DisclosureSection>
   );
 }
 
 const styles = StyleSheet.create({
-  card: {
+  row: {
+    minHeight: 52,
     borderRadius: 18,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    gap: 4,
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: OB.supportSoft,
-  },
-  title: {
-    color: OB.support,
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 0.4,
-    textTransform: "uppercase",
-  },
-  amount: {
-    color: OB.primary,
-    fontSize: 22,
-    fontWeight: "900",
-  },
-  negative: { color: "#A33F3F" },
-  caption: {
-    color: OB.primary,
-    fontSize: 13,
-    fontWeight: "800",
-  },
-  detail: {
-    color: OB.support,
-    fontSize: 13,
-    fontWeight: "700",
-    lineHeight: 18,
-  },
-  note: {
-    color: OB.support,
-    fontSize: 12,
-    fontWeight: "700",
-    lineHeight: 17,
-  },
-  loadingRow: {
+    paddingHorizontal: 14,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    justifyContent: "space-between",
+    backgroundColor: "#EEF3F8",
   },
-  retry: {
-    alignSelf: "flex-start",
-    minHeight: 36,
-    justifyContent: "center",
+  stack: {
+    borderRadius: 18,
+    padding: 14,
+    gap: 6,
+    backgroundColor: "#EEF3F8",
   },
-  retryText: {
-    color: OB.primary,
-    fontSize: 13,
-    fontWeight: "800",
-  },
+  title: { color: OB.primary, fontSize: 13, fontWeight: "800" },
+  caption: { color: OB.primary, fontSize: 13, fontWeight: "800" },
+  detail: { color: OB.support, fontSize: 13, fontWeight: "700", lineHeight: 18 },
+  retry: { alignSelf: "flex-start", minHeight: 36, justifyContent: "center" },
+  retryText: { color: OB.primary, fontSize: 13, fontWeight: "800" },
 });
