@@ -1,0 +1,88 @@
+name: Android AAB Local
+
+on:
+  push:
+    branches:
+      - ci/android-aab
+    paths:
+      - ".github/workflows/android-aab-local.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build production AAB locally
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout validated release
+        uses: actions/checkout@v4
+        with:
+          ref: v1.0.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup Expo and EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Validate build environment
+        shell: bash
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$EXPO_PUBLIC_SUPABASE_URL"
+          test -n "$EXPO_PUBLIC_SUPABASE_ANON_KEY"
+          if [ "$EXPO_PUBLIC_SUPABASE_URL" != "https://nyqiafcgusfynxmocmsz.supabase.co" ]; then
+            echo "Unexpected Supabase URL for production build."
+            exit 1
+          fi
+          echo "Build environment validated."
+
+      - name: Build Android production AAB locally
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+        run: |
+          eas build \
+            --platform android \
+            --profile production \
+            --local \
+            --non-interactive \
+            --output "$GITHUB_WORKSPACE/sonho-plus-v1.0.2.aab"
+
+      - name: Verify AAB
+        run: |
+          test -s "$GITHUB_WORKSPACE/sonho-plus-v1.0.2.aab"
+          ls -lh "$GITHUB_WORKSPACE/sonho-plus-v1.0.2.aab"
+
+      - name: Upload AAB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonho-plus-v1.0.2-aab
+          path: sonho-plus-v1.0.2.aab
+          if-no-files-found: error
+          retention-days: 7
