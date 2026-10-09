@@ -69,9 +69,15 @@ describe("planning cycle actions", () => {
     expect(actions).toContain("canAllocateCycleSurplus");
     expect(actions).not.toContain("Seu planejamento");
     expect(summary).not.toContain("Seu planejamento");
+    expect(summary).not.toContain("Extrato importado");
+    expect(summary).not.toContain("Preparar meu planejamento");
+    expect(summary).not.toContain("financial-plan");
+    expect(summary).not.toContain("import-csv");
     expect(summary).not.toContain("ObservedPlanningAccess");
-    expect(summary).toContain("Extrato importado");
     expect(journey).not.toContain("Desafio de hoje");
+    expect(journey).toContain('label: "Sonhos"');
+    expect(journey).toContain('label: "Movimentações"');
+    expect(journey).toContain('label: "Resumo"');
     expect(journey).toContain('label: "Planejamento"');
   });
 });

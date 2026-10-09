@@ -17,7 +17,6 @@ export const OBSERVED_SUMMARY_COPY = {
   heroEmpty: "Você ainda não tem movimentações neste mês.",
   heroHistoryNote: "Há movimentações em meses anteriores.",
   addMovement: "Adicionar movimentação",
-  importStatement: "Importar extrato",
   comparisonTitle: "Comparado com o mês passado",
   comparisonEmpty: "Ainda não há histórico suficiente para comparar.",
   categoriesTitle: "Para onde foi",

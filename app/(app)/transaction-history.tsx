@@ -167,7 +167,7 @@ export function TransactionHistoryScreen({
   const showAllMovements = useCallback(() => {
     setStatementImportId(null);
     setImportNoticeDismissed(true);
-    router.setParams({ onlyImport: undefined });
+    router.setParams({ onlyImport: undefined, postImport: undefined });
   }, []);
 
   const clearExplicitImport = useCallback(() => {
@@ -183,7 +183,7 @@ export function TransactionHistoryScreen({
     setMonth("all");
     setAccount("all");
     setStatementImportId(requestedImportId);
-    router.setParams({ onlyImport: requestedImportId });
+    router.setParams({ onlyImport: requestedImportId, postImport: undefined });
   }, [requestedImportId]);
 
   const clearListFilters = useCallback(() => {

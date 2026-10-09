@@ -4,9 +4,12 @@ import React, { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   Platform,
   Pressable,
   ScrollView,
@@ -73,7 +76,7 @@ import { ObservedIncomePlanSheet } from "../../ui/ObservedIncomePlanSheet";
 import { JOURNEY_HEADER_HEIGHT } from "../../ui/journeyChrome";
 import { OB, OnboardingShell } from "../../ui/OnboardingKit";
 import { ScreenHeaderCard } from "../../ui/ScreenHeaderCard";
-import { planningScrollBottomPadding, showsPlanningRouteChrome, type PlanningMode } from "./planningChrome";
+import { journeyContentScrollProps, planningScrollBottomPadding, showsPlanningRouteChrome, type PlanningMode } from "./planningChrome";
 
 type SettingsField = "payday" | "reserve";
 type CommitmentField = "name" | "amount" | "due" | "start" | "installments" | "balance" | "note";
@@ -140,7 +143,13 @@ function kindLabel(kind: CommitmentKind) {
   return KIND_OPTIONS.find((option) => option.value === kind)?.label ?? "Compromisso";
 }
 
-export function FinancialPlanScreen({ mode = "standalone" }: { mode?: PlanningMode }) {
+export function FinancialPlanScreen({
+  mode = "standalone",
+  onScroll,
+}: {
+  mode?: PlanningMode;
+  onScroll?: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
+}) {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ guided?: string }>();
   const requestedGuided = Array.isArray(params.guided) ? params.guided[0] : params.guided;
@@ -618,11 +627,13 @@ export function FinancialPlanScreen({ mode = "standalone" }: { mode?: PlanningMo
   }
 
   const busy = loading || householdLoading;
+  const journeyScroll = journeyContentScrollProps(onScroll);
+  const PlanScroll = journeyScroll ? Animated.ScrollView : ScrollView;
 
   const plan = (
     <>
       <KeyboardAvoidingView enabled={Platform.OS === "ios"} behavior="padding" style={styles.screen}>
-        <ScrollView
+        <PlanScroll
           ref={settingsKeyboard.scrollRef}
           contentContainerStyle={[
             styles.content,
@@ -633,11 +644,12 @@ export function FinancialPlanScreen({ mode = "standalone" }: { mode?: PlanningMo
           keyboardShouldPersistTaps="handled"
           onScrollBeginDrag={settingsKeyboard.cancelPendingScroll}
           showsVerticalScrollIndicator={false}
+          {...(journeyScroll ?? {})}
         >
           {routeChrome ? (
             <ScreenHeaderCard
               onBack={() => router.back()}
-              eyebrow={guided ? `Etapa ${guidedStep} de 2` : "Seu plano financeiro"}
+              eyebrow={guided ? `Etapa ${guidedStep} de 2` : "Planejamento"}
               title={guided
                 ? guidedStep === 1 ? "Defina seu período e proteção" : "Informe o que ainda falta pagar"
                 : "Organize o seu ciclo"}
@@ -955,7 +967,7 @@ export function FinancialPlanScreen({ mode = "standalone" }: { mode?: PlanningMo
               ) : null}
             </>
           )}
-        </ScrollView>
+        </PlanScroll>
       </KeyboardAvoidingView>
 
       <Modal

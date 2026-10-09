@@ -663,10 +663,6 @@ export default function JourneyScreen() {
     dreams?: string;
     values?: string;
     tab?: string;
-    cycleDate?: string;
-    postImport?: string;
-    importId?: string;
-    reconciledCommitments?: string;
   }>();
   const { session, signOut } = useSession();
   const userId = session?.user?.id ?? null;
@@ -676,30 +672,8 @@ export default function JourneyScreen() {
     Platform.OS === "android" ? (StatusBar.currentHeight ?? 0) : 0;
   const safeTop = resolveSafeTopInset(insets.top, statusBarHeight);
   const requestedTab = Array.isArray(params.tab) ? params.tab[0] : params.tab;
-  const requestedCycleDate = Array.isArray(params.cycleDate)
-    ? params.cycleDate[0]
-    : params.cycleDate;
-  const requestedPostImport = Array.isArray(params.postImport)
-    ? params.postImport[0]
-    : params.postImport;
-  const requestedImportId = Array.isArray(params.importId)
-    ? params.importId[0]
-    : params.importId;
-  const requestedReconciledCommitments = Array.isArray(
-    params.reconciledCommitments,
-  )
-    ? params.reconciledCommitments[0]
-    : params.reconciledCommitments;
-  const parsedReconciledCommitments = Number(requestedReconciledCommitments);
-  const reconciledCommitments = Number.isFinite(parsedReconciledCommitments)
-    ? Math.max(0, Math.trunc(parsedReconciledCommitments))
-    : 0;
   const initialTab = parseRequestedTab(requestedTab, { showControle: SHOW_CONTROLE_TAB });
   const [tab, setTab] = useState<Tab>(initialTab);
-  const [controlCycleDate, setControlCycleDate] = useState(requestedCycleDate);
-  const [postImportId, setPostImportId] = useState(
-    requestedPostImport === "1" ? requestedImportId : undefined,
-  );
   const [menuOpen, setMenuOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [goals, setGoals] = useState<GoalProgress[]>([]);
@@ -761,37 +735,6 @@ export default function JourneyScreen() {
     scrollY.setValue(0);
     setTab(parseRequestedTab(requestedTab, { showControle: SHOW_CONTROLE_TAB }));
   }, [requestedTab, scrollY]);
-
-  useEffect(() => {
-    if (requestedCycleDate) setControlCycleDate(requestedCycleDate);
-  }, [requestedCycleDate]);
-
-  useEffect(() => {
-    setPostImportId(
-      requestedPostImport === "1" && requestedImportId
-        ? requestedImportId
-        : undefined,
-    );
-  }, [requestedImportId, requestedPostImport]);
-
-  const rememberControlCycle = useCallback((nextCycleDate: string) => {
-    setControlCycleDate(nextCycleDate);
-  }, []);
-
-  const finishPostImport = useCallback(() => {
-    setPostImportId(undefined);
-    router.setParams({
-      postImport: undefined,
-      importId: undefined,
-      onlyImport: undefined,
-      reconciledCommitments: undefined,
-    });
-  }, []);
-
-  const activePostImportId =
-    requestedPostImport === "1" && requestedImportId === postImportId
-      ? postImportId
-      : undefined;
 
   const loadJourney = useCallback(async () => {
     if (!householdId || !userId) {
@@ -957,21 +900,8 @@ export default function JourneyScreen() {
           <View style={[styles.tabBody, { paddingTop: safeTop }]}>
             {tab === "controle" ? (
               <SummaryTab
-                key={
-                  activePostImportId
-                    ? `post-import:${activePostImportId}`
-                    : "control"
-                }
                 householdId={householdId}
-                userId={userId}
                 householdLoading={householdLoading}
-                cycleDate={controlCycleDate}
-                onCycleDateChange={rememberControlCycle}
-                postImportId={activePostImportId}
-                reconciledCommitments={
-                  activePostImportId ? reconciledCommitments : 0
-                }
-                onPostImportHandled={finishPostImport}
                 onScroll={onContentScroll}
               />
             ) : tab === "movimentacoes" ? (
@@ -1004,7 +934,7 @@ export default function JourneyScreen() {
                 onScroll={onContentScroll}
               />
             ) : (
-              <FinancialPlanScreen mode="embedded" />
+              <FinancialPlanScreen mode="embedded" onScroll={onContentScroll} />
             )}
           </View>
         </View>
@@ -1409,127 +1339,6 @@ const styles = StyleSheet.create({
     color: "#7F3030",
     fontSize: 12,
     fontWeight: "900",
-  },
-  postImportCard: {
-    borderRadius: 24,
-    padding: 20,
-    alignItems: "center",
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: OB.supportSoft,
-  },
-  postImportSuccessIcon: {
-    width: 50,
-    height: 50,
-    borderRadius: 17,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#168A59",
-  },
-  postImportTitle: {
-    color: OB.primary,
-    fontSize: 19,
-    fontWeight: "900",
-    lineHeight: 25,
-    textAlign: "center",
-    marginTop: 12,
-  },
-  postImportText: {
-    color: "#5E7591",
-    fontSize: 13,
-    fontWeight: "700",
-    lineHeight: 19,
-    textAlign: "center",
-    marginTop: 6,
-  },
-  postImportReconciledNotice: {
-    alignSelf: "stretch",
-    minHeight: 44,
-    marginTop: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    borderRadius: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    backgroundColor: "rgba(22,138,89,0.09)",
-  },
-  postImportReconciledText: {
-    flexShrink: 1,
-    color: "#116D47",
-    fontSize: 12,
-    fontWeight: "800",
-    lineHeight: 17,
-    textAlign: "center",
-  },
-  postImportNextStep: {
-    alignSelf: "stretch",
-    borderRadius: 18,
-    padding: 15,
-    backgroundColor: OB.offWhite,
-    borderWidth: 1,
-    borderColor: OB.supportSoft,
-    marginTop: 18,
-  },
-  postImportNextEyebrow: {
-    color: "#5E7591",
-    fontSize: 10,
-    fontWeight: "900",
-    letterSpacing: 1.2,
-    textTransform: "uppercase",
-  },
-  postImportNextTitle: {
-    color: OB.primary,
-    fontSize: 16,
-    fontWeight: "900",
-    lineHeight: 22,
-    marginTop: 5,
-  },
-  postImportNextText: {
-    color: "#5E7591",
-    fontSize: 13,
-    fontWeight: "700",
-    lineHeight: 19,
-    marginTop: 5,
-  },
-  postImportPrimaryButton: {
-    alignSelf: "stretch",
-    minHeight: 54,
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 9,
-    backgroundColor: OB.primary,
-    marginTop: 14,
-  },
-  postImportPrimaryButtonText: {
-    flexShrink: 1,
-    color: "#fff",
-    fontSize: 14,
-    fontWeight: "900",
-    textAlign: "center",
-  },
-  postImportSecondaryButton: {
-    minHeight: 46,
-    paddingHorizontal: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 5,
-  },
-  postImportSecondaryButtonText: {
-    color: "#5E7591",
-    fontSize: 12,
-    fontWeight: "900",
-    textAlign: "center",
-  },
-  postImportLinkText: {
-    color: OB.primary,
-    fontSize: 12,
-    fontWeight: "900",
-    textAlign: "center",
   },
   emptyCycleCard: {
     borderRadius: 22,

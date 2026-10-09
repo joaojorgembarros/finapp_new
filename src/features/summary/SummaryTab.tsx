@@ -21,13 +21,6 @@ import {
 } from "../../lib/financialCashPosition";
 import { buildKnownCashCard } from "../../lib/knownCashPresentation";
 import {
-  FinancialOverview,
-  FinancialOverviewCommitment,
-  getCycleForOffset,
-  getFinancialOverview,
-  getFinancialSettings,
-} from "../../lib/financialPlanning";
-import {
   buildFinancialObservedHistory,
   coversObservedHistoryRange,
   loadObservedHistoryTransactions,
@@ -39,8 +32,6 @@ import {
   type ObservedSummaryTransaction,
 } from "../../lib/financialObservedSummary";
 import { loadObservedSummaryForUi } from "../../lib/observedSummaryLoad";
-import { sortPendingCommitments } from "../../lib/financialOverviewPresentation";
-import { commitmentPaymentParams } from "../planning/planningCycleActions";
 import {
   buildObservedCategoryRows,
   buildObservedComparison,
@@ -66,21 +57,11 @@ import { ObservedMonthSeries } from "./ObservedMonthSeries";
 
 export function SummaryTab({
   householdId,
-  userId,
   householdLoading,
-  postImportId,
-  reconciledCommitments = 0,
-  onPostImportHandled,
   onScroll,
 }: {
   householdId: string | null;
-  userId: string | null;
   householdLoading: boolean;
-  cycleDate?: string;
-  onCycleDateChange: (cycleDate: string) => void;
-  postImportId?: string;
-  reconciledCommitments?: number;
-  onPostImportHandled: () => void;
   onScroll?: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
 }) {
   const insets = useSafeAreaInsets();
@@ -90,12 +71,10 @@ export function SummaryTab({
   const [observedReferenceDate, setObservedReferenceDate] = useState<string | null>(null);
   const [coverageStart, setCoverageStart] = useState<string | null>(null);
   const [knownCategoryIds, setKnownCategoryIds] = useState<ReadonlySet<string>>(new Set());
-  const [overview, setOverview] = useState<FinancialOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [cashPosition, setCashPosition] = useState<FinancialKnownCashPosition | null>(null);
   const [cashStatus, setCashStatus] = useState<"loading" | "ready" | "error">("loading");
-  const [setupGuideDismissed, setSetupGuideDismissed] = useState(false);
   const loadTokenRef = useRef(0);
   const cashTokenRef = useRef(0);
   const rangeRef = useRef(range);
@@ -180,27 +159,11 @@ export function SummaryTab({
     }
   }, [householdId]);
 
-  const loadPlanning = useCallback(async () => {
-    if (!householdId || !userId) {
-      setOverview(null);
-      return;
-    }
-    try {
-      const settings = await getFinancialSettings(householdId);
-      const cycle = getCycleForOffset(settings, 0, new Date());
-      const nextOverview = await getFinancialOverview({ householdId, userId, cycle });
-      setOverview(nextOverview);
-    } catch {
-      setOverview(null);
-    }
-  }, [householdId, userId]);
-
   useFocusEffect(
     useCallback(() => {
       void loadObserved("focus");
       void loadKnownCash();
-      void loadPlanning();
-    }, [loadKnownCash, loadObserved, loadPlanning])
+    }, [loadKnownCash, loadObserved])
   );
 
   useEffect(() => {
@@ -215,15 +178,6 @@ export function SummaryTab({
     }
     void loadObserved("range");
   }, [coverageStart, loadObserved, observedReferenceDate, range]);
-
-  useEffect(() => {
-    setSetupGuideDismissed(false);
-  }, [postImportId]);
-
-  const pendingCommitments = useMemo(
-    () => sortPendingCommitments(overview?.commitments ?? []),
-    [overview]
-  );
 
   const history = useMemo(() => {
     if (!observedReferenceDate || !coverageStart) return null;
@@ -250,38 +204,6 @@ export function SummaryTab({
     : [];
 
   const busy = loading || householdLoading;
-  const showPlanningGuide = Boolean(postImportId && !setupGuideDismissed);
-  const needsPlanningFlow = Boolean(overview && overview.settings.updated_by === null);
-
-  const openCommitmentPayment = useCallback(
-    (commitment: FinancialOverviewCommitment) => {
-      if (!overview) return;
-      router.push({
-        pathname: "/(app)/link-commitment",
-        params: commitmentPaymentParams(overview, commitment),
-      });
-    },
-    [overview]
-  );
-
-  const finishPostImportGuide = useCallback(() => {
-    setSetupGuideDismissed(true);
-    onPostImportHandled();
-  }, [onPostImportHandled]);
-
-  const continuePostImportGuide = useCallback(() => {
-    if (needsPlanningFlow) {
-      setSetupGuideDismissed(true);
-      router.push({ pathname: "/(app)/financial-plan", params: { guided: "1" } });
-      return;
-    }
-    const nextCommitment = pendingCommitments[0];
-    if (nextCommitment) {
-      openCommitmentPayment(nextCommitment);
-      return;
-    }
-    finishPostImportGuide();
-  }, [finishPostImportGuide, needsPlanningFlow, openCommitmentPayment, pendingCommitments]);
 
   return (
     <Animated.ScrollView
@@ -316,7 +238,6 @@ export function SummaryTab({
             <ObservedMonthHero
               presentation={hero}
               onAddMovement={() => router.push("/(app)/new-transaction")}
-              onImportStatement={() => router.push("/(app)/import-csv")}
             />
           ) : historyPeriod ? (
             <ObservedHistoryHero presentation={historyPeriod} />
@@ -339,26 +260,6 @@ export function SummaryTab({
             </>
           ) : history?.dataQuality.hasAnyData ? (
             <ObservedMonthSeries rows={historyRows} gapNote={historyGapNote} />
-          ) : null}
-
-          {showPlanningGuide ? (
-            <View style={styles.guideCard}>
-              <Text style={styles.guideTitle}>Extrato importado</Text>
-              <Text style={styles.guideText}>Suas entradas e gastos já aparecem no resumo.</Text>
-              {reconciledCommitments > 0 ? (
-                <Text style={styles.guideNote}>
-                  {reconciledCommitments} {reconciledCommitments === 1 ? "conta reconhecida" : "contas reconhecidas"} automaticamente.
-                </Text>
-              ) : null}
-              <Pressable onPress={continuePostImportGuide} style={styles.primaryButton}>
-                <Text style={styles.primaryButtonText}>
-                  {needsPlanningFlow ? "Preparar meu planejamento" : pendingCommitments.length ? "Registrar próximo pagamento" : "Ok, entendi"}
-                </Text>
-              </Pressable>
-              <Pressable onPress={finishPostImportGuide} style={styles.secondaryButton}>
-                <Text style={styles.secondaryButtonText}>Agora não</Text>
-              </Pressable>
-            </View>
           ) : null}
         </>
       ) : !householdId && !householdLoading ? (
@@ -411,35 +312,6 @@ const styles = StyleSheet.create({
     backgroundColor: OB.primary,
   },
   errorButtonText: { color: "#fff", fontSize: 13, fontWeight: "800" },
-  guideCard: {
-    borderRadius: 22,
-    padding: 18,
-    gap: 10,
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: OB.supportSoft,
-  },
-  guideTitle: { color: OB.primary, fontSize: 20, fontWeight: "900" },
-  guideText: { color: OB.support, fontSize: 14, fontWeight: "700", lineHeight: 20 },
-  guideNote: { color: "#168A59", fontSize: 13, fontWeight: "800" },
-  primaryButton: {
-    minHeight: 48,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: OB.primary,
-  },
-  primaryButtonText: { color: "#fff", fontSize: 14, fontWeight: "900" },
-  secondaryButton: {
-    minHeight: 44,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: OB.supportSoft,
-  },
-  secondaryButtonText: { color: OB.primary, fontSize: 13, fontWeight: "800" },
   emptyText: {
     color: OB.support,
     fontSize: 14,

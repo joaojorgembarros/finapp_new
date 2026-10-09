@@ -10,11 +10,9 @@ import { OB } from "../../ui/OnboardingKit";
 export function ObservedMonthHero({
   presentation,
   onAddMovement,
-  onImportStatement,
 }: {
   presentation: ObservedMonthHeroPresentation;
   onAddMovement: () => void;
-  onImportStatement: () => void;
 }) {
   if (presentation.kind === "empty") {
     return (
@@ -31,12 +29,6 @@ export function ObservedMonthHero({
             style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
           >
             <Text style={styles.primaryButtonText}>{OBSERVED_SUMMARY_COPY.addMovement}</Text>
-          </Pressable>
-          <Pressable
-            onPress={onImportStatement}
-            style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
-          >
-            <Text style={styles.secondaryButtonText}>{OBSERVED_SUMMARY_COPY.importStatement}</Text>
           </Pressable>
         </View>
       </View>
@@ -158,19 +150,6 @@ const styles = StyleSheet.create({
     color: OB.primary,
     fontSize: 13,
     fontWeight: "900",
-  },
-  secondaryButton: {
-    minHeight: 44,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.22)",
-  },
-  secondaryButtonText: {
-    color: "#fff",
-    fontSize: 13,
-    fontWeight: "800",
   },
   pressed: { opacity: 0.82 },
 });
