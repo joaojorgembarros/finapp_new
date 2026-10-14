@@ -1,0 +1,138 @@
+name: iPad 13 Screenshot
+
+on:
+  push:
+    branches:
+      - ci/ipad-screenshot
+    paths:
+      - ".github/workflows/ipad-screenshot.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  screenshot:
+    name: Capture Sonho+ on iPad 13 simulator
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+
+    steps:
+      - name: Checkout validated release
+        uses: actions/checkout@v4
+        with:
+          ref: v1.0.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate public app environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$EXPO_PUBLIC_SUPABASE_URL"
+          test -n "$EXPO_PUBLIC_SUPABASE_ANON_KEY"
+          if [ "$EXPO_PUBLIC_SUPABASE_URL" != "https://nyqiafcgusfynxmocmsz.supabase.co" ]; then
+            echo "Unexpected Supabase URL."
+            exit 1
+          fi
+          echo "App environment validated."
+
+      - name: Generate iOS project
+        run: npx expo prebuild --platform ios --clean --no-install
+
+      - name: Install CocoaPods
+        shell: bash
+        run: |
+          set -euo pipefail
+          pod --version
+          cd ios
+          pod install
+
+      - name: Select iPad 13 simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >> "$GITHUB_ENV"
+          import json, subprocess, sys
+
+          data = json.loads(subprocess.check_output(
+              ["xcrun", "simctl", "list", "devices", "available", "-j"],
+              text=True,
+          ))
+
+          preferred = []
+          fallback = []
+          for runtime, devices in data.get("devices", {}).items():
+              for device in devices:
+                  name = device.get("name", "")
+                  if "iPad" not in name:
+                      continue
+                  item = (runtime, name, device["udid"])
+                  if "13-inch" in name or "13 inch" in name:
+                      preferred.append(item)
+                  elif "12.9-inch" in name or "12.9 inch" in name:
+                      fallback.append(item)
+
+          candidates = preferred or fallback
+          if not candidates:
+              print("No iPad 13-inch or 12.9-inch simulator is available.", file=sys.stderr)
+              print(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available"], text=True), file=sys.stderr)
+              sys.exit(1)
+
+          runtime, name, udid = candidates[-1]
+          print(f"SIM_UDID={udid}")
+          print(f"SIM_NAME={name}")
+          print(f"SIM_RUNTIME={runtime}")
+          PY
+          echo "Selected: $SIM_NAME ($SIM_UDID) on $SIM_RUNTIME"
+
+      - name: Boot simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun simctl boot "$SIM_UDID" || true
+          xcrun simctl bootstatus "$SIM_UDID" -b
+
+      - name: Build and install Sonho+ on simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx expo run:ios \
+            --device "$SIM_UDID" \
+            --configuration Release \
+            --no-bundler
+
+      - name: Launch app and wait for UI
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun simctl launch "$SIM_UDID" com.joaojorgembarros.finapp || true
+          sleep 12
+
+      - name: Capture iPad screenshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$GITHUB_WORKSPACE/sonho-plus-ipad-13.png"
+          xcrun simctl io "$SIM_UDID" screenshot "$OUT"
+          test -s "$OUT"
+          sips -g pixelWidth -g pixelHeight "$OUT"
+          file "$OUT"
+
+      - name: Upload screenshot artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonho-plus-ipad-13-screenshot
+          path: sonho-plus-ipad-13.png
+          if-no-files-found: error
+          retention-days: 7
