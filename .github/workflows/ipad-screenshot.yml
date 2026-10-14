@@ -94,7 +94,7 @@ jobs:
           print(f"SIM_NAME={name}")
           print(f"SIM_RUNTIME={runtime}")
           PY
-          echo "Selected: $SIM_NAME ($SIM_UDID) on $SIM_RUNTIME"
+          echo "Simulator selection saved for the next step."
 
       - name: Boot simulator
         shell: bash
